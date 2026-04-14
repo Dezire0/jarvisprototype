@@ -1,0 +1,31 @@
+[project]
+name = "friday-jarvis-prototype"
+version = "0.1.0"
+description = "Friday-structured voice agent and MCP server with a Jarvis desktop shell"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp",
+    "httpx",
+    "livekit-agents[deepgram,groq,openai,sarvam,silero]>=1.5.1",
+    "livekit-plugins-google>=1.5.1",
+    "python-dotenv",
+    "playwright",
+    "pytesseract",
+    "pillow",
+    "obs-websocket-py",
+    "keyring",
+]
+
+[project.scripts]
+friday = "server:main"
+friday_voice = "agent_friday:dev"
+jarvis = "jarvis_server:main"
+jarvis_voice = "jarvis_agent:dev"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["friday"]

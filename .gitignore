@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+.codex_venv/
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node.js (legacy)
+node_modules
+
+# Temporary files
+tmp/
+temp/
+tmp-browser-profile
+tmp-screen-test
+tmp-jarvis-check.txt
+.tmp-browser-smoke/
+.tmp-browser-test/
+.codex_video_frames/
+
+# Local secrets and media
+secret
+ScreenRecording_*.mov
+
+# Reference bundle artifacts
+friday-tony-stark-demo-main/friday-tony-stark-demo-main/
+friday-tony-stark-demo-main/*.zip
+
+# Logs
+*.log

@@ -1,0 +1,21 @@
+{
+  "name": "jarvis-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/main/main.cjs",
+  "scripts": {
+    "start": "node scripts/start-electron.cjs",
+    "dev": "node scripts/start-electron.cjs",
+    "check": "node --check src/main/main.cjs && node --check src/main/assistant-service.cjs && node --check src/main/platform-adapters.cjs && node --check src/main/ollama-service.cjs && node --check src/main/tts-service.cjs && node --check src/main/credential-store.cjs && node --check src/main/settings-store.cjs && node --check src/main/screen-service.cjs && node --check src/main/browser-service.cjs && node --check src/main/obs-service.cjs && node --check src/main/file-service.cjs && node --check src/renderer/renderer.js && node --check src/renderer/popup.js",
+    "install:browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "@google-cloud/text-to-speech": "^6.4.0",
+    "electron": "^36.2.1",
+    "google-auth-library": "^10.6.2",
+    "obs-websocket-js": "^5.0.8",
+    "playwright": "^1.59.1",
+    "screenshot-desktop": "^1.15.3",
+    "tesseract.js": "^7.0.0"
+  }
+}
