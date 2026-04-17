@@ -4,6 +4,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   getBootstrap() {
     return ipcRenderer.invoke("assistant:get-bootstrap");
   },
+  getAppState() {
+    return ipcRenderer.invoke("assistant:get-app-state");
+  },
   submitCommand(input) {
     return ipcRenderer.invoke("assistant:submit-command", input);
   },
@@ -34,6 +37,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   saveTtsSettings(payload = {}) {
     return ipcRenderer.invoke("assistant:save-tts-settings", payload);
   },
+  checkForUpdates() {
+    return ipcRenderer.invoke("assistant:check-for-updates");
+  },
   invokeTool(tool, payload = {}) {
     return ipcRenderer.invoke("assistant:invoke-tool", {
       tool,
@@ -42,5 +48,8 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   },
   onWakeState(callback) {
     ipcRenderer.on("assistant:wake-state", (_event, payload) => callback(payload));
+  },
+  onUpdateStatus(callback) {
+    ipcRenderer.on("assistant:update-status", (_event, payload) => callback(payload));
   }
 });

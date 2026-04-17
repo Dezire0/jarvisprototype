@@ -1,7 +1,12 @@
 const orb = document.getElementById("orb");
+const newThreadButton = document.getElementById("newThreadButton");
+const threadList = document.getElementById("threadList");
+const threadHeading = document.getElementById("threadHeading");
+const threadSubtitle = document.getElementById("threadSubtitle");
 const statusGrid = document.getElementById("statusGrid");
 const messages = document.getElementById("messages");
 const actionChips = document.getElementById("actionChips");
+const openQuickPanelButton = document.getElementById("openQuickPanelButton");
 const commandForm = document.getElementById("commandForm");
 const commandInput = document.getElementById("commandInput");
 const submitButton = document.getElementById("submitButton");
@@ -75,7 +80,7 @@ const appSearchButton = document.getElementById("appSearchButton");
 const appEnterButton = document.getElementById("appEnterButton");
 const appNewItemButton = document.getElementById("appNewItemButton");
 const appMenuButton = document.getElementById("appMenuButton");
-const missionButtons = Array.from(document.querySelectorAll(".mission-button"));
+const missionButtons = Array.from(document.querySelectorAll(".mission-button:not(.chip-button)"));
 const chipButtons = Array.from(document.querySelectorAll(".chip-button"));
 
 const state = {
@@ -88,12 +93,16 @@ const state = {
   voicesLoaded: false,
   currentAudio: null,
   appCatalog: [],
-  appCatalogTotalCount: 0
+  appCatalogTotalCount: 0,
+  threads: [],
+  currentThreadId: "",
+  lastActions: []
 };
 
 const VOICE_STORAGE_KEY = "jarvis-selected-voice";
 const LANGUAGE_STORAGE_KEY = "jarvis-speech-language";
 const SPEAK_REPLIES_KEY = "jarvis-speak-replies";
+const THREAD_STORAGE_KEY = "jarvis-thread-state-v2";
 
 function escapeHtml(text = "") {
   return text
@@ -104,23 +113,220 @@ function escapeHtml(text = "") {
     .replaceAll("'", "&#39;");
 }
 
-function addMessage(role, content, detail = "") {
-  const article = document.createElement("article");
-  article.className = `message ${role}`;
+function createThreadRecord(title = "New Chat") {
+  const now = Date.now();
+  return {
+    id: `thread-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    messages: [],
+    updatedAt: now
+  };
+}
 
-  const paragraphs = [`<p>${escapeHtml(content)}</p>`];
-
-  if (detail) {
-    paragraphs.push(`<pre>${escapeHtml(detail)}</pre>`);
+function sanitizeStoredThreads(rawThreads = []) {
+  if (!Array.isArray(rawThreads) || !rawThreads.length) {
+    return [createThreadRecord()];
   }
 
-  article.innerHTML = `
-    <span class="label">${role === "assistant" ? "자비스" : "사용자"}</span>
-    ${paragraphs.join("")}
+  const threads = rawThreads
+    .filter((thread) => thread && typeof thread === "object")
+    .map((thread) => ({
+      id: String(thread.id || createThreadRecord().id),
+      title: String(thread.title || "New Chat"),
+      updatedAt: Number(thread.updatedAt) || Date.now(),
+      messages: Array.isArray(thread.messages)
+        ? thread.messages
+            .filter((message) => message && typeof message === "object")
+            .map((message) => ({
+              id: String(message.id || `message-${Date.now()}`),
+              role: message.role === "user" ? "user" : "assistant",
+              content: String(message.content || ""),
+              detail: String(message.detail || ""),
+              createdAt: Number(message.createdAt) || Date.now()
+            }))
+        : []
+    }))
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+
+  return threads.length ? threads : [createThreadRecord()];
+}
+
+function saveThreadState() {
+  localStorage.setItem(
+    THREAD_STORAGE_KEY,
+    JSON.stringify({
+      currentThreadId: state.currentThreadId,
+      threads: state.threads
+    })
+  );
+}
+
+function loadThreadState() {
+  try {
+    const raw = localStorage.getItem(THREAD_STORAGE_KEY);
+
+    if (!raw) {
+      state.threads = [createThreadRecord()];
+      state.currentThreadId = state.threads[0].id;
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+    state.threads = sanitizeStoredThreads(parsed.threads);
+    state.currentThreadId =
+      state.threads.find((thread) => thread.id === parsed.currentThreadId)?.id || state.threads[0].id;
+  } catch (_error) {
+    state.threads = [createThreadRecord()];
+    state.currentThreadId = state.threads[0].id;
+  }
+}
+
+function getCurrentThread() {
+  let current = state.threads.find((thread) => thread.id === state.currentThreadId);
+
+  if (!current) {
+    current = state.threads[0] || createThreadRecord();
+
+    if (!state.threads.length) {
+      state.threads = [current];
+    }
+
+    state.currentThreadId = current.id;
+  }
+
+  return current;
+}
+
+function buildThreadTitle(text = "") {
+  const compact = String(text).trim().replace(/\s+/g, " ");
+  return compact ? compact.slice(0, 40) : "New Chat";
+}
+
+function moveCurrentThreadToTop() {
+  const current = getCurrentThread();
+  state.threads = [current, ...state.threads.filter((thread) => thread.id !== current.id)];
+}
+
+function renderThreadList() {
+  if (!threadList) {
+    return;
+  }
+
+  threadList.innerHTML = "";
+
+  state.threads.forEach((thread) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `thread-list-item ${thread.id === state.currentThreadId ? "active" : ""}`;
+    const lastMessage = thread.messages[thread.messages.length - 1];
+    item.innerHTML = `
+      <span class="thread-list-title">${escapeHtml(thread.title || "New Chat")}</span>
+      <span class="thread-list-preview">${escapeHtml(lastMessage?.content || "Start a new conversation")}</span>
+    `;
+    item.addEventListener("click", () => {
+      state.currentThreadId = thread.id;
+      renderThreadList();
+      renderCurrentThread();
+      saveThreadState();
+    });
+    threadList.appendChild(item);
+  });
+}
+
+function renderWelcomeThread() {
+  messages.innerHTML = `
+    <section class="welcome-panel">
+      <div class="orb" aria-hidden="true"></div>
+      <h2 class="welcome-title">Hello there!</h2>
+      <p class="welcome-subtitle">자비스와 자연스럽게 대화하세요. 답변, 추천, 앱 제어, 브라우저 작업을 한 흐름 안에서 이어갈 수 있습니다.</p>
+      <div class="welcome-suggestions">
+        <button type="button" class="suggestion-card" data-prompt="오늘 해야 할 일 우선순위 정리해줘">
+          <span class="suggestion-title">오늘 우선순위 정리</span>
+          <span class="suggestion-label">지금 해야 할 일을 짧게 정리받기</span>
+        </button>
+        <button type="button" class="suggestion-card" data-prompt="크롬 켜고 Gmail 열어줘">
+          <span class="suggestion-title">브라우저 작업 시작</span>
+          <span class="suggestion-label">앱 열기와 사이트 진입을 바로 시작</span>
+        </button>
+        <button type="button" class="suggestion-card" data-prompt="지금 화면에서 중요한 것만 설명해줘">
+          <span class="suggestion-title">현재 화면 브리핑</span>
+          <span class="suggestion-label">화면 읽기와 요약 흐름 시작</span>
+        </button>
+        <button type="button" class="suggestion-card" data-prompt="설치된 앱 목록 보여줘">
+          <span class="suggestion-title">앱 자동화 준비</span>
+          <span class="suggestion-label">설치 앱과 제어 가능한 범위 확인</span>
+        </button>
+      </div>
+    </section>
   `;
 
-  messages.appendChild(article);
+  messages.querySelectorAll("[data-prompt]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const prompt = button.getAttribute("data-prompt") || "";
+      await runPresetCommand(prompt);
+    });
+  });
+}
+
+function renderCurrentThread() {
+  const thread = getCurrentThread();
+  const userMessages = thread.messages.filter((message) => message.role === "user").length;
+
+  if (threadHeading) {
+    threadHeading.textContent = thread.title || "New Chat";
+  }
+
+  if (threadSubtitle) {
+    threadSubtitle.textContent = userMessages
+      ? `메시지 ${thread.messages.length}개 · 가장 최근에 이어진 작업 스레드입니다.`
+      : "새 스레드에서 자비스와 대화를 시작해 보세요.";
+  }
+
+  messages.innerHTML = "";
+
+  if (!thread.messages.length) {
+    renderWelcomeThread();
+    return;
+  }
+
+  thread.messages.forEach((message) => {
+    const article = document.createElement("article");
+    article.className = `message ${message.role}`;
+    const detailBlock = message.detail ? `<pre>${escapeHtml(message.detail)}</pre>` : "";
+    article.innerHTML = `
+      <span class="label">${message.role === "assistant" ? "Jarvis" : "You"}</span>
+      <div class="message-body">
+        <p>${escapeHtml(message.content)}</p>
+        ${detailBlock}
+      </div>
+    `;
+    messages.appendChild(article);
+  });
+
   messages.scrollTop = messages.scrollHeight;
+}
+
+function addMessage(role, content, detail = "") {
+  const thread = getCurrentThread();
+  const isFirstUserMessage = role === "user" && !thread.messages.some((message) => message.role === "user");
+
+  thread.messages.push({
+    id: `message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    role,
+    content,
+    detail,
+    createdAt: Date.now()
+  });
+  thread.updatedAt = Date.now();
+
+  if (isFirstUserMessage) {
+    thread.title = buildThreadTitle(content);
+  }
+
+  moveCurrentThreadToTop();
+  renderThreadList();
+  renderCurrentThread();
+  saveThreadState();
 }
 
 function setWakeState(status) {
@@ -776,6 +982,22 @@ missionButtons.forEach((button) => {
   });
 });
 
+newThreadButton?.addEventListener("click", () => {
+  const thread = createThreadRecord();
+  state.threads = [thread, ...state.threads];
+  state.currentThreadId = thread.id;
+  renderThreadList();
+  renderCurrentThread();
+  saveThreadState();
+  commandInput.focus();
+});
+
+openQuickPanelButton?.addEventListener("click", async () => {
+  await window.assistantAPI.showPopup({
+    status: "idle"
+  });
+});
+
 wakeToggle.addEventListener("click", () => {
   if (state.wakeEnabled) {
     stopWakeRecognition();
@@ -1057,6 +1279,10 @@ async function bootstrap() {
   const storedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
   const storedSpeakReplies = localStorage.getItem(SPEAK_REPLIES_KEY);
 
+  loadThreadState();
+  renderThreadList();
+  renderCurrentThread();
+
   if (storedLanguage) {
     speechLanguage.value = storedLanguage;
   }
@@ -1075,6 +1301,7 @@ async function bootstrap() {
     ["로그인 보관", data.capabilities.credentialHandling],
     ["OCR / OBS", `${data.capabilities.screenOcr} / ${data.capabilities.obsControl}`]
   ]);
+  renderActions([]);
 
   refreshCredentialList();
   refreshAppCatalog();

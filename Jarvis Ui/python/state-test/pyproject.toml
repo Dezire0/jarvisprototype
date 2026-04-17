@@ -1,0 +1,14 @@
+[project]
+name = "state-test"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Simon Farshid",email = "simon.farshid@outlook.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

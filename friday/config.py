@@ -3,9 +3,18 @@ Configuration — load environment variables and app-wide settings.
 """
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_project_env() -> None:
+    load_dotenv(ROOT / ".env")
+    load_dotenv(ROOT / ".env.local", override=True)
+
+
+load_project_env()
 
 
 class Config:

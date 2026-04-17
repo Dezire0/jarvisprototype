@@ -1,0 +1,174 @@
+"use client";
+
+import { toLanguageModelMessages } from "./converters/toLanguageModelMessages";
+import type {
+  AssistantRuntime,
+  ChatModelAdapter,
+  ChatModelRunOptions,
+  ThreadMessage,
+} from "@assistant-ui/core";
+import {
+  useLocalRuntime,
+  splitLocalRuntimeOptions,
+  type LocalRuntimeOptions,
+} from "@assistant-ui/core/react";
+import {
+  AssistantMessageAccumulator,
+  DataStreamDecoder,
+  toToolsJSONSchema,
+  UIMessageStreamDecoder,
+  unstable_toolResultStream,
+} from "assistant-stream";
+import { asAsyncIterableStream } from "assistant-stream/utils";
+
+type HeadersValue = Record<string, string> | Headers;
+
+export type DataStreamProtocol = "ui-message-stream" | "data-stream";
+
+export type UseDataStreamRuntimeOptions = {
+  api: string;
+  /** Defaults to "ui-message-stream". Use "data-stream" for legacy AI SDK. */
+  protocol?: DataStreamProtocol;
+  /** Callback for data-* parts (ui-message-stream only). */
+  onData?: (data: {
+    type: string;
+    name: string;
+    data: unknown;
+    transient?: boolean;
+  }) => void;
+  onResponse?: (response: Response) => void | Promise<void>;
+  onFinish?: (message: ThreadMessage) => void;
+  onError?: (error: Error) => void;
+  onCancel?: () => void;
+  credentials?: RequestCredentials;
+  headers?: HeadersValue | (() => Promise<HeadersValue>);
+  body?: object | (() => Promise<object | undefined>);
+  sendExtraMessageFields?: boolean;
+} & LocalRuntimeOptions;
+
+type DataStreamRuntimeRequestOptions = {
+  messages: any[];
+  tools: any;
+  system?: string | undefined;
+  runConfig?: any;
+  unstable_assistantMessageId?: string;
+  threadId?: string;
+  parentId?: string | null;
+  state?: any;
+};
+
+class DataStreamRuntimeAdapter implements ChatModelAdapter {
+  constructor(
+    private options: Omit<
+      UseDataStreamRuntimeOptions,
+      keyof LocalRuntimeOptions
+    >,
+  ) {}
+
+  async *run({
+    messages,
+    runConfig,
+    abortSignal,
+    context,
+    unstable_assistantMessageId,
+    unstable_threadId,
+    unstable_parentId,
+    unstable_getMessage,
+  }: ChatModelRunOptions) {
+    const headersValue =
+      typeof this.options.headers === "function"
+        ? await this.options.headers()
+        : this.options.headers;
+
+    const bodyValue =
+      typeof this.options.body === "function"
+        ? await this.options.body()
+        : this.options.body;
+
+    abortSignal.addEventListener(
+      "abort",
+      () => {
+        if (!abortSignal.reason?.detach) this.options.onCancel?.();
+      },
+      { once: true },
+    );
+
+    const headers = new Headers(headersValue);
+    headers.set("Content-Type", "application/json");
+
+    const result = await fetch(this.options.api, {
+      method: "POST",
+      headers,
+      credentials: this.options.credentials ?? "same-origin",
+      body: JSON.stringify({
+        system: context.system,
+        messages: toLanguageModelMessages(messages, {
+          unstable_includeId: this.options.sendExtraMessageFields,
+        }) as DataStreamRuntimeRequestOptions["messages"],
+        tools: toToolsJSONSchema(
+          context.tools ?? {},
+        ) as unknown as DataStreamRuntimeRequestOptions["tools"],
+        ...(unstable_assistantMessageId ? { unstable_assistantMessageId } : {}),
+        ...(unstable_threadId ? { threadId: unstable_threadId } : {}),
+        ...(unstable_parentId !== undefined
+          ? { parentId: unstable_parentId }
+          : {}),
+        runConfig,
+        state: unstable_getMessage().metadata.unstable_state || undefined,
+        ...context.callSettings,
+        ...context.config,
+        ...(bodyValue ?? {}),
+      } satisfies DataStreamRuntimeRequestOptions),
+      signal: abortSignal,
+    });
+
+    await this.options.onResponse?.(result);
+
+    try {
+      if (!result.ok) {
+        throw new Error(`Status ${result.status}: ${await result.text()}`);
+      }
+      if (!result.body) {
+        throw new Error("Response body is null");
+      }
+
+      const protocol = this.options.protocol ?? "ui-message-stream";
+      const decoder =
+        protocol === "ui-message-stream"
+          ? new UIMessageStreamDecoder(
+              this.options.onData ? { onData: this.options.onData } : {},
+            )
+          : new DataStreamDecoder();
+
+      const stream = result.body
+        .pipeThrough(decoder)
+        .pipeThrough(
+          unstable_toolResultStream(context.tools, abortSignal, () => {
+            throw new Error(
+              "Tool interrupt is not supported in data stream runtime",
+            );
+          }),
+        )
+        .pipeThrough(new AssistantMessageAccumulator());
+
+      yield* asAsyncIterableStream(stream);
+
+      this.options.onFinish?.(unstable_getMessage());
+    } catch (error: unknown) {
+      this.options.onError?.(error as Error);
+      throw error;
+    }
+  }
+}
+
+export const useDataStreamRuntime = (
+  options: UseDataStreamRuntimeOptions,
+): AssistantRuntime => {
+  const { localRuntimeOptions, otherOptions } =
+    splitLocalRuntimeOptions(options);
+
+  return useLocalRuntime(
+    new DataStreamRuntimeAdapter(otherOptions),
+    localRuntimeOptions,
+  );
+};

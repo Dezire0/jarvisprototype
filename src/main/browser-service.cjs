@@ -459,6 +459,26 @@ class BrowserService {
     };
   }
 
+  async peekStatus() {
+    const pageActive = Boolean(this.page && !this.page.isClosed());
+    let currentPage = null;
+
+    if (pageActive) {
+      currentPage = {
+        url: this.page.url(),
+        title: await this.page.title().catch(() => "")
+      };
+    }
+
+    return {
+      provider: this.getProviderLabel(),
+      contextActive: Boolean(this.context),
+      pageActive,
+      currentPage,
+      ...this.launchProfile
+    };
+  }
+
   async snapshotPage(page) {
     return {
       url: page.url(),
@@ -597,6 +617,27 @@ class BrowserService {
     };
   }
 
+  async searchCurrentSite(query) {
+    const page = await this.getPage();
+    const selector = await this.focusAndFillSearch(page, query);
+
+    if (!selector) {
+      throw new Error("I could not find a visible search box on the current page.");
+    }
+
+    await page.keyboard.press("Enter");
+    await Promise.race([
+      page.waitForLoadState("networkidle", { timeout: 5000 }),
+      page.waitForLoadState("domcontentloaded", { timeout: 5000 })
+    ]).catch(() => {});
+
+    return {
+      ...(await this.snapshotPage(page)),
+      searchEngine: "current-site",
+      query
+    };
+  }
+
   async clickLinkText(text) {
     const page = await this.getPage();
     const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -676,6 +717,10 @@ class BrowserService {
         data = await this.searchGoogle(step.query);
       } else if (step.action === "search_youtube") {
         data = await this.searchYouTube(step.query);
+      } else if (step.action === "site_search") {
+        data = await this.searchCurrentSite(step.query);
+      } else if (step.action === "login_saved") {
+        data = await this.loginWithStoredCredential(step.target || step.siteOrUrl);
       } else if (step.action === "click_text") {
         data = await this.clickLinkText(step.text);
       } else if (step.action === "click_search_result") {

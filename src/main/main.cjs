@@ -1,20 +1,28 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, session } = require("electron");
+const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage } = require("electron");
 const { AssistantService } = require("./assistant-service.cjs");
+const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
 const { BrowserService } = require("./browser-service.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
+const { DesktopUiServer } = require("./desktop-ui-server.cjs");
 const { FileService } = require("./file-service.cjs");
+const { getTierProviderLabel } = require("./ollama-service.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
 const { createAutomationAdapter } = require("./platform-adapters.cjs");
 const { SettingsStore } = require("./settings-store.cjs");
 const { TtsService } = require("./tts-service.cjs");
+const { UpdaterService } = require("./updater-service.cjs");
 
 let popupWindow;
 let settingsWindow;
 let services;
 let assistant;
+let assistantTransportServer;
+let desktopUiServer;
+let desktopUiUrl = String(process.env.JARVIS_UI_URL || "").trim();
+let updaterService;
 let popupStateCache = null;
 let popupDragState = null;
 
@@ -30,7 +38,7 @@ function ensureReadyServices() {
 }
 
 async function createServices() {
-  const credentials = new CredentialStore({ app });
+  const credentials = new CredentialStore({ app, safeStorage });
   const settings = new SettingsStore({ app });
   await settings.load();
   const browser = new BrowserService({
@@ -66,8 +74,110 @@ async function createServices() {
     credentials,
     files,
     obs,
-    screen: screenService
+    screen: screenService,
+    tts
   });
+
+  assistantTransportServer = createAssistantTransportServer({
+    createAssistantForThread() {
+      return new AssistantService({
+        automation,
+        browser,
+        credentials,
+        files,
+        obs,
+        screen: screenService,
+        tts
+      });
+    }
+  });
+
+  await assistantTransportServer.start();
+}
+
+async function ensureDesktopUiServer() {
+  if (!desktopUiServer) {
+    desktopUiServer = new DesktopUiServer({ app });
+  }
+
+  try {
+    desktopUiUrl = await desktopUiServer.start();
+  } catch (error) {
+    console.error("Could not start bundled desktop UI server:", error);
+    desktopUiUrl = String(process.env.JARVIS_UI_URL || "").trim();
+  }
+
+  return desktopUiUrl;
+}
+
+function getDesktopUiUrl() {
+  return desktopUiUrl || String(process.env.JARVIS_UI_URL || "").trim();
+}
+
+function buildApplicationMenu() {
+  const updateMenuItem = {
+    label: "Check for Updates...",
+    click: () => updaterService?.checkForUpdates("manual")
+  };
+  const template = [];
+
+  if (process.platform === "darwin") {
+    template.push({
+      label: app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        updateMenuItem,
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" }
+      ]
+    });
+  } else {
+    template.push({
+      label: "File",
+      submenu: [
+        updateMenuItem,
+        { type: "separator" },
+        { role: "quit" }
+      ]
+    });
+  }
+
+  template.push({
+    label: "Window",
+    submenu: [
+      {
+        label: "Open Jarvis Desktop",
+        click: () => openSettingsWindow()
+      },
+      {
+        label: "Show Quick Panel",
+        click: () => showPopup("listening")
+      },
+      { type: "separator" },
+      { role: "minimize" },
+      { role: "close" }
+    ]
+  });
+
+  template.push({
+    label: "Help",
+    submenu: [
+      {
+        label: `Version ${app.getVersion()}`,
+        enabled: false
+      },
+      updateMenuItem
+    ]
+  });
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function getPopupStatePath() {
@@ -185,14 +295,14 @@ async function createPopupWindow() {
 
 function createSettingsWindow() {
   settingsWindow = new BrowserWindow({
-    width: 980,
-    height: 860,
-    minWidth: 860,
-    minHeight: 760,
+    width: 1480,
+    height: 960,
+    minWidth: 1180,
+    minHeight: 780,
     show: false,
-    backgroundColor: "#0b0b0b",
+    backgroundColor: "#07131a",
     autoHideMenuBar: true,
-    title: "자비스 고급 설정",
+    title: "Jarvis Desktop",
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,
@@ -200,7 +310,16 @@ function createSettingsWindow() {
     }
   });
 
-  settingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+  const desktopUrl = getDesktopUiUrl();
+
+  if (desktopUrl) {
+    settingsWindow.loadURL(desktopUrl).catch(() => {
+      settingsWindow?.loadFile(path.join(__dirname, "../renderer/index.html"));
+    });
+  } else {
+    settingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+  }
+
   settingsWindow.on("closed", () => {
     settingsWindow = null;
   });
@@ -467,23 +586,41 @@ app.whenReady().then(async () => {
   });
 
   await createServices();
+  await ensureDesktopUiServer();
+  updaterService = new UpdaterService({ app });
+  await updaterService.init();
+  buildApplicationMenu();
   await createPopupWindow();
+  createSettingsWindow();
+  openSettingsWindow();
   globalShortcut.register("CommandOrControl+Shift+Space", () => {
     showPopup("listening");
   });
   globalShortcut.register("CommandOrControl+,", openSettingsWindow);
 
   app.on("activate", async () => {
-    if (!popupWindow) {
-      await createPopupWindow();
+    if (!settingsWindow) {
+      createSettingsWindow();
     }
 
-    showPopup("idle");
+    openSettingsWindow();
   });
+
+  setTimeout(() => {
+    updaterService?.checkForUpdates("startup").catch(() => {});
+  }, 15_000);
 });
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
+
+  if (assistantTransportServer) {
+    assistantTransportServer.stop().catch(() => {});
+  }
+
+  if (desktopUiServer) {
+    desktopUiServer.stop().catch(() => {});
+  }
 });
 
 ipcMain.handle("assistant:submit-command", async (_event, input) => {
@@ -552,6 +689,19 @@ ipcMain.handle("assistant:invoke-tool", async (_event, request) => {
   return dispatchTool(request.tool, request.payload);
 });
 
+ipcMain.handle("assistant:get-app-state", async () => {
+  return {
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    desktopUiUrl: getDesktopUiUrl(),
+    updater: updaterService ? updaterService.getStatus() : null
+  };
+});
+
+ipcMain.handle("assistant:check-for-updates", async () => {
+  return updaterService ? updaterService.checkForUpdates("manual") : null;
+});
+
 ipcMain.handle("assistant:get-bootstrap", async () => {
   const { services: liveServices } = ensureReadyServices();
   const appCatalog = await liveServices.automation.listInstalledApps({
@@ -561,7 +711,7 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
   }));
 
   return {
-    shortcut: "Cmd/Ctrl + Shift + Space",
+    shortcut: "Cmd/Ctrl + Shift + Space · 빠른 패널 / Cmd/Ctrl + , · 데스크톱 앱",
     capabilities: {
       ...liveServices.automation.getCapabilities(),
       appCatalogCount: appCatalog.totalCount || 0,
@@ -571,11 +721,17 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
       fileAutomation: "local-fs"
     },
     providers: {
-      llm: "ollama",
+      llm: `${getTierProviderLabel("fast")} -> ${getTierProviderLabel("complex")}`,
       wakeWord: "speech-recognition wake phrase",
       stt: "webkitSpeechRecognition",
       tts: liveServices.tts.getProviderLabel(),
       browser: liveServices.browser.getProviderLabel()
+    },
+    app: {
+      version: app.getVersion(),
+      packaged: app.isPackaged,
+      desktopUi: getDesktopUiUrl() ? "embedded-next" : "fallback-renderer",
+      updater: updaterService ? updaterService.getStatus() : null
     }
   };
 });

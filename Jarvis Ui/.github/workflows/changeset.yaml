@@ -1,0 +1,139 @@
+name: Changesets
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: true
+
+jobs:
+  version:
+    name: Create Version PR
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout code repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+
+      - name: Setup node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: 24
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create version PR
+        id: changesets
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
+        with:
+          commit: "chore: update versions"
+          title: "chore: update versions"
+          version: pnpm ci:version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect release packages
+        id: release_plan
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const { execFileSync } = require("node:child_process");
+            const { existsSync, readFileSync } = require("node:fs");
+
+            const before = context.payload.before;
+            const after = context.sha;
+            const isZeroBefore = typeof before === "string" && /^0+$/.test(before);
+
+            if (isZeroBefore) {
+              core.warning(
+                "Skipping release dispatch on zero before SHA (no baseline to diff)",
+              );
+              core.setOutput("hasReleasePackages", "false");
+              return;
+            }
+
+            const runGit = (args) =>
+              execFileSync("git", args, { encoding: "utf8" }).trim();
+
+            try {
+              runGit(["cat-file", "-e", `${before}^{commit}`]);
+            } catch {
+              core.warning(
+                `Skipping release dispatch because before SHA is missing: ${before}`,
+              );
+              core.setOutput("hasReleasePackages", "false");
+              return;
+            }
+
+            const changedFilesOutput = runGit([
+              "diff",
+              "--name-only",
+              before,
+              after,
+              "--",
+              "packages/*/package.json",
+            ]);
+
+            const changedFiles = changedFilesOutput
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean);
+
+            let hasReleasePackages = false;
+
+            for (const filePath of changedFiles) {
+              if (!existsSync(filePath)) continue;
+
+              const current = JSON.parse(readFileSync(filePath, "utf8"));
+              if (current.private === true) continue;
+
+              let previousVersion = null;
+              try {
+                const previousRaw = runGit(["show", `${before}:${filePath}`]);
+                previousVersion = JSON.parse(previousRaw).version ?? null;
+              } catch {
+                previousVersion = null;
+              }
+
+              if (previousVersion !== current.version) {
+                hasReleasePackages = true;
+                core.info(`Release candidate: ${current.name}@${current.version}`);
+              }
+            }
+
+            if (!hasReleasePackages) {
+              core.info("Release candidates: none");
+            }
+
+            core.setOutput("hasReleasePackages", hasReleasePackages ? "true" : "false");
+
+      - name: Trigger npm publish
+        if: steps.changesets.outputs.hasChangesets == 'false' && steps.release_plan.outputs.hasReleasePackages == 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'npm-publish',
+              client_payload: {
+                releaseSha: context.sha,
+              },
+            });

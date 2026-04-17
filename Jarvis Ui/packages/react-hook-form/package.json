@@ -1,0 +1,68 @@
+{
+  "name": "@assistant-ui/react-hook-form",
+  "version": "0.12.10",
+  "description": "React Hook Form integration for assistant-ui",
+  "keywords": [
+    "react-hook-form",
+    "forms",
+    "assistant-ui",
+    "react",
+    "ai",
+    "chat",
+    "generative-ui"
+  ],
+  "author": "AgentbaseAI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "aui-build"
+  },
+  "dependencies": {
+    "@assistant-ui/core": "^0.1.14",
+    "@assistant-ui/store": "^0.2.7",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@types/react": "*",
+    "react": "^18 || ^19",
+    "react-hook-form": "^7"
+  },
+  "peerDependenciesMeta": {
+    "@types/react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@assistant-ui/x-buildutils": "workspace:*",
+    "@types/react": "^19.2.14",
+    "react": "^19.2.5",
+    "react-hook-form": "^7.72.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "homepage": "https://www.assistant-ui.com/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/assistant-ui/assistant-ui.git",
+    "directory": "packages/react-hook-form"
+  },
+  "bugs": {
+    "url": "https://github.com/assistant-ui/assistant-ui/issues"
+  }
+}

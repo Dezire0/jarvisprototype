@@ -1,0 +1,79 @@
+---
+title: Modal
+description: Floating button that opens an AI assistant chat box
+---
+
+import { ModalChat } from "@/components/examples/modal";
+
+<div className="h-[500px]">
+  <ModalChat />
+</div>
+
+## Overview
+
+The Modal example demonstrates how to create a floating action button that opens an AI assistant chat interface in a modal dialog. This pattern is ideal for applications where you want to provide AI assistance without disrupting the main user interface.
+
+## Features
+
+- **Floating Action Button**: A clean, accessible button fixed to the corner of the screen
+- **Modal Dialog**: Full-featured chat interface with proper focus management
+- **Smooth Animations**: Enter/exit transitions with zoom and slide effects
+- **Responsive Design**: Works across desktop and mobile devices
+- **Keyboard Navigation**: Escape key to close, proper tab order
+
+## Quick Start
+
+```bash
+npx assistant-ui add assistant-modal
+```
+
+## Code
+
+The modal uses `AssistantModalPrimitive` to create a floating chat interface:
+
+```tsx
+import { AssistantModalPrimitive } from "@assistant-ui/react";
+import { Thread } from "@/components/assistant-ui/thread";
+import { BotIcon } from "lucide-react";
+
+export const AssistantModal = () => {
+  return (
+    <AssistantModalPrimitive.Root>
+      <AssistantModalPrimitive.Anchor className="fixed right-4 bottom-4 size-11">
+        <AssistantModalPrimitive.Trigger asChild>
+          <button className="size-full rounded-full bg-primary shadow hover:scale-110 active:scale-90">
+            <BotIcon />
+          </button>
+        </AssistantModalPrimitive.Trigger>
+      </AssistantModalPrimitive.Anchor>
+
+      <AssistantModalPrimitive.Content
+        sideOffset={16}
+        className="h-[500px] w-[400px] rounded-xl border bg-popover shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out"
+      >
+        <Thread />
+      </AssistantModalPrimitive.Content>
+    </AssistantModalPrimitive.Root>
+  );
+};
+```
+
+### Key Components
+
+| Component | Purpose |
+|-----------|---------|
+| `AssistantModalPrimitive.Root` | Container that manages open/close state |
+| `AssistantModalPrimitive.Anchor` | Positions the trigger button |
+| `AssistantModalPrimitive.Trigger` | Button that opens the modal |
+| `AssistantModalPrimitive.Content` | The modal dialog containing the chat |
+
+### Customization Tips
+
+- Adjust `sideOffset` to control the gap between button and modal
+- Modify `h-[500px] w-[400px]` to change modal dimensions
+- Use `data-[state=open/closed]` for animation states
+- Position the anchor with `fixed right-4 bottom-4` or any corner
+
+## Source
+
+<SourceLink href="https://github.com/assistant-ui/assistant-ui/blob/main/apps/docs/components/docs/samples/assistant-modal.tsx" />

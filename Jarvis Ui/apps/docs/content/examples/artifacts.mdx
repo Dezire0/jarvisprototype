@@ -1,0 +1,47 @@
+---
+title: Artifacts
+description: Open Source Claude Artifacts. You can ask the bot to generate websites.
+---
+
+import { Artifacts } from "@/components/examples/artifacts";
+import { ArtifactsRuntimeProvider } from "@/contexts/ArtifactsRuntimeProvider";
+
+<div className="not-prose h-[600px]">
+  <ArtifactsRuntimeProvider>
+    <Artifacts />
+  </ArtifactsRuntimeProvider>
+</div>
+
+## Overview
+
+An open-source implementation of Claude Artifacts that allows users to generate interactive content like websites, documents, and applications directly within the chat interface. The AI generates HTML, CSS, and JavaScript code that renders in a live preview panel alongside the conversation.
+
+## Features
+
+- **Real-time Preview**: Generated artifacts render instantly in a sandboxed iframe
+- **Code Generation**: Creates complete HTML, CSS, and JavaScript applications
+- **Interactive Elements**: Artifacts can include buttons, forms, and animations
+- **Iteration Support**: Ask the AI to modify and improve generated artifacts
+- **Safe Execution**: Code runs in a sandboxed environment for security
+- **Export Options**: Download generated artifacts as standalone files
+
+## How It Works
+
+1. **Request**: Ask the AI to create something (e.g., "Create a calculator app")
+2. **Generation**: The AI generates the necessary HTML, CSS, and JavaScript
+3. **Rendering**: Code is safely rendered in a preview panel
+4. **Iteration**: Request changes and see updates in real-time
+
+## Use Cases
+
+- **Prototyping**: Quickly create UI mockups and interactive demos
+- **Learning**: Generate code examples to understand concepts
+- **Visualization**: Create charts, diagrams, and data visualizations
+- **Games**: Build simple browser games and interactive experiences
+- **Tools**: Generate calculators, converters, and utility applications
+
+## Source
+
+The implementation for this example is available in the docs:
+
+<SourceLink href="https://github.com/assistant-ui/assistant-ui/tree/main/examples/with-artifacts" />

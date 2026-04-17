@@ -8,8 +8,8 @@ import xml.etree.ElementTree as ET
 import re
 from playwright.async_api import async_playwright
 from friday.config import config
-import keyring
-import os
+from friday.credentials import get_credential
+from friday.safety import guard_sensitive_action, log_sensitive_action
 
 SEED_FEEDS = [
     'https://feeds.bbci.co.uk/news/world/rss.xml',
@@ -162,13 +162,18 @@ def register(mcp):
             return f"Failed to open browser: {str(e)}"
 
     @mcp.tool()
-    async def automate_login(site: str, username: str = None, password: str = None) -> str:
+    async def automate_login(site: str, username: str = None, password: str = None, confirmed: bool = False) -> str:
         """Automate login to a website using stored or provided credentials."""
+        blocked = guard_sensitive_action("automate_login", target=site, confirmed=confirmed)
+        if blocked:
+            return blocked
+
         try:
+            saved = get_credential(site)
             if not username:
-                username = keyring.get_password("jarvis", f"{site}_username")
+                username = saved["username"] if saved else None
             if not password:
-                password = keyring.get_password("jarvis", f"{site}_password")
+                password = saved["password"] if saved else None
             
             if not username or not password:
                 return f"Credentials not found for {site}. Please store them first."
@@ -202,6 +207,7 @@ def register(mcp):
                 
                 await page.wait_for_timeout(2000)
                 await browser.close()
+                log_sensitive_action("automate_login", target=site, status="executed")
                 return f"Login attempt completed for {site}."
         except Exception as e:
             return f"Login automation failed: {str(e)}"

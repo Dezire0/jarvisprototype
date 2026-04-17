@@ -1,0 +1,24 @@
+{
+  "name": "@assistant-ui/devtools-extension",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsx scripts/build-extension.mts",
+    "dev": "NODE_ENV=development tsx scripts/build-extension.mts --watch"
+  },
+  "dependencies": {
+    "@assistant-ui/react-devtools": "workspace:*",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@assistant-ui/x-buildutils": "workspace:*",
+    "@types/chrome": "^0.1.40",
+    "@types/node": "^25.6.0",
+    "@types/webextension-polyfill": "^0.12.5",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

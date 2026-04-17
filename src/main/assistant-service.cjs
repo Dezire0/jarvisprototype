@@ -2,8 +2,9 @@ const {
   chat,
   buildBasePrompt,
   detectLanguageCode,
-  ROUTER_MODEL,
-  PLANNER_MODEL
+  FAST_ROUTER_MODEL,
+  FAST_PLANNER_MODEL,
+  getTierProviderLabel
 } = require("./ollama-service.cjs");
 
 const WEB_TARGET_ALIASES = new Set([
@@ -45,8 +46,28 @@ function extractAfterWakeWord(text) {
     .trim();
 }
 
+function looksLikeActionableCommandStart(text = "") {
+  return /^(?:open|go to|visit|search|browse|launch|run|start|play|watch|listen|find|click|type|press|switch|focus|show|open app|open the app|열어|들어가|검색|찾아|실행|켜|재생|틀어|들려|보여|이동|유튜브|youtube|구글|google|스포티파이|spotify)/i.test(
+    String(text).trim()
+  );
+}
+
+function stripCorrectionLeadIn(text = "") {
+  const original = String(text).trim();
+  const stripped = original
+    .replace(/^(?:no[, ]+|nah[, ]+)?(?:i said|i mean|i meant|what i said was|that(?:'s| is) not what i said)\s+/i, "")
+    .replace(/^(?:아니[, ]*|아니야[, ]*|내 말은[, ]*|정정하면[, ]*|정정[, ]*|아까 말한 건[, ]*)/i, "")
+    .trim();
+
+  if (!stripped || stripped === original) {
+    return original;
+  }
+
+  return looksLikeActionableCommandStart(stripped) ? stripped : original;
+}
+
 function normalizePlanText(text) {
-  return extractAfterWakeWord(text)
+  return stripCorrectionLeadIn(extractAfterWakeWord(text))
     .replace(/[.?!]+$/g, "")
     .trim();
 }
@@ -71,6 +92,13 @@ function safeJsonParse(raw) {
       return null;
     }
   }
+}
+
+function normalizeEntityToken(value = "") {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, "");
 }
 
 function stripCommandPrefix(text) {
@@ -125,12 +153,359 @@ function getKnownSiteUrl(siteName = "") {
   return "";
 }
 
+function getLocalizedKnownSiteLabel(siteName = "", language = "en") {
+  const lowered = String(siteName || "").trim().toLowerCase();
+
+  if (lowered === "google" || lowered === "구글") {
+    return language === "ko" ? "구글" : "Google";
+  }
+
+  if (lowered === "youtube" || lowered === "유튜브") {
+    return language === "ko" ? "유튜브" : "YouTube";
+  }
+
+  if (lowered === "github" || lowered === "깃허브") {
+    return language === "ko" ? "깃허브" : "GitHub";
+  }
+
+  if (lowered === "gmail" || lowered === "지메일") {
+    return language === "ko" ? "지메일" : "Gmail";
+  }
+
+  return "";
+}
+
+function buildDirectSiteUrl(siteName = "") {
+  const known = getKnownSiteUrl(siteName);
+
+  if (known) {
+    return known;
+  }
+
+  const explicitUrl = extractUrl(siteName);
+
+  if (explicitUrl) {
+    return /^https?:\/\//i.test(explicitUrl) ? explicitUrl : `https://${explicitUrl}`;
+  }
+
+  const clean = cleanupParsedText(siteName);
+
+  if (/^[\w.-]+\.[a-z]{2,}(?:\/.*)?$/i.test(clean)) {
+    return clean.startsWith("http://") || clean.startsWith("https://") ? clean : `https://${clean}`;
+  }
+
+  return "";
+}
+
+function normalizeBrowserOpenUrl(target = "") {
+  const value = cleanupParsedText(target);
+
+  if (!value) {
+    return "";
+  }
+
+  const directSiteUrl = buildDirectSiteUrl(value);
+
+  if (directSiteUrl) {
+    return directSiteUrl;
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  if (/^[\w.-]+\.[a-z]{2,}(?:\/.*)?$/i.test(value)) {
+    return `https://${value}`;
+  }
+
+  return `https://www.google.com/search?q=${encodeURIComponent(value)}`;
+}
+
+function inferFriendlyBrowserLabel(target = "", language = "en") {
+  const cleanTarget = cleanupParsedText(target);
+
+  if (!cleanTarget) {
+    return "";
+  }
+
+  const guessedSite = guessSiteName(cleanTarget);
+  const localizedKnownSite = getLocalizedKnownSiteLabel(guessedSite, language);
+
+  if (localizedKnownSite) {
+    return localizedKnownSite;
+  }
+
+  if (guessedSite && !/^https?:\/\//i.test(guessedSite)) {
+    return guessedSite.replace(/^www\./i, "");
+  }
+
+  try {
+    const parsed = new URL(normalizeBrowserOpenUrl(cleanTarget));
+    return parsed.hostname.replace(/^www\./i, "");
+  } catch (_error) {
+    return cleanTarget
+      .replace(/^https?:\/\//i, "")
+      .replace(/^www\./i, "")
+      .split(/[/?#]/)[0];
+  }
+}
+
+function buildExternalBrowserTarget(step = {}) {
+  if (step.action === "search_google") {
+    return `https://www.google.com/search?q=${encodeURIComponent(step.query || "")}`;
+  }
+
+  if (step.action === "search_youtube") {
+    return `https://www.youtube.com/results?search_query=${encodeURIComponent(step.query || "")}`;
+  }
+
+  if (step.action === "open_url") {
+    return normalizeBrowserOpenUrl(step.target || "");
+  }
+
+  return "";
+}
+
+function isSimpleExternalBrowserPlan(plan = {}) {
+  const steps = Array.isArray(plan.steps) ? plan.steps : [];
+
+  return (
+    steps.length === 1 &&
+    ["open_url", "search_google", "search_youtube"].includes(steps[0]?.action)
+  );
+}
+
+function cleanupMediaQuery(value = "") {
+  return cleanupParsedText(
+    String(value)
+      .replace(/^(?:and|then)\b\s*/i, "")
+      .replace(/^(?:some|any|a|the|something)\s+/i, "")
+      .replace(/\b(?:please|for me|right now)\b/gi, "")
+      .replace(/\s+(?:on|in)\s+(?:youtube|유튜브)\b/gi, "")
+      .trim()
+  );
+}
+
+function isGenericMediaQuery(value = "") {
+  return /^(?:music|songs?|playlist|playlists|video|videos|mix|something|anything|some music|any music|음악|노래|플레이리스트|영상)$/i.test(
+    cleanupParsedText(value)
+  );
+}
+
+function hasDirectMediaActionSignal(text = "") {
+  const lowered = normalizePlanText(text).toLowerCase();
+
+  return hasAny(lowered, [
+    "play",
+    "watch",
+    "listen",
+    "search",
+    "find",
+    "open",
+    "go to",
+    "visit",
+    "pause",
+    "resume",
+    "continue",
+    "skip",
+    "next track",
+    "previous track",
+    "틀어",
+    "재생",
+    "검색",
+    "찾아",
+    "열어",
+    "들어가",
+    "일시정지",
+    "다시 재생",
+    "계속 재생",
+    "다음 곡",
+    "이전 곡"
+  ]);
+}
+
+function looksLikeRecommendationStyleMediaQuestion(text = "") {
+  const lowered = normalizePlanText(text).toLowerCase();
+
+  return (
+    /(?:추천|recommend|suggest|없나|없을까|들을만한|볼만한|what should i|anything good|something good|what's good|what is good)/i.test(
+      lowered
+    ) &&
+    !hasDirectMediaActionSignal(lowered)
+  );
+}
+
+function looksLikeYouTubePlaybackRequest(text = "") {
+  const lowered = normalizePlanText(text).toLowerCase();
+
+  if (looksLikeRecommendationStyleMediaQuestion(lowered)) {
+    return false;
+  }
+
+  return (
+    /(youtube|유튜브)/i.test(lowered) &&
+    hasDirectMediaActionSignal(lowered) &&
+    hasAny(lowered, [
+      "play",
+      "watch",
+      "listen",
+      "search",
+      "find",
+      "open",
+      "go to",
+      "music",
+      "song",
+      "playlist",
+      "mix",
+      "video",
+      "재생",
+      "틀어",
+      "들려",
+      "음악",
+      "노래",
+      "플레이리스트",
+      "영상"
+    ])
+  );
+}
+
+function extractYouTubePlaybackQuery(text = "") {
+  const normalized = normalizePlanText(text);
+  const quoted = extractQuotedText(normalized);
+
+  if (quoted && /(play|watch|listen|music|song|playlist|재생|틀어|들려|음악|노래|플레이리스트)/i.test(normalized)) {
+    const cleanedQuoted = cleanupMediaQuery(quoted);
+
+    if (cleanedQuoted && !isGenericMediaQuery(cleanedQuoted)) {
+      return cleanedQuoted;
+    }
+  }
+
+  const patterns = [
+    /(?:play|watch|listen to)\s+(.+?)\s+(?:on|in)\s+(?:youtube|유튜브)/i,
+    /(?:go to|open|visit)\s+(?:youtube|유튜브)\s+(?:and|then)?\s*(?:play|watch|listen to)\s+(.+)$/i,
+    /(?:youtube|유튜브)(?:에서|에서만)?\s+(.+?)\s*(?:틀어줘|틀어|재생해줘|재생해|재생|play|watch|listen)/i,
+    /(?:youtube|유튜브).*(?:play|watch|listen to)\s+(.+)$/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    const cleaned = cleanupMediaQuery(match?.[1] || "");
+
+    if (cleaned && !isGenericMediaQuery(cleaned)) {
+      return cleaned;
+    }
+  }
+
+  if (/(music|song|playlist|음악|노래|플레이리스트)/i.test(normalized)) {
+    return "music mix";
+  }
+
+  return "";
+}
+
+function extractComplexBrowserIntent(input = "") {
+  const normalized = normalizePlanText(input);
+  const wantsLogin = /(로그인|login|log in|sign in)/i.test(normalized);
+  const wantsRead = /(활동|activity|recent|latest|무슨 내용|상태|보여줘|읽어줘|요약|summarize|read|show me|what(?:'s| is) on)/i.test(
+    normalized
+  );
+  const koreanSiteSearch =
+    normalized.match(/(.+?)에서\s+(.+?)\s*(?:검색(?:해줘|해|하고)?|찾아(?:줘|봐)?)/i) ||
+    normalized.match(/(.+?)에서\s+(.+?)\s*(?:search|find)/i);
+  const englishSiteSearch =
+    normalized.match(
+      /(?:search|find)\s+(.+?)\s+(?:on|in)\s+(.+?)(?=\s+(?:and|then|after|before|login|log in|sign in|activity|show|read|summarize)|$)/i
+    ) ||
+    normalized.match(
+      /(?:on|in)\s+(.+?)\s+(?:search|find)\s+(.+?)(?=\s+(?:and|then|after|before|login|log in|sign in|activity|show|read|summarize)|$)/i
+    );
+
+  let site = "";
+  let query = "";
+
+  if (koreanSiteSearch?.[1] && koreanSiteSearch?.[2]) {
+    site = cleanupParsedText(koreanSiteSearch[1]);
+    query = cleanupParsedText(koreanSiteSearch[2].replace(/에서$/i, ""));
+  } else if (englishSiteSearch?.[1] && englishSiteSearch?.[2]) {
+    if (/^(search|find)$/i.test(englishSiteSearch[1])) {
+      site = cleanupParsedText(englishSiteSearch[2]);
+    } else if (/(?:on|in)\s/i.test(englishSiteSearch[0])) {
+      site = cleanupParsedText(englishSiteSearch[1]);
+      query = cleanupParsedText(englishSiteSearch[2]);
+    } else {
+      query = cleanupParsedText(englishSiteSearch[1]);
+      site = cleanupParsedText(englishSiteSearch[2]);
+    }
+  }
+
+  if (!site && (wantsLogin || wantsRead)) {
+    site = cleanupParsedText(guessSiteName(normalized));
+  }
+
+  if (!site || (!query && !wantsLogin && !wantsRead)) {
+    return null;
+  }
+
+  return {
+    site,
+    query,
+    wantsLogin,
+    wantsRead
+  };
+}
+
+function looksLikeSystemBriefingRequest(text = "") {
+  const normalized = normalizePlanText(text);
+
+  return /(?:컴퓨터|pc|mac|맥북|시스템|desktop|machine).*(?:상태|상황|브리핑|요약|정리|현황)|(?:what(?:'s| is) going on|overview|status report|system briefing|computer briefing|current machine status)/i.test(
+    normalized
+  );
+}
+
 function buildHeuristicBrowserPlan(input) {
   const normalized = normalizePlanText(input);
   const plan = {
     reply: "",
     steps: []
   };
+  const complexSiteIntent = extractComplexBrowserIntent(normalized);
+
+  if (complexSiteIntent) {
+    const directSiteUrl = buildDirectSiteUrl(complexSiteIntent.site);
+
+    if (directSiteUrl) {
+      plan.steps.push({
+        action: "open_url",
+        target: directSiteUrl
+      });
+    }
+
+    if (complexSiteIntent.wantsLogin) {
+      plan.steps.push({
+        action: "login_saved",
+        target: complexSiteIntent.site
+      });
+    }
+
+    if (complexSiteIntent.query) {
+      plan.steps.push({
+        action: "site_search",
+        query: complexSiteIntent.query
+      });
+    }
+
+    if (complexSiteIntent.wantsRead) {
+      plan.steps.push({
+        action: "read_page",
+        limit: 4000
+      });
+    }
+
+    if (plan.steps.length) {
+      return plan;
+    }
+  }
 
   const explicitUrl = extractUrl(normalized);
 
@@ -139,6 +514,24 @@ function buildHeuristicBrowserPlan(input) {
       action: "open_url",
       target: explicitUrl
     });
+    return plan;
+  }
+
+  if (looksLikeYouTubePlaybackRequest(normalized)) {
+    const query = extractYouTubePlaybackQuery(normalized);
+
+    if (query) {
+      plan.steps.push({
+        action: "search_youtube",
+        query
+      });
+    } else {
+      plan.steps.push({
+        action: "open_url",
+        target: "https://www.youtube.com/"
+      });
+    }
+
     return plan;
   }
 
@@ -167,6 +560,7 @@ function buildHeuristicBrowserPlan(input) {
   const wantsEnter = /(들어가|들어가줘|열어줘|visit|go in|go there|open it|들어가서)/i.test(normalized);
   const mentionsGoogle = /(google|구글)/i.test(normalized);
   const siteName = guessSiteName(normalized);
+  const knownSiteUrl = getKnownSiteUrl(siteName);
 
   if (mentionsGoogle && wantsSearch) {
     const queryMatch =
@@ -180,8 +574,6 @@ function buildHeuristicBrowserPlan(input) {
     });
 
     if (wantsEnter) {
-      const knownSiteUrl = getKnownSiteUrl(siteName);
-
       if (knownSiteUrl) {
         plan.steps.push({
           action: "open_url",
@@ -221,6 +613,14 @@ function buildHeuristicBrowserPlan(input) {
     return plan;
   }
 
+  if (knownSiteUrl) {
+    plan.steps.push({
+      action: "open_url",
+      target: knownSiteUrl
+    });
+    return plan;
+  }
+
   if (/(유튜브|youtube)/i.test(normalized) && wantsEnter) {
     plan.steps.push({
       action: "open_url",
@@ -257,10 +657,42 @@ function looksComplexChainedRequest(text = "") {
   const normalized = normalizePlanText(text);
 
   return (
-    /(?:그리고|그다음|다음에|이어서|한 다음|동시에|먼저|그 후|after that|and then|then|next|followed by|once|before|while)/i.test(
+    /(?:그리고|그다음|다음에|이어서|한 다음|한 뒤|한 후|하고 나서|동시에|먼저|그 후|after that|and then|then|next|followed by|once|before|while)/i.test(
       normalized
     ) || normalized.length > 90
   );
+}
+
+function chooseChatModelTier(input = "", history = []) {
+  const normalized = normalizePlanText(input);
+  const lowered = normalized.toLowerCase();
+  const historyDepth = Array.isArray(history) ? history.length : 0;
+
+  if (!normalized) {
+    return "fast";
+  }
+
+  if (normalized.length > 180) {
+    return "complex";
+  }
+
+  if (historyDepth >= 6 && normalized.length > 70) {
+    return "complex";
+  }
+
+  if (/\n/.test(input)) {
+    return "complex";
+  }
+
+  if (
+    /(코드|디버그|버그|리팩터링|설계|아키텍처|분석|비교|장단점|전략|초안|보고서|문서|요약해석|깊게|자세히|단계별|왜 그런지|원인|구현|최적화|debug|bug|refactor|architecture|analy[sz]e|compare|trade[- ]?off|strategy|draft|report|document|deep|detailed|step by step|root cause|implement|optimi[sz]e)/i.test(
+      lowered
+    )
+  ) {
+    return "complex";
+  }
+
+  return "fast";
 }
 
 function isFastBrowserPlan(plan = {}) {
@@ -270,10 +702,13 @@ function isFastBrowserPlan(plan = {}) {
     "search_google",
     "search_youtube",
     "click_text",
-    "click_search_result"
+    "click_search_result",
+    "site_search",
+    "login_saved",
+    "read_page"
   ]);
 
-  return Boolean(steps.length) && steps.length <= 3 && steps.every((step) => allowedActions.has(step.action));
+  return Boolean(steps.length) && steps.length <= 4 && steps.every((step) => allowedActions.has(step.action));
 }
 
 function isFastAppPlan(plan = {}) {
@@ -305,6 +740,7 @@ function shouldUseFallbackRouteDirectly(input, route = {}) {
     "app_list",
     "browser",
     "browser_login",
+    "system_briefing",
     "spotify_play",
     "obs_connect",
     "obs_status",
@@ -332,6 +768,15 @@ function shouldSkipCommandPolish(input, result = {}) {
 function buildCompactBrowserReply(input, steps = [], finalPage = {}) {
   const language = detectReplyLanguage(input);
   const lastStep = steps[steps.length - 1] || {};
+  const friendlyOpenLabel =
+    inferFriendlyBrowserLabel(finalPage.title || lastStep.target || finalPage.url || "", language) ||
+    (language === "ko" ? "페이지" : "the page");
+
+  if (lastStep.action === "search_youtube" && looksLikeYouTubePlaybackRequest(input)) {
+    return language === "ko"
+      ? "유튜브에서 바로 틀 수 있게 결과를 열어뒀어요."
+      : "I opened YouTube results so you can play something right away.";
+  }
 
   if (lastStep.action === "search_google" || lastStep.action === "search_youtube") {
     return language === "ko"
@@ -341,17 +786,31 @@ function buildCompactBrowserReply(input, steps = [], finalPage = {}) {
 
   if (lastStep.action === "click_search_result") {
     return language === "ko"
-      ? `${finalPage.title || "검색 결과"} 열었어요.`
-      : `I opened ${finalPage.title || "the result"}.`;
+      ? `${inferFriendlyBrowserLabel(finalPage.title || finalPage.url || "", language) || "검색 결과"} 열었어요.`
+      : `I opened ${inferFriendlyBrowserLabel(finalPage.title || finalPage.url || "", language) || "the result"}.`;
   }
 
   if (lastStep.action === "open_url") {
     return language === "ko"
-      ? `${finalPage.title || "페이지"} 열었어요.`
-      : `I opened ${finalPage.title || "the page"}.`;
+      ? `${friendlyOpenLabel} 열었어요.`
+      : `I opened ${friendlyOpenLabel}.`;
   }
 
   return language === "ko" ? "브라우저 작업을 처리했어요." : "I handled the browser task.";
+}
+
+function browserWorkflowNeedsContentAnswer(input = "", steps = [], finalPage = {}) {
+  if (!finalPage?.text) {
+    return false;
+  }
+
+  if (steps.some((step) => step.action === "read_page")) {
+    return true;
+  }
+
+  return /(활동|activity|요약|정리|읽어|보여줘|무슨 내용|상태|read|summarize|show me|what(?:'s| is) on|what happened)/i.test(
+    normalizePlanText(input)
+  );
 }
 
 function buildLocalRecommendationReply(input, language) {
@@ -512,6 +971,10 @@ function stripAppActionPrefix(text = "") {
 }
 
 function looksLikeAppAction(text = "") {
+  if (looksLikeYouTubePlaybackRequest(text)) {
+    return false;
+  }
+
   const lowered = normalizePlanText(text).toLowerCase();
 
   return (
@@ -1001,19 +1464,30 @@ function isSpotifyRequest(text = "") {
 function looksLikeSpotifyPlayback(text = "") {
   const lowered = normalizePlanText(text).toLowerCase();
 
+  if (looksLikeRecommendationStyleMediaQuestion(lowered)) {
+    return false;
+  }
+
   return (
     isSpotifyRequest(lowered) &&
+    hasDirectMediaActionSignal(lowered) &&
     hasAny(lowered, [
       "play",
       "playlist",
-      "music",
-      "song",
-      "track",
+      "search",
+      "find",
+      "pause",
+      "resume",
+      "skip",
+      "open",
       "틀어",
       "재생",
-      "들려",
-      "음악",
-      "노래",
+      "검색",
+      "찾아",
+      "열어",
+      "일시정지",
+      "다음 곡",
+      "이전 곡",
       "플레이리스트"
     ])
   );
@@ -1544,6 +2018,13 @@ function buildRouteFallback(input) {
     };
   }
 
+  if (looksLikeSystemBriefingRequest(input)) {
+    return {
+      route: "system_briefing",
+      language: detectReplyLanguage(input)
+    };
+  }
+
   if (
     hasAny(lowered, ["academic", "study", "explain", "solve", "tutor", "문법", "grammar", "proofread", "rewrite"]) &&
     hasAny(lowered, ["screen", "화면", "ocr", "스크린"])
@@ -1566,6 +2047,13 @@ function buildRouteFallback(input) {
       route: "browser_login",
       language: detectReplyLanguage(input),
       siteOrUrl: extractUrl(input) || stripCommandPrefix(input)
+    };
+  }
+
+  if (looksLikeYouTubePlaybackRequest(input)) {
+    return {
+      route: "browser",
+      language: detectReplyLanguage(input)
     };
   }
 
@@ -1660,7 +2148,11 @@ function buildRouteFallback(input) {
     };
   }
 
-  if (hasAny(lowered, ["browser", "search", "open website", "go to", "브라우저", "검색"]) || Boolean(extractUrl(input))) {
+  if (
+    extractComplexBrowserIntent(input) ||
+    hasAny(lowered, ["browser", "search", "open website", "go to", "브라우저", "검색"]) ||
+    Boolean(extractUrl(input))
+  ) {
     return {
       route: "browser",
       language: detectReplyLanguage(input)
@@ -1696,16 +2188,18 @@ function buildRouteFallback(input) {
 }
 
 class AssistantService {
-  constructor({ automation, browser, credentials, files, obs, screen }) {
+  constructor({ automation, browser, credentials, files, obs, screen, tts }) {
     this.automation = automation;
     this.browser = browser;
     this.credentials = credentials;
     this.files = files;
     this.obs = obs;
     this.screen = screen;
+    this.tts = tts;
     this.history = [];
     this.lastActiveApp = "";
     this.pendingWorkspaceMessage = null;
+    this.pendingClarification = null;
   }
 
   makeAction(type, target, status = "executed", extra = {}) {
@@ -1731,6 +2225,392 @@ class AssistantService {
       provider: "local",
       details
     };
+  }
+
+  isCancelResponse(input = "") {
+    return /(취소|그만|아니야|됐어|cancel|stop|never mind|forget it)/i.test(normalizePlanText(input));
+  }
+
+  buildClarificationQuestion(language, prompt, candidates = []) {
+    if (!candidates.length) {
+      return prompt;
+    }
+
+    const optionList = candidates
+      .slice(0, 4)
+      .map((candidate, index) => `${index + 1}. ${candidate.name}`)
+      .join(language === "ko" ? " / " : " / ");
+
+    return language === "ko"
+      ? `${prompt} 후보는 ${optionList}예요. 번호나 이름으로 말씀해 주세요.`
+      : `${prompt} The closest options are ${optionList}. Reply with a number or the app name.`;
+  }
+
+  beginClarification(originalInput, route, question, extra = {}) {
+    this.pendingClarification = {
+      originalInput,
+      route,
+      question,
+      ...extra
+    };
+
+    return {
+      reply: question,
+      actions: [],
+      provider: "local-clarify",
+      details: {
+        pendingClarification: true,
+        kind: extra.kind || route.route
+      }
+    };
+  }
+
+  pickCandidateFromAnswer(input = "", candidates = []) {
+    const numberMatch = normalizePlanText(input).match(/\b(\d+)\b/);
+
+    if (numberMatch) {
+      const index = Number(numberMatch[1]) - 1;
+
+      if (index >= 0 && index < candidates.length) {
+        return candidates[index];
+      }
+    }
+
+    const normalizedInput = normalizeEntityToken(input);
+
+    if (!normalizedInput) {
+      return null;
+    }
+
+    return (
+      candidates.find((candidate) => normalizeEntityToken(candidate.name) === normalizedInput) ||
+      candidates.find((candidate) => normalizeEntityToken(candidate.name).includes(normalizedInput)) ||
+      null
+    );
+  }
+
+  async continuePendingClarification(input) {
+    if (!this.pendingClarification) {
+      return null;
+    }
+
+    const pending = this.pendingClarification;
+    const language = pending.language || detectReplyLanguage(input);
+
+    if (this.isCancelResponse(input)) {
+      this.pendingClarification = null;
+
+      return {
+        reply: language === "ko" ? "알겠습니다. 그 요청은 취소할게요." : "Understood. I will cancel that request.",
+        actions: [],
+        provider: "local"
+      };
+    }
+
+    let resolvedValue = cleanupParsedText(input);
+
+    if (Array.isArray(pending.candidates) && pending.candidates.length) {
+      const selected = this.pickCandidateFromAnswer(input, pending.candidates);
+
+      if (!selected) {
+        return {
+          reply: this.buildClarificationQuestion(language, pending.retryPrompt || pending.question, pending.candidates),
+          actions: [],
+          provider: "local-clarify",
+          details: {
+            pendingClarification: true,
+            kind: pending.kind || pending.route?.route || "clarification"
+          }
+        };
+      }
+
+      resolvedValue = selected.name;
+    }
+
+    if (!resolvedValue) {
+      return {
+        reply: pending.question,
+        actions: [],
+        provider: "local-clarify",
+        details: {
+          pendingClarification: true,
+          kind: pending.kind || pending.route?.route || "clarification"
+        }
+      };
+    }
+
+    this.pendingClarification = null;
+
+    const mergedRoute = {
+      ...(pending.route || {})
+    };
+
+    if (pending.field) {
+      mergedRoute[pending.field] = resolvedValue;
+    }
+
+    return this.executeRoute(pending.originalInput || input, mergedRoute);
+  }
+
+  async findAppCandidates(query = "", limit = 4) {
+    const normalized = cleanupParsedText(query);
+
+    if (!normalized) {
+      return [];
+    }
+
+    const result = await this.automation.listInstalledApps({
+      query: normalized,
+      limit
+    }).catch(() => ({
+      apps: []
+    }));
+
+    return Array.isArray(result.apps) ? result.apps : [];
+  }
+
+  async maybeClarifyAppTarget(input, route, requestedApp = "", mode = "open") {
+    const language = detectReplyLanguage(input);
+    const cleanRequestedApp = cleanupParsedText(requestedApp);
+
+    if (!cleanRequestedApp || refersToCurrentAppContext(cleanRequestedApp)) {
+      return this.beginClarification(
+        input,
+        route,
+        language === "ko"
+          ? mode === "open"
+            ? "어느 앱을 열까요?"
+            : "어느 앱에서 그 작업을 할까요?"
+          : mode === "open"
+            ? "Which app should I open?"
+            : "Which app should I do that in?",
+        {
+          field: "appName",
+          kind: mode === "open" ? "app_open_name" : "app_action_name",
+          language
+        }
+      );
+    }
+
+    const candidates = await this.findAppCandidates(cleanRequestedApp);
+    const genericTokens = new Set([
+      "adobe",
+      "어도비",
+      "office",
+      "오피스",
+      "browser",
+      "브라우저",
+      "messenger",
+      "메신저",
+      "music",
+      "음악",
+      "player",
+      "video",
+      "editor",
+      "에디터"
+    ]);
+    const normalized = normalizeEntityToken(cleanRequestedApp);
+
+    if (candidates.length > 1 && (normalized.length <= 2 || genericTokens.has(normalized))) {
+      return this.beginClarification(
+        input,
+        route,
+        this.buildClarificationQuestion(
+          language,
+          language === "ko"
+            ? `"${cleanRequestedApp}"라고 하면 어느 앱을 뜻하나요?`
+            : `Which app did you mean by "${cleanRequestedApp}"?`,
+          candidates
+        ),
+        {
+          field: "appName",
+          candidates,
+          kind: mode === "open" ? "app_open_candidate" : "app_action_candidate",
+          language,
+          retryPrompt:
+            language === "ko"
+              ? "후보 중 어떤 앱인지 다시 말씀해 주세요."
+              : "Please tell me which app you mean from the options."
+        }
+      );
+    }
+
+    return null;
+  }
+
+  async collectSystemBriefingDetails() {
+    const currentContextPromise = this.automation.describeCurrentContext
+      ? this.automation.describeCurrentContext().catch(() => ({
+          appName: "",
+          windowTitle: ""
+        }))
+      : Promise.resolve({
+          appName: "",
+          windowTitle: ""
+        });
+    const browserStatusPromise = this.browser.peekStatus
+      ? this.browser.peekStatus().catch(() => ({
+          provider: this.browser.getProviderLabel(),
+          contextActive: false,
+          pageActive: false,
+          currentPage: null
+        }))
+      : Promise.resolve({
+          provider: "browser unavailable",
+          contextActive: false,
+          pageActive: false,
+          currentPage: null
+        });
+    const ttsStatusPromise = this.tts && typeof this.tts.status === "function"
+      ? this.tts.status().catch(() => null)
+      : Promise.resolve(null);
+    const screenSnapshotPromise = this.screen && typeof this.screen.captureAndOcr === "function"
+      ? this.screen.captureAndOcr()
+          .then((capture) => ({
+            available: true,
+            imagePath: capture.imagePath,
+            text: String(capture.text || "").slice(0, 2000)
+          }))
+          .catch((error) => ({
+            available: false,
+            imagePath: "",
+            text: "",
+            message: error.message
+          }))
+      : Promise.resolve(null);
+
+    const [currentContext, appCatalog, browserStatus, ttsStatus, workspaceSnapshot, screenSnapshot] = await Promise.all([
+      currentContextPromise,
+      this.automation.listInstalledApps({
+        limit: 12
+      }).catch(() => ({
+        totalCount: 0,
+        apps: []
+      })),
+      browserStatusPromise,
+      ttsStatusPromise,
+      this.files.listDirectory(".").catch(() => ({
+        path: process.cwd(),
+        entries: []
+      })),
+      screenSnapshotPromise
+    ]);
+
+    let obsStatus;
+
+    try {
+      const data = await this.obs.status();
+      obsStatus = {
+        connected: true,
+        ...data
+      };
+    } catch (error) {
+      obsStatus = {
+        connected: false,
+        message: error.message
+      };
+    }
+
+    return {
+      currentContext,
+      lastAssistantApp: this.lastActiveApp || "",
+      platformCapabilities: this.automation.getCapabilities(),
+      installedApps: {
+        totalCount: appCatalog.totalCount || 0,
+        sample: (appCatalog.apps || []).slice(0, 12)
+      },
+      browser: browserStatus,
+      screen: screenSnapshot,
+      obs: obsStatus,
+      tts: ttsStatus,
+      workspace: {
+        path: workspaceSnapshot.path,
+        entries: (workspaceSnapshot.entries || []).slice(0, 12)
+      },
+      recentConversation: this.getRecentHistory(6)
+    };
+  }
+
+  async handleSystemBriefing(input) {
+    const language = detectReplyLanguage(input);
+    const details = await this.collectSystemBriefingDetails();
+    const actions = [
+      this.makeAction("system_briefing", "computer")
+    ];
+    let reply = "";
+
+    try {
+      reply = await this.replyWithModel(
+        input,
+        [
+          "The user asked for a direct briefing about the current computer state.",
+          `Reply only in ${buildLanguageName(language)}.`,
+          "Summarize the most relevant current app context, browser state, OBS state, workspace snapshot, and notable limitations.",
+          "Be concrete and practical. If something is unavailable, say that plainly.",
+          `System snapshot:\n${JSON.stringify(details, null, 2)}`
+        ].join("\n\n"),
+        {
+          tier: "complex",
+          includeHistory: false
+        }
+      );
+    } catch (_error) {
+      const frontApp = details.currentContext?.appName || (language === "ko" ? "확인되지 않음" : "not detected");
+      const browserSummary = details.browser?.currentPage?.title || details.browser?.provider || "browser unavailable";
+      const obsSummary = details.obs?.connected
+        ? details.obs.currentScene || "connected"
+        : details.obs?.message || "not connected";
+      const appCount = details.installedApps?.totalCount || 0;
+
+      reply = language === "ko"
+        ? `지금 기준으로 앞에 떠 있는 앱은 ${frontApp} 쪽으로 보이고, 브라우저 상태는 ${browserSummary}, OBS는 ${obsSummary} 상태예요. 설치 앱 카탈로그는 ${appCount}개 정도 확인 가능하고, 작업 폴더도 같이 읽을 수 있어요.`
+        : `Right now the frontmost app appears to be ${frontApp}, the browser state is ${browserSummary}, and OBS is ${obsSummary}. I can also see an app catalog of about ${appCount} installed apps and inspect the current workspace.`;
+    }
+
+    return {
+      reply,
+      actions,
+      provider: getTierProviderLabel("complex"),
+      details
+    };
+  }
+
+  async executeRoute(cleanInput, route) {
+    switch (route.route) {
+      case "system_briefing":
+        return this.handleSystemBriefing(cleanInput);
+      case "screen_academic":
+        return this.handleScreenAcademic(cleanInput);
+      case "screen_summary":
+        return this.handleScreenSummary(cleanInput);
+      case "browser_login":
+        return this.handleBrowserLogin(cleanInput, route);
+      case "browser":
+        return this.handleBrowser(cleanInput, route);
+      case "obs_connect":
+      case "obs_status":
+      case "obs_start":
+      case "obs_stop":
+      case "obs_scene":
+        return this.handleObsRoute(cleanInput, route);
+      case "file_read":
+      case "file_write":
+      case "file_list":
+        return this.handleFileRoute(cleanInput, route);
+      case "stream_prep":
+        return this.handleStreamPrep(cleanInput);
+      case "app_open":
+        return this.handleAppOpen(cleanInput, route);
+      case "app_list":
+        return this.handleAppList(cleanInput);
+      case "app_action":
+        return this.handleAppAction(cleanInput, route);
+      case "spotify_play":
+        return this.handleSpotifyRoute(cleanInput, route);
+      case "chat":
+      default:
+        return this.handleGeneral(cleanInput);
+    }
   }
 
   rememberTurn(role, content) {
@@ -2411,7 +3291,28 @@ class AssistantService {
   }
 
   async handleAppAction(input, route) {
-    const resolved = await this.resolveAppContext(input, route, {
+    const requestedApp =
+      route.appName ||
+      extractAppActionTarget(input) ||
+      (refersToCurrentAppContext(input) ? this.lastActiveApp : "");
+    const clarification = await this.maybeClarifyAppTarget(
+      input,
+      {
+        ...route,
+        appName: requestedApp
+      },
+      requestedApp,
+      "action"
+    );
+
+    if (clarification) {
+      return clarification;
+    }
+
+    const resolved = await this.resolveAppContext(input, {
+      ...route,
+      appName: requestedApp
+    }, {
       allowDirect: false
     });
 
@@ -2517,6 +3418,8 @@ class AssistantService {
 
     return chat({
       systemPrompt: options.systemPrompt || buildBasePrompt(),
+      tier: options.tier || "complex",
+      model: options.model,
       history: includeHistory ? this.getRecentHistory() : [],
       userPrompt: extraContext ? `${extraContext}\n\nUser request:\n${userPrompt}` : userPrompt
     });
@@ -2530,14 +3433,17 @@ class AssistantService {
     const routerPrompt = [
       "You are the intent router for a bilingual desktop assistant.",
       "Respond with valid JSON only.",
-      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|spotify_play","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","reason":""}',
+      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|system_briefing|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|spotify_play","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","reason":"","confidence":0,"missing":[]}',
       "Use chat for general conversation, recommendations, ideas, opinions, follow-up discussion, or questions that do not clearly require a desktop action.",
       "Use app_open for opening a local desktop app like Chrome, Finder, Terminal, Slack, Spotify, Notion, Steam, OBS, or VS Code.",
-      "Use app_action when the user wants to do something inside a desktop app, such as typing, sending a message in Slack or Discord, pressing a key, running a shortcut, searching, opening a folder or tab, creating a new item, or using a menu.",
+      "Use app_action when the user wants to do something inside a desktop app, such as typing, sending a message in Slack or Discord, pressing a key, running a shortcut, searching, opening a folder or tab, creating a new item, using a menu, or performing a multi-step workflow inside that app.",
       "Use app_list when the user asks to list installed or available desktop apps.",
       "Use spotify_play when the user wants Spotify to play, pause, resume, skip, search, or open a playlist, song, or music request inside Spotify.",
-      "Use browser for website navigation, URLs, searches, or reading web pages.",
+      "Use browser for website navigation, URLs, searches, web logins, reading web pages, or multi-step site workflows like open site, log in, search, and show activity.",
       "Use browser_login only for explicit login requests.",
+      "When the user names a specific app or website, prioritize that named target over generic nouns like music, song, video, message, or search.",
+      "Do not route recommendation-style questions into desktop actions unless the user clearly asks you to play, open, search, or control something.",
+      "Use system_briefing when the user asks what is happening on this computer, the current machine status, frontmost app, browser state, or a direct system overview.",
       "Use screen_summary for OCR or screen understanding.",
       "Use screen_academic for tutoring, explanation, grammar correction, or study help about the current screen.",
       "Use obs_* only for OBS connection, status, stream control, or scene switching.",
@@ -2549,7 +3455,8 @@ class AssistantService {
     try {
       const raw = await chat({
         systemPrompt: routerPrompt,
-        model: ROUTER_MODEL,
+        tier: "fast",
+        model: FAST_ROUTER_MODEL,
         userPrompt: [
           "Recent conversation:",
           this.buildHistorySnippet(),
@@ -2591,14 +3498,16 @@ class AssistantService {
         "You convert desktop browser requests into a short JSON execution plan.",
         "Respond with valid JSON only.",
         'Schema: {"reply":"short summary","steps":[{"action":"open_url","target":"https://example.com"}]}',
-        "Allowed actions: open_url, search_google, search_youtube, click_text, click_search_result, read_page.",
+        "Allowed actions: open_url, search_google, search_youtube, click_text, click_search_result, site_search, login_saved, read_page.",
         "For navigation requests like 'search then open', create multiple steps in order.",
+        "For site-specific workflows, you may open the site, use login_saved, then site_search, then read_page.",
         "For known site names like YouTube, GitHub, and Google, prefer click_text or open_url rather than raw search-result URLs."
       ].join(" ");
 
       const raw = await chat({
         systemPrompt: plannerPrompt,
-        model: PLANNER_MODEL,
+        tier: "fast",
+        model: FAST_PLANNER_MODEL,
         userPrompt: normalizePlanText(input)
       });
 
@@ -2647,7 +3556,8 @@ class AssistantService {
 
       const raw = await chat({
         systemPrompt: plannerPrompt,
-        model: PLANNER_MODEL,
+        tier: "fast",
+        model: FAST_PLANNER_MODEL,
         userPrompt: [
           `App name: ${appName}`,
           "",
@@ -2698,14 +3608,16 @@ class AssistantService {
           "Keep it to 1 or 2 short paragraphs.",
           "First say what was completed or what happened in plain language.",
           "If helpful, end with one short follow-up offer or one practical next step.",
-          "Never mention internal tools, JSON, models, routes, or APIs."
+          "Never mention internal tools, JSON, models, routes, or APIs.",
+          "Do not spell out raw URLs unless the user explicitly asked for a URL. Prefer site names or page names."
         ].join(" "),
         userPrompt: [
           `User request: ${input}`,
           "",
           "Execution summary:",
           summary
-        ].join("\n")
+        ].join("\n"),
+        tier: "fast"
       });
     } catch (_error) {
       return fallback;
@@ -2721,7 +3633,10 @@ class AssistantService {
         "Act as an academic and workplace advisor.",
         "If the OCR looks like a math, science, humanities, or writing task, explain the likely context and help the user move forward.",
         `OCR:\n${capture.text || "(No readable text was detected on screen.)"}`
-      ].join("\n\n")
+      ].join("\n\n"),
+      {
+        tier: "complex"
+      }
     );
 
     return {
@@ -2731,7 +3646,7 @@ class AssistantService {
         this.makeAction("screen_ocr", `chars:${capture.text.length}`),
         this.makeAction("academic_assist", "screen")
       ],
-      provider: "ollama",
+      provider: getTierProviderLabel("complex"),
       details: {
         ocrText: capture.text,
         imagePath: capture.imagePath
@@ -2747,7 +3662,10 @@ class AssistantService {
         "Summarize what is visible on the screen using the OCR below.",
         "If the OCR is noisy, say so and still extract the likely meaning.",
         `OCR:\n${capture.text || "(No readable text was detected on screen.)"}`
-      ].join("\n\n")
+      ].join("\n\n"),
+      {
+        tier: "fast"
+      }
     );
 
     return {
@@ -2756,7 +3674,7 @@ class AssistantService {
         this.makeAction("screen_capture", capture.imagePath),
         this.makeAction("screen_ocr", `chars:${capture.text.length}`)
       ],
-      provider: "ollama",
+      provider: getTierProviderLabel("fast"),
       details: {
         ocrText: capture.text,
         imagePath: capture.imagePath
@@ -2766,55 +3684,148 @@ class AssistantService {
 
   async handleBrowser(input) {
     const plan = await this.planBrowserTask(input);
+
+    if (isSimpleExternalBrowserPlan(plan)) {
+      const step = plan.steps[0] || {};
+      const targetUrl = buildExternalBrowserTarget(step);
+
+      if (targetUrl) {
+        try {
+          await this.automation.execute({
+            type: "open_url",
+            target: targetUrl
+          });
+
+          const language = detectReplyLanguage(input);
+          const finalPage = {
+            url: targetUrl,
+            title:
+              step.action === "open_url"
+                ? inferFriendlyBrowserLabel(step.target || targetUrl, language)
+                : ""
+          };
+          const actions = [this.makeAction("open_url", targetUrl)];
+          const details = {
+            title: finalPage.title || "",
+            url: finalPage.url,
+            openMode: "external-browser",
+            plannedStep: step
+          };
+
+          return {
+            reply: buildCompactBrowserReply(
+              input,
+              [
+                {
+                  ...step,
+                  target: targetUrl
+                }
+              ],
+              finalPage
+            ),
+            actions,
+            provider: "system-browser",
+            details
+          };
+        } catch (_error) {
+          // Fall through to Playwright automation when the system browser open fails.
+        }
+      }
+    }
+
     const data = await this.browser.executePlan(plan.steps);
     const finalPage = data.final || {};
+    const actions = data.steps.map((step) =>
+      this.makeAction(
+        `browser_${step.action}`,
+        step.target || step.text || step.query || `result-${step.index || 1}`
+      )
+    );
     const actionNames = data.steps.map((step) => step.action).join(" -> ");
+    const details = {
+      title: finalPage.title || "",
+      url: finalPage.url || "",
+      text: finalPage.text || "",
+      executedSteps: data.steps.map((step) => ({
+        action: step.action,
+        target: step.target || step.text || step.query || step.index || "",
+        url: step.result?.url || ""
+      })),
+      actionNames
+    };
     const fallback = buildCompactBrowserReply(input, data.steps, finalPage);
+    const needsContentAnswer = browserWorkflowNeedsContentAnswer(input, data.steps, finalPage);
+
+    if (needsContentAnswer) {
+      try {
+        const reply = await this.replyWithModel(
+          input,
+          [
+            "The user asked you to interpret the result of a browser workflow.",
+            `Reply only in ${buildLanguageName(detectReplyLanguage(input))}.`,
+            "Summarize the most relevant result from the final page.",
+            "If login or search steps happened, mention them briefly and focus on the outcome.",
+            `Browser workflow:\n${JSON.stringify(details.executedSteps, null, 2)}`,
+            `Final page title: ${details.title || "(untitled)"}`,
+            `Final page URL: ${details.url || "(unknown)"}`,
+            `Visible page text:\n${details.text.slice(0, 12000) || "(No readable page text was captured.)"}`
+          ].join("\n\n"),
+          {
+            tier: "complex",
+            includeHistory: false
+          }
+        );
+
+        return {
+          reply,
+          actions,
+          provider: getTierProviderLabel("complex"),
+          details
+        };
+      } catch (_error) {
+        return {
+          reply: fallback,
+          actions,
+          provider: "local",
+          details
+        };
+      }
+    }
 
     return {
       reply: await this.polishCommandReply(
         input,
         {
-          actions: data.steps.map((step) =>
-            this.makeAction(
-              `browser_${step.action}`,
-              step.target || step.text || step.query || `result-${step.index || 1}`
-            )
-          ),
-          details: {
-            title: finalPage.title || "",
-            url: finalPage.url || "",
-            executedSteps: data.steps.map((step) => ({
-              action: step.action,
-              target: step.target || step.text || step.query || step.index || "",
-              url: step.result?.url || ""
-            })),
-            actionNames
-          }
+          actions,
+          details
         },
         fallback
       ),
-      actions: data.steps.map((step) =>
-        this.makeAction(
-          `browser_${step.action}`,
-          step.target || step.text || step.query || `result-${step.index || 1}`
-        )
-      ),
+      actions,
       provider: "local",
-      details: {
-        title: finalPage.title || "",
-        url: finalPage.url || "",
-        executedSteps: data.steps.map((step) => ({
-          action: step.action,
-          target: step.target || step.text || step.query || step.index || "",
-          url: step.result?.url || ""
-        }))
-      }
+      details
     };
   }
 
   async handleBrowserLogin(input, route) {
-    const siteOrUrl = route.siteOrUrl || extractUrl(input) || stripCommandPrefix(input);
+    const language = detectReplyLanguage(input);
+    const siteOrUrl = cleanupParsedText(route.siteOrUrl || extractUrl(input) || stripCommandPrefix(input));
+
+    if (!siteOrUrl || /^(?:login|log in|sign in|로그인(?:해줘|해)?|사인인)$/i.test(siteOrUrl)) {
+      return this.beginClarification(
+        input,
+        route,
+        language === "ko"
+          ? "어느 사이트에 로그인할까요?"
+          : "Which site should I log into?",
+        {
+          field: "siteOrUrl",
+          kind: "browser_login_site",
+          language
+        }
+      );
+    }
+
     const data = await this.browser.loginWithStoredCredential(siteOrUrl);
     const fallback = detectReplyLanguage(input) === "ko"
       ? `${data.site} 로그인 정보를 입력했어요.`
@@ -2850,7 +3861,18 @@ class AssistantService {
       action = this.makeAction("obs_stop_stream", data.currentScene);
     } else if (route.route === "obs_scene") {
       if (!route.sceneName) {
-        throw new Error("A scene name is required.");
+        return this.beginClarification(
+          input,
+          route,
+          detectReplyLanguage(input) === "ko"
+            ? "어느 씬으로 바꿀까요?"
+            : "Which scene should I switch to?",
+          {
+            field: "sceneName",
+            kind: "obs_scene_name",
+            language: detectReplyLanguage(input)
+          }
+        );
       }
 
       data = await this.obs.switchScene(route.sceneName);
@@ -2911,7 +3933,10 @@ class AssistantService {
       const data = await this.files.readFile(route.path);
       const reply = await this.replyWithModel(
         input,
-        `The user asked about a file. Here is its content:\n\n${data.content.slice(0, 12000)}`
+        `The user asked about a file. Here is its content:\n\n${data.content.slice(0, 12000)}`,
+        {
+          tier: "complex"
+        }
       ).catch(() =>
         detectReplyLanguage(input) === "ko"
           ? `${data.path} 파일 내용을 읽어왔어요. 필요한 부분을 설명하거나 수정안도 도와드릴게요.`
@@ -2921,7 +3946,7 @@ class AssistantService {
       return {
         reply,
         actions: [this.makeAction("file_read", data.path)],
-        provider: "ollama",
+        provider: getTierProviderLabel("complex"),
         details: data
       };
     }
@@ -3005,7 +4030,24 @@ class AssistantService {
   }
 
   async handleAppOpen(input, route) {
-    const requestedApp = route.appName || extractAppName(input);
+    const requestedApp =
+      route.appName ||
+      extractAppName(input) ||
+      (refersToCurrentAppContext(input) ? this.lastActiveApp : "");
+
+    const clarification = await this.maybeClarifyAppTarget(
+      input,
+      {
+        ...route,
+        appName: requestedApp
+      },
+      requestedApp,
+      "open"
+    );
+
+    if (clarification) {
+      return clarification;
+    }
 
     if (!requestedApp) {
       throw new Error("I could not tell which app you wanted to open.");
@@ -3038,6 +4080,7 @@ class AssistantService {
 
   async handleGeneral(input) {
     const language = detectReplyLanguage(input);
+    const tier = chooseChatModelTier(input, this.getRecentHistory());
     let reply = "";
     let provider = "local-chat";
 
@@ -3053,9 +4096,12 @@ class AssistantService {
           "If the user asks for recommendations, suggest two or three concrete options when useful.",
           "If the user greets you, greet them back naturally and invite the next request.",
           "Do not sound like a status banner or system message."
-        ].join("\n")
+        ].join("\n"),
+        {
+          tier
+        }
       );
-      provider = "ollama";
+      provider = getTierProviderLabel(tier);
     } catch (_error) {
       reply = buildLocalChatReply(input, this.getRecentHistory());
     }
@@ -3080,6 +4126,15 @@ class AssistantService {
         provider: "local",
         language: detectReplyLanguage(input)
       };
+    }
+
+    const pendingClarificationResult = await this.continuePendingClarification(cleanInput);
+
+    if (pendingClarificationResult) {
+      pendingClarificationResult.language = detectReplyLanguage(cleanInput);
+      this.rememberTurn("user", cleanInput);
+      this.rememberTurn("assistant", pendingClarificationResult.reply);
+      return pendingClarificationResult;
     }
 
     if (this.pendingWorkspaceMessage && looksLikeFreshWorkspaceCommand(cleanInput)) {
@@ -3112,51 +4167,7 @@ class AssistantService {
     let result;
 
     try {
-      switch (route.route) {
-        case "screen_academic":
-          result = await this.handleScreenAcademic(cleanInput);
-          break;
-        case "screen_summary":
-          result = await this.handleScreenSummary(cleanInput);
-          break;
-        case "browser_login":
-          result = await this.handleBrowserLogin(cleanInput, route);
-          break;
-        case "browser":
-          result = await this.handleBrowser(cleanInput, route);
-          break;
-        case "obs_connect":
-        case "obs_status":
-        case "obs_start":
-        case "obs_stop":
-        case "obs_scene":
-          result = await this.handleObsRoute(cleanInput, route);
-          break;
-        case "file_read":
-        case "file_write":
-        case "file_list":
-          result = await this.handleFileRoute(cleanInput, route);
-          break;
-        case "stream_prep":
-          result = await this.handleStreamPrep(cleanInput);
-          break;
-        case "app_open":
-          result = await this.handleAppOpen(cleanInput, route);
-          break;
-        case "app_list":
-          result = await this.handleAppList(cleanInput);
-          break;
-        case "app_action":
-          result = await this.handleAppAction(cleanInput, route);
-          break;
-        case "spotify_play":
-          result = await this.handleSpotifyRoute(cleanInput, route);
-          break;
-        case "chat":
-        default:
-          result = await this.handleGeneral(cleanInput);
-          break;
-      }
+      result = await this.executeRoute(cleanInput, route);
     } catch (error) {
       result = {
         reply:
@@ -3177,6 +4188,8 @@ class AssistantService {
 
 module.exports = {
   AssistantService,
+  chooseChatModelTier,
   extractAppName,
+  buildHeuristicBrowserPlan,
   buildRouteFallback
 };

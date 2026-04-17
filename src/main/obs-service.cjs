@@ -1,5 +1,19 @@
 const { OBSWebSocket } = require("obs-websocket-js");
 
+function formatObsConnectionError(error, address) {
+  const message = String(error?.message || error || "").trim();
+
+  if (/ECONNREFUSED|couldn't connect|failed to connect/i.test(message)) {
+    return `Could not reach OBS WebSocket at ${address}. Make sure OBS is running and WebSocket Server is enabled on that address.`;
+  }
+
+  if (/authentication|invalid password|identify failed|4009/i.test(message)) {
+    return `OBS rejected the WebSocket password for ${address}. Check the password in OBS WebSocket Server Settings.`;
+  }
+
+  return message || `OBS connection failed for ${address}.`;
+}
+
 class ObsService {
   constructor() {
     this.client = new OBSWebSocket();
@@ -14,17 +28,22 @@ class ObsService {
   }
 
   async connect({ address = "ws://127.0.0.1:4455", password = "" } = {}) {
-    const result = await this.client.connect(address, password || undefined);
-    this.connected = true;
-    this.connectionInfo = {
-      address
-    };
+    try {
+      const result = await this.client.connect(address, password || undefined);
+      this.connected = true;
+      this.connectionInfo = {
+        address
+      };
 
-    return {
-      address,
-      obsWebSocketVersion: result.obsWebSocketVersion,
-      negotiatedRpcVersion: result.negotiatedRpcVersion
-    };
+      return {
+        address,
+        obsWebSocketVersion: result.obsWebSocketVersion,
+        negotiatedRpcVersion: result.negotiatedRpcVersion
+      };
+    } catch (error) {
+      this.connected = false;
+      throw new Error(formatObsConnectionError(error, address));
+    }
   }
 
   async ensureConnection() {
@@ -77,5 +96,6 @@ class ObsService {
 }
 
 module.exports = {
-  ObsService
+  ObsService,
+  formatObsConnectionError
 };

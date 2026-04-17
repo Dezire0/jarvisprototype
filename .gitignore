@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 build/
+release/
 develop-eggs/
 dist/
 downloads/
@@ -31,6 +32,7 @@ env/
 # Environment variables
 .env
 .env.local
+.env.local.save
 
 # IDE
 .vscode/
@@ -58,10 +60,6 @@ tmp-jarvis-check.txt
 # Local secrets and media
 secret
 ScreenRecording_*.mov
-
-# Reference bundle artifacts
-friday-tony-stark-demo-main/friday-tony-stark-demo-main/
-friday-tony-stark-demo-main/*.zip
 
 # Logs
 *.log

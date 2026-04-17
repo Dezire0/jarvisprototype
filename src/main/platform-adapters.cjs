@@ -1120,6 +1120,27 @@ async function getPrimaryWindowTitleMac(appName) {
   return standardTitle;
 }
 
+async function getFrontmostAppMac() {
+  const appName = normalizeSingleLineText(await runAppleScript([
+    'tell application "System Events"',
+    "set frontProcess to first application process whose frontmost is true",
+    "return name of frontProcess",
+    "end tell"
+  ]).catch(() => ""));
+
+  if (!appName) {
+    return {
+      appName: "",
+      windowTitle: ""
+    };
+  }
+
+  return {
+    appName,
+    windowTitle: await getPrimaryWindowTitleMac(appName).catch(() => "")
+  };
+}
+
 async function openUrlMac(url) {
   await execFileAsync("open", [url]);
   return {
@@ -1832,6 +1853,9 @@ function createAutomationAdapter({ screen } = {}) {
       getCapabilities() {
         return buildCapabilitySet(currentPlatform);
       },
+      async describeCurrentContext() {
+        return getFrontmostAppMac();
+      },
       async listInstalledApps(options = {}) {
         return listInstalledAppsMac(options);
       },
@@ -1936,6 +1960,12 @@ function createAutomationAdapter({ screen } = {}) {
       getCapabilities() {
         return buildCapabilitySet(currentPlatform);
       },
+      async describeCurrentContext() {
+        return {
+          appName: "",
+          windowTitle: ""
+        };
+      },
       async listInstalledApps() {
         return {
           query: "",
@@ -1972,6 +2002,12 @@ function createAutomationAdapter({ screen } = {}) {
   return {
     getCapabilities() {
       return buildCapabilitySet(currentPlatform);
+    },
+    async describeCurrentContext() {
+      return {
+        appName: "",
+        windowTitle: ""
+      };
     },
     async listInstalledApps() {
       return {

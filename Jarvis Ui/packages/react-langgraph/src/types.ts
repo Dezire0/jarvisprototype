@@ -1,0 +1,241 @@
+import type { MessageStatus } from "@assistant-ui/core";
+import type { ReadonlyJSONObject } from "assistant-stream/utils";
+
+export type LangChainToolCallChunk = {
+  index: number;
+  id: string;
+  name: string;
+  args?: string;
+  args_json?: string;
+};
+
+export type LangChainToolCall = {
+  index?: number;
+  id: string;
+  name: string;
+  args: ReadonlyJSONObject;
+  partial_json?: string;
+};
+
+export type MessageContentText = {
+  type: "text" | "text_delta";
+  text: string;
+};
+
+export type MessageContentImageUrl = {
+  type: "image_url";
+  image_url: string | { url: string };
+};
+
+export type MessageContentThinking = {
+  type: "thinking";
+  thinking: string;
+};
+
+export type MessageContentReasoningSummaryText = {
+  type: "summary_text";
+  text: string;
+};
+
+export type MessageContentReasoning = {
+  type: "reasoning";
+  summary: MessageContentReasoningSummaryText[];
+};
+
+type MessageContentToolUse = {
+  type: "tool_use" | "input_json_delta";
+};
+
+type MessageContentComputerCall = {
+  type: "computer_call";
+  call_id: string;
+  id: string;
+  action: unknown;
+  pending_safety_checks: unknown[];
+  index: number;
+};
+
+export enum LangGraphKnownEventTypes {
+  Messages = "messages",
+  MessagesPartial = "messages/partial",
+  MessagesComplete = "messages/complete",
+  Metadata = "metadata",
+  Updates = "updates",
+  Values = "values",
+  Info = "info",
+  Error = "error",
+}
+
+type CustomEventType = string;
+
+export type EventType = LangGraphKnownEventTypes | CustomEventType;
+
+export type LegacyMessageContentFile = {
+  type: "file";
+  file: {
+    filename: string;
+    file_data: string;
+    mime_type: string;
+  };
+};
+
+export type FlatMessageContentFile = {
+  type: "file";
+  data: string;
+  mime_type: string;
+  source_type?: "base64";
+  metadata?: {
+    filename?: string;
+  };
+};
+
+export type Base64MessageContentFile = {
+  type: "file";
+  base64: string;
+  mime_type: string;
+  filename?: string;
+};
+
+export type MessageContentFile =
+  | LegacyMessageContentFile
+  | FlatMessageContentFile
+  | Base64MessageContentFile;
+
+type UserMessageContentComplex =
+  | MessageContentText
+  | MessageContentImageUrl
+  | MessageContentFile;
+type AssistantMessageContentComplex =
+  | MessageContentText
+  | MessageContentImageUrl
+  | MessageContentToolUse
+  | MessageContentFile
+  | MessageContentReasoning
+  | MessageContentThinking
+  | MessageContentComputerCall;
+
+type UserMessageContent = string | UserMessageContentComplex[];
+type AssistantMessageContent = string | AssistantMessageContentComplex[];
+
+export type LangChainMessage =
+  | {
+      id?: string;
+      type: "system";
+      content: string;
+      additional_kwargs?: Record<string, unknown>;
+    }
+  | {
+      id?: string;
+      type: "human";
+      content: UserMessageContent;
+      additional_kwargs?: Record<string, unknown>;
+    }
+  | {
+      id?: string;
+      type: "tool";
+      content: string;
+      tool_call_id: string;
+      name: string;
+      artifact?: any;
+      status: "success" | "error";
+    }
+  | {
+      id?: string;
+      type: "ai";
+      content: AssistantMessageContent;
+      tool_call_chunks?: LangChainToolCallChunk[];
+      tool_calls?: LangChainToolCall[];
+      status?: MessageStatus;
+      additional_kwargs?: {
+        reasoning?: MessageContentReasoning;
+        tool_outputs?: MessageContentComputerCall[];
+        metadata?: Record<string, unknown>;
+      };
+    };
+
+export type LangChainMessageChunk = {
+  id?: string | undefined;
+  type: "AIMessageChunk";
+  content?: AssistantMessageContent | undefined;
+  tool_call_chunks?: LangChainToolCallChunk[] | undefined;
+};
+
+export type LangChainEvent = {
+  event:
+    | LangGraphKnownEventTypes.MessagesPartial
+    | LangGraphKnownEventTypes.MessagesComplete;
+  data: LangChainMessage[];
+};
+
+export type LangGraphTupleMetadata = Record<string, unknown>;
+
+export type LangChainMessageTupleEvent = {
+  event: LangGraphKnownEventTypes.Messages;
+  data: [LangChainMessage | LangChainMessageChunk, LangGraphTupleMetadata];
+};
+
+export type UIMessage<
+  TName extends string = string,
+  TProps extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  type: "ui";
+  id: string;
+  name: TName;
+  props: TProps;
+  metadata?: {
+    merge?: boolean;
+    run_id?: string;
+    name?: string;
+    tags?: string[];
+    message_id?: string;
+    [key: string]: unknown;
+  };
+};
+
+export type RemoveUIMessage = {
+  type: "remove-ui";
+  id: string;
+};
+
+export type OnMessageChunkCallback = (
+  chunk: LangChainMessageChunk,
+  metadata: LangGraphTupleMetadata,
+) => void | Promise<void>;
+export type OnValuesEventCallback = (values: unknown) => void | Promise<void>;
+export type OnUpdatesEventCallback = (updates: unknown) => void | Promise<void>;
+/**
+ * Fired when a subgraph (namespaced) `values` event is received. The
+ * `namespace` mirrors the pipe-separated suffix on the event name
+ * (e.g. `values|tools:call_abc` → `"tools:call_abc"`).
+ */
+export type OnSubgraphValuesEventCallback = (
+  namespace: string,
+  values: unknown,
+) => void | Promise<void>;
+/**
+ * Fired when a subgraph (namespaced) `updates` event is received. The
+ * `namespace` mirrors the pipe-separated suffix on the event name
+ * (e.g. `updates|tools:call_abc` → `"tools:call_abc"`).
+ */
+export type OnSubgraphUpdatesEventCallback = (
+  namespace: string,
+  updates: unknown,
+) => void | Promise<void>;
+export type OnMetadataEventCallback = (
+  metadata: unknown,
+) => void | Promise<void>;
+export type OnInfoEventCallback = (info: unknown) => void | Promise<void>;
+export type OnErrorEventCallback = (error: unknown) => void | Promise<void>;
+/**
+ * Fired when a subgraph (namespaced) `error` event is received, in addition
+ * to `onError`. The `namespace` mirrors the pipe-separated suffix on the
+ * event name (e.g. `error|tools:call_abc` → `"tools:call_abc"`).
+ */
+export type OnSubgraphErrorEventCallback = (
+  namespace: string,
+  error: unknown,
+) => void | Promise<void>;
+export type OnCustomEventCallback = (
+  type: string,
+  data: unknown,
+) => void | Promise<void>;

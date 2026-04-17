@@ -3,81 +3,183 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>자비스 고급 설정</title>
+    <title>Jarvis Desktop</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="panel">
-        <header class="hero">
-          <div class="orb" id="orb"></div>
-          <div>
-            <p class="eyebrow">고급 설정</p>
-            <h1>자비스 제어 센터</h1>
-            <p class="subtitle">
-              대화, 음성, 앱 제어, 웹 자동화, 파일 작업을 한 곳에서 관리할 수 있어요.
-            </p>
+    <main class="aui-shell">
+      <aside class="aui-sidebar">
+        <section class="sidebar-panel sidebar-brand">
+          <div class="sidebar-brand-row">
+            <div class="orb" id="orb" aria-hidden="true"></div>
+            <div>
+              <p class="eyebrow">assistant-ui style</p>
+              <h1>Jarvis Desktop</h1>
+            </div>
           </div>
-        </header>
-
-        <section class="tool-section compact-intro">
-          <div class="section-head">
-            <h2>빠른 안내</h2>
-            <p>처음에는 아래 3가지만 써도 충분해요.</p>
-          </div>
-          <div class="chips">
-            <span class="chip">1. 대화창에 편하게 입력</span>
-            <span class="chip">2. 음성 듣기 또는 웨이크워드 사용</span>
-            <span class="chip">3. 앱 이름과 작업을 같이 말하기</span>
-          </div>
+          <p class="sidebar-description">
+            네가 붙여둔 Jarvis UI 흐름에 맞춰, 이제 메인 화면은 스레드 중심으로 움직입니다.
+          </p>
+          <p class="sidebar-hint" id="shortcutHint"></p>
         </section>
 
-        <section class="status-grid" id="statusGrid"></section>
-
-        <section class="tool-section">
+        <section class="sidebar-panel sidebar-threads">
           <div class="section-head">
-            <h2>빠른 실행</h2>
-            <p>자주 쓰는 흐름을 한 번에 시작할 수 있어요.</p>
+            <h2>Threads</h2>
+            <p>대화를 주제별로 분리해 이어갈 수 있어요.</p>
           </div>
-          <div class="mission-grid">
-            <button type="button" class="secondary mission-button" data-command="안녕 자비스. 지금 할 수 있는 생산적인 시작 루틴 추천해줘">시작 루틴 추천</button>
-            <button type="button" class="secondary mission-button" data-command="방금 화면을 읽고 핵심만 요약해줘">화면 요약</button>
-            <button type="button" class="secondary mission-button" data-command="설치된 앱 목록 보여줘">설치 앱 보기</button>
-            <button type="button" class="secondary mission-button" data-command="Notes에서 새 노트 만들어">새 노트</button>
-            <button type="button" class="secondary mission-button" data-command="Finder 실행해">Finder 열기</button>
-            <button type="button" class="secondary mission-button" data-command="Spotify에서 focus playlist 틀어줘">집중 음악</button>
-          </div>
+          <button type="button" id="newThreadButton" class="thread-new-button">New Thread</button>
+          <div class="thread-list" id="threadList"></div>
         </section>
 
-        <section class="tool-section">
+        <section class="sidebar-panel sidebar-runtime">
           <div class="section-head">
-            <h2>음성 입력과 답변</h2>
+            <h2>Quick Controls</h2>
             <p id="voiceStatus">웨이크워드는 꺼져 있어요.</p>
           </div>
           <div class="controls-row">
-            <button type="button" id="wakeToggle">웨이크워드 켜기</button>
-            <button type="button" id="voiceOnceButton">한 번만 듣기</button>
+            <button type="button" class="secondary" id="openQuickPanelButton">Quick Panel</button>
+            <button type="button" class="secondary" id="voiceOnceButton">Voice Once</button>
           </div>
           <div class="controls-row">
-            <select id="speechLanguage">
-              <option value="ko-KR">한국어</option>
-              <option value="en-US">영어</option>
-            </select>
-            <select id="voiceSelect"></select>
-            <button type="button" class="secondary" id="previewVoiceButton">음성 미리듣기</button>
+            <button type="button" id="wakeToggle">Wake Word</button>
+            <button type="button" class="secondary" id="previewVoiceButton">Preview</button>
+          </div>
+          <div class="stack compact-stack">
+            <label class="field-group">
+              <span>입력 언어</span>
+              <select id="speechLanguage">
+                <option value="ko-KR">한국어</option>
+                <option value="en-US">영어</option>
+              </select>
+            </label>
+            <label class="field-group">
+              <span>시스템 음성</span>
+              <select id="voiceSelect"></select>
+            </label>
             <label class="checkbox">
               <input type="checkbox" id="speakReplies" checked />
               <span>응답 읽어주기</span>
             </label>
           </div>
-          <p class="helper-text">위 목록은 시스템 fallback 음성이에요. 아래에서 클라우드 TTS를 연결하면 자비스 답변 음성이 더 자연스러워집니다.</p>
+          <div class="status-grid" id="statusGrid"></div>
+        </section>
+      </aside>
+
+      <section class="aui-main">
+        <header class="thread-header">
+          <div class="thread-heading">
+            <p class="eyebrow">Current Thread</p>
+            <h2 id="threadHeading">New Chat</h2>
+            <p class="thread-subtitle" id="threadSubtitle">새 스레드에서 자비스와 대화를 시작해 보세요.</p>
+          </div>
+          <div class="thread-toolbar">
+            <button type="button" class="chip-button mission-button" data-command="지금 내가 뭘 먼저 해야 할지 정리해줘">우선순위 정리</button>
+            <button type="button" class="chip-button mission-button" data-command="지금 화면에서 중요한 것만 설명해줘">화면 설명</button>
+            <button type="button" class="chip-button mission-button" data-command="브라우저에서 최근 AI 뉴스 찾아줘">AI 뉴스</button>
+            <button type="button" class="chip-button mission-button" data-command="설치된 앱 목록 보여줘">앱 목록</button>
+          </div>
+        </header>
+
+        <section class="thread-root">
+          <div class="messages" id="messages"></div>
+
+          <div class="thread-footer">
+            <div class="thread-suggestions">
+              <button type="button" class="chip-button" data-command="오늘 해야 할 일 우선순위 정리해줘">오늘 일정 정리</button>
+              <button type="button" class="chip-button" data-command="크롬 켜고 Gmail 열어줘">Gmail 열기</button>
+              <button type="button" class="chip-button" data-command="Spotify에서 집중 음악 틀어줘">집중 음악</button>
+              <button type="button" class="chip-button" data-command="Notes에서 새 노트 만들어줘">노트 만들기</button>
+            </div>
+
+            <form id="commandForm" class="composer">
+              <textarea
+                id="commandInput"
+                rows="3"
+                placeholder="메시지를 입력하세요..."
+              ></textarea>
+              <div class="composer-row">
+                <p class="composer-hint">
+                  예: "크롬 켜고 Notion 로그인해서 오늘 할 일 정리해줘"
+                </p>
+                <button type="submit" id="submitButton" class="send-button">Send</button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </section>
+
+      <aside class="aui-rail">
+        <section class="rail-panel" id="screenPanel">
+          <div class="section-head">
+            <h2>Desktop Actions</h2>
+            <p>현재 화면과 바로 이어지는 동작들입니다.</p>
+          </div>
+          <div class="quick-grid">
+            <button type="button" id="ocrScreenButton">화면 OCR</button>
+            <button type="button" class="secondary" id="academicScreenButton">학습 설명</button>
+            <button type="button" class="secondary" id="browserReadButton">현재 페이지 읽기</button>
+            <button type="button" class="secondary" id="showAppsButton">앱 목록 보기</button>
+          </div>
         </section>
 
-        <section class="tool-section">
-          <div class="section-head">
-            <h2>자연스러운 TTS 설정</h2>
-            <p id="ttsProviderStatus">영어는 ElevenLabs, 한국어는 NAVER CLOVA Voice를 추천해요.</p>
+        <details class="rail-panel" id="browserPanel" open>
+          <summary class="section-head summary-head">
+            <span>
+              <h2>Browser</h2>
+              <p>URL 열기, 검색, 저장된 로그인 자동 입력</p>
+            </span>
+          </summary>
+          <div class="stack">
+            <input id="browserTarget" type="text" placeholder="URL 또는 검색어" />
           </div>
+          <div class="controls-row">
+            <button type="button" id="browserOpenButton">Open</button>
+            <button type="button" class="secondary" id="browserSearchButton">Search</button>
+            <button type="button" class="secondary" id="browserLoginButton">Login</button>
+          </div>
+        </details>
+
+        <details class="rail-panel" id="appPanel" open>
+          <summary class="section-head summary-head">
+            <span>
+              <h2>Apps</h2>
+              <p>앱 검색, 열기, 입력, 메뉴 클릭</p>
+            </span>
+          </summary>
+          <div class="desktop-pane">
+            <div class="app-toolbar">
+              <input id="appSearchInput" type="text" placeholder="설치된 앱 검색" />
+              <button type="button" class="secondary" id="refreshAppsButton">Refresh</button>
+            </div>
+            <div class="app-summary" id="appSummary">앱 목록을 불러오는 중...</div>
+            <div class="app-results" id="appResults"></div>
+            <div class="stack">
+              <input id="appControlTarget" type="text" placeholder="앱 이름 예: Notes" />
+              <input id="appControlText" type="text" placeholder="입력할 문장 또는 검색어" />
+              <input id="appControlMenu" type="text" placeholder="메뉴 경로 예: File > New Window" />
+            </div>
+            <div class="controls-row">
+              <button type="button" id="appOpenButton">Open App</button>
+              <button type="button" class="secondary" id="appFocusButton">Focus</button>
+              <button type="button" class="secondary" id="appTypeButton">Type</button>
+            </div>
+            <div class="controls-row">
+              <button type="button" class="secondary" id="appSearchButton">Search In App</button>
+              <button type="button" class="secondary" id="appEnterButton">Press Enter</button>
+              <button type="button" class="secondary" id="appNewItemButton">New Item</button>
+              <button type="button" class="secondary" id="appMenuButton">Menu Click</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="rail-panel" id="ttsPanel">
+          <summary class="section-head summary-head">
+            <span>
+              <h2>Voice Output</h2>
+              <p id="ttsProviderStatus">영어는 ElevenLabs, 한국어는 NAVER CLOVA Voice를 추천해요.</p>
+            </span>
+          </summary>
           <div class="controls-row">
             <label class="field-group">
               <span>영어 응답 엔진</span>
@@ -105,203 +207,82 @@
           </div>
           <div class="stack settings-stack">
             <details class="provider-card" open>
-              <summary>ElevenLabs 영어 우선</summary>
+              <summary>ElevenLabs</summary>
               <div class="stack">
                 <input id="elevenlabsApiKey" type="password" placeholder="ElevenLabs API Key" />
                 <div class="controls-row">
                   <input id="elevenlabsModelEn" type="text" placeholder="영어 모델 ID" />
-                  <input id="elevenlabsVoiceEn" type="text" placeholder="영어 voice ID 선택 입력" />
+                  <input id="elevenlabsVoiceEn" type="text" placeholder="영어 voice ID" />
                 </div>
                 <div class="controls-row">
                   <input id="elevenlabsModelKo" type="text" placeholder="한국어 fallback 모델 ID" />
-                  <input id="elevenlabsVoiceKo" type="text" placeholder="한국어 fallback voice ID 선택 입력" />
+                  <input id="elevenlabsVoiceKo" type="text" placeholder="한국어 fallback voice ID" />
                 </div>
               </div>
             </details>
-
-            <details class="provider-card" open>
-              <summary>NAVER CLOVA Voice 한국어 우선</summary>
+            <details class="provider-card">
+              <summary>NAVER CLOVA</summary>
               <div class="stack">
                 <div class="controls-row">
                   <input id="naverClovaClientId" type="text" placeholder="NAVER Client ID" />
                   <input id="naverClovaClientSecret" type="password" placeholder="NAVER Client Secret" />
                 </div>
                 <div class="controls-row">
-                  <input id="naverClovaSpeakerKo" type="text" placeholder="한국어 speaker 예: vyuna" />
-                  <input id="naverClovaSpeakerEn" type="text" placeholder="영어 speaker 예: matt" />
+                  <input id="naverClovaSpeakerKo" type="text" placeholder="한국어 speaker" />
+                  <input id="naverClovaSpeakerEn" type="text" placeholder="영어 speaker" />
                 </div>
               </div>
             </details>
-
             <details class="provider-card">
-              <summary>Cartesia 보조 영어</summary>
+              <summary>Cartesia</summary>
               <div class="stack">
                 <input id="cartesiaApiKey" type="password" placeholder="Cartesia API Key" />
                 <div class="controls-row">
                   <input id="cartesiaModelId" type="text" placeholder="Cartesia 모델 ID" />
-                  <input id="cartesiaVoiceEn" type="text" placeholder="영어 voice ID 선택 입력" />
+                  <input id="cartesiaVoiceEn" type="text" placeholder="영어 voice ID" />
                 </div>
-                <input id="cartesiaVoiceKo" type="text" placeholder="한국어 voice ID 선택 입력" />
+                <input id="cartesiaVoiceKo" type="text" placeholder="한국어 voice ID" />
               </div>
             </details>
-
             <details class="provider-card">
-              <summary>Google Cloud 예비 백업</summary>
+              <summary>Google Cloud</summary>
               <div class="stack">
                 <input id="googleCredentialsPath" type="text" placeholder="서비스 계정 JSON 절대 경로" />
               </div>
             </details>
           </div>
           <div class="controls-row">
-            <button type="button" id="saveTtsSettingsButton">음성 설정 저장</button>
-            <button type="button" class="secondary" id="refreshTtsSettingsButton">상태 새로고침</button>
+            <button type="button" id="saveTtsSettingsButton">Save</button>
+            <button type="button" class="secondary" id="refreshTtsSettingsButton">Refresh</button>
           </div>
-          <p class="helper-text" id="ttsProviderSummary">저장 후 미리듣기를 누르면 현재 연결된 TTS로 바로 확인할 수 있어요.</p>
-        </section>
-
-        <section class="tool-section">
-          <div class="section-head">
-            <h2>화면과 방송</h2>
-            <p>화면 읽기, 학습 보조, 방송 상태를 빠르게 확인해요.</p>
-          </div>
-          <div class="quick-grid">
-            <button type="button" id="ocrScreenButton">화면 OCR</button>
-            <button type="button" id="academicScreenButton">화면 설명 도움</button>
-            <button type="button" id="browserReadButton">현재 페이지 읽기</button>
-            <button type="button" id="obsStatusButton">OBS 상태</button>
-            <button type="button" id="startStreamButton">방송 시작</button>
-            <button type="button" id="stopStreamButton">방송 종료</button>
-          </div>
-        </section>
-
-        <section class="chat">
-          <div class="chat-toolbar">
-            <div class="chat-presets">
-              <button type="button" class="chip-button" data-command="오늘 해야 할 일 우선순위 정리해줘">오늘 일정 정리</button>
-              <button type="button" class="chip-button" data-command="거기서 엔터 눌러">엔터 누르기</button>
-              <button type="button" class="chip-button" data-command="방금 연 앱에서 hello 입력해">앱에 입력</button>
-              <button type="button" class="chip-button" data-command="Spotify에서 jazz 검색해줘">Spotify 검색</button>
-            </div>
-          </div>
-          <div class="messages" id="messages">
-            <article class="message assistant">
-              <span class="label">자비스</span>
-              <p>
-                한국어든 영어든 편하게 말해 주세요. 대화, 추천, 명령 수행을 자연스럽게 이어서 도와드릴게요.
-              </p>
-            </article>
-          </div>
-
-          <form id="commandForm" class="composer">
-            <textarea
-              id="commandInput"
-              rows="4"
-              placeholder="무엇을 하고 싶은지 편하게 입력해 주세요..."
-            ></textarea>
-            <div class="composer-row">
-              <button type="submit" id="submitButton">실행</button>
-              <span class="hint" id="shortcutHint"></span>
-            </div>
-          </form>
-        </section>
-
-        <section class="tool-section">
-          <div class="section-head">
-            <h2>앱 제어</h2>
-            <p>설치된 앱을 찾고, 앱 안에서 입력과 검색까지 이어서 할 수 있어요.</p>
-          </div>
-          <div class="desktop-grid">
-            <div class="desktop-pane">
-              <div class="app-toolbar">
-                <input id="appSearchInput" type="text" placeholder="설치된 앱 검색" />
-                <button type="button" class="secondary" id="refreshAppsButton">새로고침</button>
-              </div>
-              <div class="app-summary" id="appSummary">앱 목록을 불러오는 중...</div>
-              <div class="app-results" id="appResults"></div>
-            </div>
-
-            <div class="desktop-pane">
-              <div class="stack">
-                <input id="appControlTarget" type="text" placeholder="앱 이름 예: Notes" />
-                <input id="appControlText" type="text" placeholder="입력할 문장 또는 검색어" />
-                <input id="appControlMenu" type="text" placeholder="메뉴 경로 예: File > New Window" />
-              </div>
-              <div class="controls-row">
-                <button type="button" id="appOpenButton">앱 열기</button>
-                <button type="button" class="secondary" id="appFocusButton">앞으로 가져오기</button>
-                <button type="button" class="secondary" id="appTypeButton">텍스트 입력</button>
-              </div>
-              <div class="controls-row">
-                <button type="button" class="secondary" id="appSearchButton">앱 안 검색</button>
-                <button type="button" class="secondary" id="appEnterButton">엔터 누르기</button>
-                <button type="button" class="secondary" id="appNewItemButton">새 항목 만들기</button>
-              </div>
-              <div class="controls-row">
-                <button type="button" class="secondary" id="appMenuButton">메뉴 누르기</button>
-                <button type="button" class="secondary" id="showAppsButton">앱 목록 보기</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <details class="tool-section collapsible">
-          <summary class="section-head summary-head">
-            <span>
-              <h2>브라우저 자동화</h2>
-              <p>웹 열기, 검색, 로그인 자동 입력 같은 작업을 할 수 있어요.</p>
-            </span>
-          </summary>
-          <input id="browserTarget" type="text" placeholder="URL 또는 검색어" />
-          <div class="controls-row">
-            <button type="button" id="browserOpenButton">열기</button>
-            <button type="button" id="browserSearchButton">검색</button>
-            <button type="button" id="browserLoginButton">로그인 입력</button>
-          </div>
+          <p class="sidebar-hint" id="ttsProviderSummary">저장 후 미리듣기를 누르면 현재 연결된 TTS로 확인할 수 있어요.</p>
         </details>
 
-        <details class="tool-section collapsible">
+        <details class="rail-panel" id="vaultPanel">
           <summary class="section-head summary-head">
             <span>
-              <h2>로그인 보관함</h2>
-              <p>자동화를 위해 OS 암호화 저장소에 로그인 정보를 보관합니다.</p>
+              <h2>Vault</h2>
+              <p>로그인 정보를 로컬 보안 저장소에 보관합니다.</p>
             </span>
           </summary>
           <div class="stack">
             <input id="credentialSite" type="text" placeholder="사이트 또는 도메인 예: github.com" />
-            <input id="credentialLoginUrl" type="text" placeholder="로그인 URL 선택 입력" />
+            <input id="credentialLoginUrl" type="text" placeholder="로그인 URL" />
             <input id="credentialUsername" type="text" placeholder="아이디 또는 이메일" />
             <input id="credentialPassword" type="password" placeholder="비밀번호" />
           </div>
           <div class="controls-row">
-            <button type="button" id="saveCredentialButton">로그인 저장</button>
-            <button type="button" id="listCredentialsButton">저장 목록 보기</button>
+            <button type="button" id="saveCredentialButton">Save</button>
+            <button type="button" class="secondary" id="listCredentialsButton">List</button>
           </div>
           <div class="credential-list" id="credentialList"></div>
         </details>
 
-        <details class="tool-section collapsible">
+        <details class="rail-panel" id="filesPanel">
           <summary class="section-head summary-head">
             <span>
-              <h2>OBS 제어</h2>
-              <p>OBS 연결, 상태 확인, 씬 전환을 할 수 있어요.</p>
-            </span>
-          </summary>
-          <div class="stack">
-            <input id="obsAddress" type="text" value="ws://127.0.0.1:4455" />
-            <input id="obsPassword" type="password" placeholder="비밀번호가 있으면 입력" />
-            <input id="obsSceneName" type="text" placeholder="씬 이름 선택 입력" />
-          </div>
-          <div class="controls-row">
-            <button type="button" id="obsConnectButton">OBS 연결</button>
-            <button type="button" id="obsSceneButton">씬 전환</button>
-          </div>
-        </details>
-
-        <details class="tool-section collapsible">
-          <summary class="section-head summary-head">
-            <span>
-              <h2>파일 작업</h2>
-              <p>파일을 읽고, 수정하고, 새로 만들 수 있어요.</p>
+              <h2>Files</h2>
+              <p>파일 읽기, 쓰기, 폴더 목록</p>
             </span>
           </summary>
           <div class="stack">
@@ -309,17 +290,43 @@
             <textarea id="fileContent" rows="8" placeholder="파일 내용"></textarea>
           </div>
           <div class="controls-row">
-            <button type="button" id="fileReadButton">파일 읽기</button>
-            <button type="button" id="fileWriteButton">파일 쓰기</button>
-            <button type="button" id="fileListButton">폴더 목록</button>
+            <button type="button" id="fileReadButton">Read</button>
+            <button type="button" class="secondary" id="fileWriteButton">Write</button>
+            <button type="button" class="secondary" id="fileListButton">List</button>
           </div>
         </details>
 
-        <section class="actions">
-          <h2>최근 실행 기록</h2>
+        <details class="rail-panel" id="obsPanel">
+          <summary class="section-head summary-head">
+            <span>
+              <h2>OBS</h2>
+              <p>연결, 상태, 씬 전환, 스트리밍 제어</p>
+            </span>
+          </summary>
+          <div class="quick-grid">
+            <button type="button" class="secondary" id="obsStatusButton">Status</button>
+            <button type="button" class="secondary" id="startStreamButton">Start Stream</button>
+            <button type="button" class="secondary" id="stopStreamButton">Stop Stream</button>
+          </div>
+          <div class="stack">
+            <input id="obsAddress" type="text" value="ws://127.0.0.1:4455" />
+            <input id="obsPassword" type="password" placeholder="비밀번호" />
+            <input id="obsSceneName" type="text" placeholder="씬 이름" />
+          </div>
+          <div class="controls-row">
+            <button type="button" id="obsConnectButton">Connect</button>
+            <button type="button" class="secondary" id="obsSceneButton">Switch Scene</button>
+          </div>
+        </details>
+
+        <section class="rail-panel">
+          <div class="section-head">
+            <h2>Recent Actions</h2>
+            <p>최근 실행 기록입니다.</p>
+          </div>
           <div class="chips" id="actionChips"></div>
         </section>
-      </section>
+      </aside>
     </main>
     <script type="module" src="./renderer.js"></script>
   </body>

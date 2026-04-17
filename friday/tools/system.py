@@ -5,8 +5,8 @@ System tools — time, environment info, shell commands, etc.
 import datetime
 import platform
 import subprocess
-import os
 import pathlib
+from friday.safety import block_dangerous_command, guard_sensitive_action, log_sensitive_action
 
 
 def register(mcp):
@@ -27,10 +27,25 @@ def register(mcp):
         }
 
     @mcp.tool()
-    def run_shell_command(command: str) -> str:
+    def run_shell_command(command: str, confirmed: bool = False) -> str:
         """Execute a shell command and return the output."""
+        blocked = guard_sensitive_action("run_shell_command", target=command, confirmed=confirmed)
+        if blocked:
+            return blocked
+
+        dangerous = block_dangerous_command(command)
+        if dangerous:
+            log_sensitive_action("run_shell_command", target=command, status="blocked-pattern")
+            return dangerous
+
         try:
             result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+            log_sensitive_action(
+                "run_shell_command",
+                target=command,
+                status="executed",
+                extra={"returncode": result.returncode},
+            )
             return f"Exit code: {result.returncode}\nStdout: {result.stdout}\nStderr: {result.stderr}"
         except Exception as e:
             return f"Command failed: {str(e)}"
