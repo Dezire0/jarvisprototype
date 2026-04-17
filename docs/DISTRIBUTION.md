@@ -58,10 +58,10 @@ Public site environment variables:
 
 ```bash
 NEXT_PUBLIC_JARVIS_SITE_MODE=download
-NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL=https://downloads.example.com/jarvis/Jarvis%20Desktop-0.1.0-win.exe
-NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL=https://downloads.example.com/jarvis/Jarvis%20Desktop-0.1.0-mac-arm64.dmg
-NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL=https://downloads.example.com/jarvis/Jarvis%20Desktop-0.1.0-linux.AppImage
-NEXT_PUBLIC_JARVIS_RELEASE_NOTES_URL=https://downloads.example.com/jarvis/releases
+NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL=
+NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL=https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.0/Jarvis-Desktop-0.1.0-mac-arm64.dmg
+NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL=
+NEXT_PUBLIC_JARVIS_RELEASE_NOTES_URL=https://github.com/Dezire0/jarvisprototype/releases
 ```
 
 Routes:
@@ -147,8 +147,8 @@ Environment variables:
 
 ```bash
 JARVIS_UPDATER_PROVIDER=github
-JARVIS_GITHUB_OWNER=your-account-or-org
-JARVIS_GITHUB_REPO=jarvis-desktop
+JARVIS_GITHUB_OWNER=Dezire0
+JARVIS_GITHUB_REPO=jarvisprototype
 JARVIS_GITHUB_RELEASE_TYPE=release
 JARVIS_GITHUB_PRIVATE=0
 GH_TOKEN=...

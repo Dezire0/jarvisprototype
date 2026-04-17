@@ -51,7 +51,7 @@ module.exports = {
   directories: {
     output: "release"
   },
-  artifactName: "${productName}-${version}-${os}-${arch}.${ext}",
+  artifactName: "Jarvis-Desktop-${version}-${os}-${arch}.${ext}",
   files: [
     "src/**/*",
     "package.json",
