@@ -1,0 +1,47 @@
+name: Deploy Install Site
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "site/install-web/**"
+      - "scripts/sync-install-site-config.cjs"
+      - "scripts/deploy-install-site.cjs"
+
+concurrency:
+  group: install-site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: site/install-web/package-lock.json
+
+      - name: Install install-site dependencies
+        run: npm ci
+        working-directory: site/install-web
+
+      - name: Deploy to Cloudflare Pages
+        run: node ../../scripts/deploy-install-site.cjs
+        working-directory: site/install-web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PAGES_PROJECT_NAME: dexproject
+          CF_PAGES_BRANCH: main
+          CF_PAGES_COMMIT_HASH: ${{ github.sha }}
+          CF_PAGES_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          CF_PAGES_COMMIT_DIRTY: "false"

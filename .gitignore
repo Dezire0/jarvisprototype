@@ -64,3 +64,4 @@ ScreenRecording_*.mov
 
 # Logs
 *.log
+site/install-web/.wrangler/

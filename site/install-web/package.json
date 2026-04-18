@@ -4,9 +4,10 @@
   "scripts": {
     "sync": "node ../../scripts/sync-install-site-config.cjs",
     "dev": "npm run sync && wrangler pages dev public",
-    "deploy": "npm run sync && wrangler pages deploy public --project-name dexproject --branch main --commit-dirty=true"
+    "deploy": "node ../../scripts/deploy-install-site.cjs",
+    "deploy:ci": "node ../../scripts/deploy-install-site.cjs"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.83.0"
   }
 }

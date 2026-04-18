@@ -8,7 +8,7 @@ window.JARVIS_INSTALL_CONFIG = {
   "windowsDownloadUrl": "",
   "macDownloadUrl": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.0/Jarvis-Desktop-0.1.0-mac-arm64.dmg",
   "linuxDownloadUrl": "",
-  "releaseNotesUrl": "https://github.com/Dezire0/jarvisprototype/releases/tag/v0.1.0",
+  "releaseNotesUrl": "https://github.com/Dezire0/jarvisprototype/releases",
   "downloads": [
     {
       "platform": "macOS",
@@ -16,22 +16,10 @@ window.JARVIS_INSTALL_CONFIG = {
       "format": ".dmg",
       "href": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.0/Jarvis-Desktop-0.1.0-mac-arm64.dmg",
       "channel": "installer",
-      "architecture": "arm64",
+      "architecture": "Apple Silicon",
       "hint": "Applications 폴더로 이동해 설치하는 기본 macOS 패키지입니다.",
       "recommended": true,
-      "sizeBytes": 136112197,
-      "downloadCount": 9
-    },
-    {
-      "platform": "macOS",
-      "label": "macOS Archive",
-      "format": ".zip",
-      "href": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.0/Jarvis-Desktop-0.1.0-mac-arm64.zip",
-      "channel": "archive",
-      "architecture": "arm64",
-      "hint": "수동 배포나 보관용 zip 아카이브입니다.",
-      "recommended": false,
-      "sizeBytes": 131990198,
+      "sizeBytes": 0,
       "downloadCount": 0
     }
   ],
@@ -52,5 +40,5 @@ window.JARVIS_INSTALL_CONFIG = {
       "message": "Linux 버전은 준비 중입니다. 공개되면 이 페이지에서 바로 시작할 수 있습니다."
     }
   ],
-  "generatedAt": "2026-04-18T22:18:37.347Z"
+  "generatedAt": "2026-04-18T23:43:30.659Z"
 };

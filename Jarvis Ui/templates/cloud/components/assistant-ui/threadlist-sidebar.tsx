@@ -1,5 +1,6 @@
 import type * as React from "react";
 import { useAui, useAuiState } from "@assistant-ui/react";
+import { useJarvisExtensions } from "@/components/jarvis/extensions-provider";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import {
   Sidebar,
@@ -11,8 +12,11 @@ import {
 import { ThreadList } from "@/components/assistant-ui/thread-list";
 import {
   CommandIcon,
+  Link2Icon,
   MicIcon,
   PanelLeftIcon,
+  PlugIcon,
+  RefreshCcwIcon,
   SparklesIcon,
 } from "lucide-react";
 
@@ -43,11 +47,87 @@ function QuickActionButton({
   );
 }
 
+function ExtensionNames({
+  items,
+  emptyLabel,
+}: {
+  items: string[];
+  emptyLabel: string;
+}) {
+  if (items.length === 0) {
+    return (
+      <span className="text-xs leading-5 text-muted-foreground">
+        {emptyLabel}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.slice(0, 3).map((item) => (
+        <span
+          key={item}
+          className="rounded-full border border-border/70 bg-background/70 px-2 py-1 text-[11px] leading-none text-foreground/90"
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ExtensionCard({
+  icon,
+  title,
+  caption,
+  count,
+  items,
+  emptyLabel,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  caption: string;
+  count: number;
+  items: string[];
+  emptyLabel: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/60 bg-background/55 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-border/70 bg-card/80 p-2 text-foreground">
+            {icon}
+          </span>
+          <div>
+            <p className="text-sm font-semibold leading-none">{title}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {caption}
+            </p>
+          </div>
+        </div>
+        <span className="rounded-full border border-border/70 px-2 py-1 text-xs font-medium text-foreground">
+          {count}
+        </span>
+      </div>
+      <ExtensionNames items={items} emptyLabel={emptyLabel} />
+    </div>
+  );
+}
+
 export function ThreadListSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const { supported, status, error, continuous, startOnce, toggleContinuous } =
     useJarvisVoice();
+  const {
+    available: extensionsAvailable,
+    status: extensionsStatus,
+    refreshing: extensionsRefreshing,
+    error: extensionsError,
+    summary: extensionSummary,
+    registry: extensionRegistry,
+    reload: reloadExtensions,
+  } = useJarvisExtensions();
 
   const voiceLabel =
     status === "listening"
@@ -67,6 +147,22 @@ export function ThreadListSidebar({
         ? "연속 음성 모드가 켜져 있어요. 응답 후 다시 바로 듣습니다."
         : "마이크 버튼으로 한 번 듣기, 연속 모드로 계속 대화할 수 있어요."
       : "이 환경에서는 Web Speech 음성 인식을 사용할 수 없어요.";
+
+  const extensionsLabel =
+    extensionsStatus === "ready"
+      ? "Connected"
+      : extensionsStatus === "loading"
+        ? "Loading"
+        : extensionsStatus === "error"
+          ? "Needs attention"
+          : "Desktop only";
+
+  const extensionsDescription =
+    extensionsStatus === "error"
+      ? extensionsError || "확장 기능 정보를 읽는 중 문제가 생겼어요."
+      : extensionsAvailable
+        ? "Connector는 앱 별칭을 실제 앱 이름으로 보정하고, Skill은 앱 제어 플래너에 힌트를 더하고, Webhook은 일반 라우팅 전에 먼저 실행됩니다."
+        : "데스크톱 앱 안에서 실행할 때만 로컬 extensions 폴더를 읽어올 수 있어요.";
 
   return (
     <Sidebar
@@ -132,6 +228,75 @@ export function ThreadListSidebar({
         </section>
 
         <section className="rounded-[26px] border border-border/70 bg-card/80 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+                Extensions
+              </p>
+              <h3 className="mt-1 text-sm font-semibold">{extensionsLabel}</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => void reloadExtensions()}
+              disabled={!extensionsAvailable || extensionsRefreshing}
+              className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-2 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <RefreshCcwIcon
+                className={`size-3.5 ${extensionsRefreshing ? "animate-spin" : ""}`}
+              />
+              Reload
+            </button>
+          </div>
+          <p className="mb-3 text-sm leading-6 text-muted-foreground">
+            {extensionsDescription}
+          </p>
+          <div className="grid gap-2">
+            <ExtensionCard
+              icon={<PlugIcon className="size-3.5" />}
+              title="Connectors"
+              caption="앱 별칭을 실제 대상 앱 이름으로 보정"
+              count={extensionSummary.connectors}
+              items={extensionRegistry.connectors.map(
+                (connector) => connector.canonicalName || connector.name,
+              )}
+              emptyLabel="아직 연결된 앱 보정 규칙이 없어요."
+            />
+            <ExtensionCard
+              icon={<SparklesIcon className="size-3.5" />}
+              title="Skills"
+              caption="플래너가 복합 명령을 해석할 때 참고하는 힌트"
+              count={extensionSummary.skills}
+              items={extensionRegistry.skills.map((skill) => skill.name)}
+              emptyLabel="아직 앱 전용 스킬 힌트가 없어요."
+            />
+            <ExtensionCard
+              icon={<Link2Icon className="size-3.5" />}
+              title="Webhooks"
+              caption="일반 도구 라우팅 전에 바로 실행되는 빠른 트리거"
+              count={extensionSummary.webhooks}
+              items={extensionRegistry.webhooks.map((webhook) => webhook.name)}
+              emptyLabel="아직 즉시 실행 웹훅이 없어요."
+            />
+          </div>
+          <div className="mt-3 rounded-2xl border border-border/60 bg-background/55 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+                Loaded manifests
+              </p>
+              <span className="text-xs text-muted-foreground">
+                {extensionRegistry.loadedFiles.length} files
+              </span>
+            </div>
+            <ExtensionNames
+              items={extensionRegistry.loadedFiles.map((filePath) =>
+                filePath.split(/[/\\]/).pop() || filePath,
+              )}
+              emptyLabel="extensions 폴더에서 읽은 JSON 매니페스트가 아직 없어요."
+            />
+          </div>
+        </section>
+
+        <section className="rounded-[26px] border border-border/70 bg-card/80 p-3">
           <div className="mb-3 flex items-center gap-2">
             <CommandIcon className="size-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold">Quick actions</h3>
@@ -167,8 +332,8 @@ export function ThreadListSidebar({
       <SidebarRail />
       <SidebarFooter className="aui-sidebar-footer border-none px-3 pb-4">
         <div className="rounded-[24px] border border-border/70 bg-card/75 px-4 py-3 text-sm text-muted-foreground">
-          음성 인식은 현재 `Jarvis Ui`에 직접 연결되어 있고, assistant
-          transport와 같은 스레드로 바로 전송됩니다.
+          음성 인식은 현재 `Jarvis Ui`에 직접 연결되어 있고, extensions
+          registry도 같은 데스크톱 브리지에서 함께 읽어옵니다.
         </div>
       </SidebarFooter>
     </Sidebar>
