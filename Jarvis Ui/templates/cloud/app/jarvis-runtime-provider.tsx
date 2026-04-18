@@ -177,7 +177,7 @@ function transportConverter(state: TransportState, connectionMetadata: { isSendi
 function useJarvisTransportRuntime() {
   return useAssistantTransportRuntime<TransportState>({
     initialState: INITIAL_STATE,
-    api: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8010/assistant",
+    api: "/api/chat",
     headers: TRANSPORT_HEADERS,
     converter: transportConverter,
     onError: (error) => {

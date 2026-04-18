@@ -7,10 +7,16 @@ Jarvis Desktop can now be packaged as a real desktop application instead of only
 - Electron main process
 - popup window and desktop window
 - local assistant transport server on `127.0.0.1:8010`
-- bundled assistant-ui desktop frontend built from `Jarvis Ui/templates/cloud`
+- bundled assistant-ui / Next frontend from `Jarvis Ui/templates/cloud` by default
+- optional original local Jarvis desktop renderer fallback
 - auto-update checks through `electron-updater`
 
-In packaged builds, the app launches its own bundled Next standalone server from `resources/desktop-ui/templates/cloud/server.js`, then points the desktop window at that local URL.
+Desktop UI mode is controlled with `JARVIS_DESKTOP_UI_MODE`:
+
+- `next` launches the bundled Next standalone server from `resources/desktop-ui/templates/cloud/server.js`
+- `local` loads the original desktop renderer from `src/renderer/index.html`
+
+If you do not set anything, the desktop app now defaults to `next`.
 
 ## Build commands
 
@@ -54,6 +60,38 @@ What to host on your website:
 
 The bundled Next app now supports a public download landing mode.
 
+## macOS launch note for unsigned builds
+
+If you distribute the macOS app before Apple Developer signing and notarization are in place, Gatekeeper may block the downloaded app even when the bundle itself is valid.
+
+Symptoms:
+
+- the app appears to install correctly but does not open from `Applications`
+- Finder says the app cannot be opened or silently refuses to launch
+- `spctl --assess --type execute` reports the bundle as rejected
+
+Immediate workaround on the target Mac:
+
+```bash
+cd "/Users/JYH/Desktop/Jarvis Prototype"
+npm run fix:mac-launch
+```
+
+If the app is being opened from a shell session that has `ELECTRON_RUN_AS_NODE=1`, use this safer launcher instead:
+
+```bash
+cd "/Users/JYH/Desktop/Jarvis Prototype"
+npm run open:app
+```
+
+You can also pass a custom app path:
+
+```bash
+npm run fix:mac-launch -- "/Applications/Jarvis Desktop.app"
+```
+
+This removes the `com.apple.quarantine` attribute and opens the app once. The permanent production fix is still Developer ID signing plus notarization.
+
 Public site environment variables:
 
 ```bash
@@ -74,6 +112,47 @@ This means you can build the same codebase in two modes:
 
 - desktop packaged app mode
 - public download website mode
+
+## Dedicated install website for Cloudflare Workers
+
+This repo now also includes a separate static install website at `site/install-web`.
+
+What it is for:
+
+- Apple-style public landing page
+- Apple-like light / dark theme toggle
+- pre-install agreement / consent flow
+- OS-specific install wizard
+- direct deployment to Cloudflare Pages with static assets
+- real GitHub Release assets only, with pending platforms shown honestly
+
+How it gets its public download URLs:
+
+- `scripts/sync-install-site-config.cjs` reads the root `.env` / `.env.local`
+- it inspects the GitHub Release for the current `package.json` version when `gh` is available
+- it writes the public config into `site/install-web/public/config.js`
+
+Useful commands from the repo root:
+
+```bash
+npm run site:install:sync
+npm run site:install:dev
+npm run site:install:deploy
+```
+
+Cloudflare Pages project files:
+
+- `site/install-web/wrangler.toml`
+- `site/install-web/public/index.html`
+- `site/install-web/public/styles.css`
+- `site/install-web/public/script.js`
+
+Notes:
+
+- `npm run site:install:deploy` requires `wrangler` login on the machine.
+- the generated public site prefers actual GitHub Release assets for the current version and falls back to `NEXT_PUBLIC_JARVIS_*_DOWNLOAD_URL` only when needed.
+- if you only want to refresh the public installer catalog, rerun `npm run site:install:sync`.
+- current public URL: `https://dexproject.pages.dev`
 
 ## Production macOS signing and notarization
 
@@ -160,7 +239,7 @@ GH_TOKEN=...
 2. Export your updater environment variables.
 3. Run the platform build you need, or `npm run release`.
 4. Upload the generated installer files from `release/` to GitHub Releases or your HTTPS host.
-5. If you are using the public website flow, update the `NEXT_PUBLIC_JARVIS_*_DOWNLOAD_URL` values and deploy the website build.
+5. If you are using the public website flow, upload the actual installer assets to the matching GitHub Release and deploy the website build.
 6. Install the old version on another machine.
 7. Publish the new version metadata and installer files.
 8. In the installed app, use `Help -> Check for Updates...`.

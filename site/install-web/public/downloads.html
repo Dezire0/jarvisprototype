@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>Jarvis Desktop Downloads</title>
+    <meta
+      name="description"
+      content="Jarvis Desktop 무료 다운로드와 설치 전 동의."
+    />
+    <meta name="theme-color" content="#f5f5f7" id="theme-color-meta" />
+    <link rel="icon" href="./assets/jarvis-logo-badge.png" />
+    <script>
+      (() => {
+        try {
+          const storedTheme = window.localStorage.getItem("jarvis-install-theme-v1");
+          const resolvedTheme =
+            storedTheme === "dark" || storedTheme === "light"
+              ? storedTheme
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+
+          document.documentElement.dataset.theme = resolvedTheme;
+        } catch (_error) {
+          document.documentElement.dataset.theme = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches
+            ? "dark"
+            : "light";
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./config.js"></script>
+    <script src="./script.js" defer></script>
+  </head>
+  <body data-page="downloads">
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="brand" href="./index.html" aria-label="소개 페이지로 이동">
+          <img
+            src="./assets/jarvis-logo-badge.png"
+            alt=""
+            class="brand-mark"
+            width="42"
+            height="42"
+          />
+          <div class="brand-text">
+            <p class="brand-kicker">DexProject</p>
+            <p class="brand-label">Jarvis Desktop</p>
+          </div>
+        </a>
+
+        <nav class="topnav" aria-label="페이지 섹션">
+          <a href="./index.html#overview">Overview</a>
+          <a href="./index.html#capabilities">Capabilities</a>
+          <a href="#downloads">Downloads</a>
+          <a href="#agreement-panel">Install</a>
+        </nav>
+
+        <div class="topbar-actions">
+          <button
+            type="button"
+            class="theme-toggle"
+            id="theme-toggle"
+            aria-label="테마 전환"
+          >
+            <span class="theme-toggle-track">
+              <span class="theme-toggle-label">밝게</span>
+              <span class="theme-toggle-label">어둡게</span>
+            </span>
+          </button>
+          <a href="./index.html" class="cta cta-secondary">Overview</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="download-hero hero">
+        <div class="hero-orb hero-orb-a" aria-hidden="true"></div>
+        <div class="hero-orb hero-orb-b" aria-hidden="true"></div>
+        <div class="shell download-hero-inner">
+          <p class="hero-kicker">FREE DOWNLOAD</p>
+          <h1 class="download-title headline-balance">
+            운영체제를 고르고,<br />
+            약관을 확인한 뒤,<br />
+            바로 설치를 시작하세요.
+          </h1>
+          <p class="download-body body-balance">
+            이 페이지는 다운로드와 설치 전 동의에만 집중합니다. macOS,
+            Windows, Linux 가운데 원하는 환경을 선택하면 아래로 자연스럽게
+            이어지는 설치 확인 패널이 열립니다.
+          </p>
+          <div class="hero-meta" id="download-page-meta"></div>
+        </div>
+      </section>
+
+      <section class="download-selector reveal" id="downloads">
+        <div class="shell">
+          <div class="section-heading">
+            <div class="section-heading-text">
+              <p class="surface-label">Downloads</p>
+              <h2 class="section-title headline-balance">
+                플랫폼만 고르면 됩니다.
+              </h2>
+            </div>
+            <p class="section-copy body-balance">
+              설치 파일 이름을 따로 고를 필요 없이, 각 운영체제의 기본 다운로드
+              경로만 보여 줍니다.
+            </p>
+          </div>
+
+          <div class="download-platform-grid" id="download-platform-grid"></div>
+
+          <section class="agreement-panel" id="agreement-panel" aria-live="polite"></section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-inner">
+        <p class="footer-copy">
+          다운로드 전 안내를 끝내고 나면, 실제 설치는 각 운영체제에 맞는 기본
+          파일로 바로 이어집니다.
+        </p>
+        <div class="footer-links">
+          <a href="./index.html">Overview</a>
+          <a href="#downloads">Downloads</a>
+          <a href="#agreement-panel">Install</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

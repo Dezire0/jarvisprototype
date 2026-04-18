@@ -3,7 +3,9 @@ const { GoogleAuth } = require("google-auth-library");
 const CARTESIA_API_URL = "https://api.cartesia.ai";
 const CARTESIA_API_VERSION = "2025-04-16";
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1";
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 const NAVER_CLOVA_TTS_URL = "https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts";
+const OPENAI_TTS_API_URL = "https://api.openai.com/v1/audio/speech";
 
 const CARTESIA_PREFERRED_ENGLISH_VOICES = ["Katie", "Brooke", "Jacqueline", "Carson", "Ronald"];
 const ELEVENLABS_PREFERRED_ENGLISH_VOICES = ["George", "Brian", "Adam", "Charlie", "Daniel", "Eric"];
@@ -24,6 +26,35 @@ function pickFirstNonEmpty(...values) {
   return values.find((value) => String(value || "").trim()) || "";
 }
 
+function parseMimeParameter(mimeType = "", name) {
+  const match = String(mimeType).match(new RegExp(`${name}=([^;]+)`, "i"));
+  return match ? Number(match[1]) || null : null;
+}
+
+function wrapPcm16ToWav(buffer, { sampleRate = 24000, channels = 1 } = {}) {
+  const audioBuffer = Buffer.from(buffer);
+  const bytesPerSample = 2;
+  const header = Buffer.alloc(44);
+  const byteRate = sampleRate * channels * bytesPerSample;
+  const blockAlign = channels * bytesPerSample;
+
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + audioBuffer.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(audioBuffer.length, 40);
+
+  return Buffer.concat([header, audioBuffer]);
+}
+
 function buildGoogleVoiceConfig(languageCode = "en-US") {
   const cleanLanguageCode = /^ko/i.test(languageCode) ? "ko-KR" : "en-US";
 
@@ -31,6 +62,14 @@ function buildGoogleVoiceConfig(languageCode = "en-US") {
     languageCode: cleanLanguageCode,
     ssmlGender: /^ko/i.test(cleanLanguageCode) ? "FEMALE" : "NEUTRAL"
   };
+}
+
+function buildOpenAiInstructions(languageCode = "en-US") {
+  if (/^ko/i.test(languageCode)) {
+    return "Speak clearly in Korean with a calm, polished assistant tone.";
+  }
+
+  return "Speak in a calm, polished assistant tone.";
 }
 
 class TtsService {
@@ -69,6 +108,51 @@ class TtsService {
         speakerEn: pickFirstNonEmpty(stored.naverClova?.speakerEn, process.env.NAVER_CLOVA_SPEAKER_EN, "matt"),
         speakerKo: pickFirstNonEmpty(stored.naverClova?.speakerKo, process.env.NAVER_CLOVA_SPEAKER_KO, "vyuna")
       },
+      openai: {
+        apiKey: pickFirstNonEmpty(stored.openai?.apiKey, process.env.OPENAI_API_KEY),
+        model: pickFirstNonEmpty(
+          stored.openai?.model,
+          process.env.OPENAI_TTS_MODEL_DESKTOP,
+          process.env.OPENAI_TTS_MODEL,
+          "gpt-4o-mini-tts"
+        ),
+        voiceEn: pickFirstNonEmpty(
+          stored.openai?.voiceEn,
+          process.env.OPENAI_TTS_VOICE_EN,
+          process.env.OPENAI_TTS_VOICE,
+          "marin"
+        ),
+        voiceKo: pickFirstNonEmpty(
+          stored.openai?.voiceKo,
+          process.env.OPENAI_TTS_VOICE_KO,
+          process.env.OPENAI_TTS_VOICE,
+          "marin"
+        )
+      },
+      gemini: {
+        apiKey: pickFirstNonEmpty(stored.gemini?.apiKey, process.env.GEMINI_API_KEY, process.env.GOOGLE_API_KEY),
+        model: pickFirstNonEmpty(
+          stored.gemini?.model,
+          process.env.GEMINI_TTS_MODEL,
+          process.env.GOOGLE_TTS_MODEL_DESKTOP,
+          process.env.GOOGLE_TTS_MODEL,
+          "gemini-3.1-flash-tts-preview"
+        ),
+        voiceEn: pickFirstNonEmpty(
+          stored.gemini?.voiceEn,
+          process.env.GEMINI_TTS_VOICE_EN,
+          process.env.GOOGLE_TTS_VOICE_EN,
+          process.env.GOOGLE_TTS_VOICE,
+          "Aoede"
+        ),
+        voiceKo: pickFirstNonEmpty(
+          stored.gemini?.voiceKo,
+          process.env.GEMINI_TTS_VOICE_KO,
+          process.env.GOOGLE_TTS_VOICE_KO,
+          process.env.GOOGLE_TTS_VOICE,
+          "Kore"
+        )
+      },
       google: {
         credentialsPath: pickFirstNonEmpty(stored.google?.credentialsPath, process.env.GOOGLE_APPLICATION_CREDENTIALS)
       }
@@ -88,6 +172,14 @@ class TtsService {
     return Boolean(config.clientId && config.clientSecret);
   }
 
+  hasOpenAICredentials() {
+    return Boolean(this.getRuntimeConfig().openai.apiKey);
+  }
+
+  hasGeminiCredentials() {
+    return Boolean(this.getRuntimeConfig().gemini.apiKey);
+  }
+
   hasExplicitGoogleCredentials() {
     return Boolean(this.getRuntimeConfig().google.credentialsPath);
   }
@@ -103,6 +195,22 @@ class TtsService {
 
     if (this.hasCartesiaCredentials() && this.hasNaverClovaCredentials()) {
       return "cartesia + naver-clova";
+    }
+
+    if (this.hasNaverClovaCredentials() && this.hasGeminiCredentials()) {
+      return "naver-clova + gemini";
+    }
+
+    if (this.hasGeminiCredentials() && this.hasOpenAICredentials()) {
+      return "gemini + openai";
+    }
+
+    if (this.hasGeminiCredentials()) {
+      return "gemini";
+    }
+
+    if (this.hasOpenAICredentials()) {
+      return "openai";
     }
 
     if (this.hasCartesiaCredentials()) {
@@ -129,8 +237,8 @@ class TtsService {
     const config = this.getRuntimeConfig();
     const configured = language === "ko" ? config.providers.ko : config.providers.en;
     const defaults = language === "ko"
-      ? ["naver-clova", "elevenlabs", "cartesia", "google-cloud", "system"]
-      : ["elevenlabs", "cartesia", "google-cloud", "naver-clova", "system"];
+      ? ["naver-clova", "gemini", "elevenlabs", "cartesia", "openai", "google-cloud", "system"]
+      : ["elevenlabs", "openai", "gemini", "cartesia", "google-cloud", "naver-clova", "system"];
 
     const ordered = configured && configured !== "auto"
       ? [configured, ...defaults]
@@ -183,6 +291,32 @@ class TtsService {
       "X-NCP-APIGW-API-KEY-ID": config.clientId,
       "X-NCP-APIGW-API-KEY": config.clientSecret,
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+    };
+  }
+
+  buildOpenAIHeaders() {
+    const apiKey = this.getRuntimeConfig().openai.apiKey;
+
+    if (!apiKey) {
+      throw new Error("OpenAI TTS credentials are not configured.");
+    }
+
+    return {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    };
+  }
+
+  buildGeminiHeaders() {
+    const apiKey = this.getRuntimeConfig().gemini.apiKey;
+
+    if (!apiKey) {
+      throw new Error("Gemini TTS credentials are not configured.");
+    }
+
+    return {
+      "x-goog-api-key": apiKey,
+      "Content-Type": "application/json"
     };
   }
 
@@ -517,6 +651,123 @@ class TtsService {
     };
   }
 
+  async speakWithOpenAI({ text, languageCode }) {
+    const clippedText = clampTtsText(text);
+
+    if (!clippedText) {
+      throw new Error("Text is required for speech synthesis.");
+    }
+
+    const config = this.getRuntimeConfig().openai;
+    const language = normalizeTtsLanguage(languageCode);
+    const voice = language === "ko" ? config.voiceKo : config.voiceEn;
+    const response = await fetch(OPENAI_TTS_API_URL, {
+      method: "POST",
+      headers: this.buildOpenAIHeaders(),
+      body: JSON.stringify({
+        model: config.model,
+        input: clippedText,
+        voice,
+        response_format: "mp3",
+        instructions: buildOpenAiInstructions(languageCode)
+      })
+    });
+
+    if (!response.ok) {
+      const detail = await this.parseApiError(response);
+      throw new Error(`OpenAI TTS failed: ${detail}`);
+    }
+
+    const audioBuffer = await response.arrayBuffer();
+    return {
+      provider: "openai-tts",
+      mimeType: "audio/mpeg",
+      audioContentBase64: toBase64Audio(audioBuffer),
+      voiceId: voice,
+      modelId: config.model,
+      language
+    };
+  }
+
+  async speakWithGemini({ text, languageCode }) {
+    const clippedText = clampTtsText(text);
+
+    if (!clippedText) {
+      throw new Error("Text is required for speech synthesis.");
+    }
+
+    const config = this.getRuntimeConfig().gemini;
+    const language = normalizeTtsLanguage(languageCode);
+    const voiceName = language === "ko" ? config.voiceKo : config.voiceEn;
+    const response = await fetch(
+      `${GEMINI_API_URL}/${encodeURIComponent(config.model)}:generateContent`,
+      {
+        method: "POST",
+        headers: this.buildGeminiHeaders(),
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: clippedText
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName
+                }
+              }
+            }
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const detail = await this.parseApiError(response);
+      throw new Error(`Gemini TTS failed: ${detail}`);
+    }
+
+    const data = await response.json();
+    const part = data?.candidates?.[0]?.content?.parts?.find(
+      (item) => item?.inlineData?.data || item?.inline_data?.data
+    );
+    const inlineData = part?.inlineData || part?.inline_data;
+
+    if (!inlineData?.data) {
+      throw new Error("Gemini TTS did not return audio content.");
+    }
+
+    const sourceMimeType = String(inlineData.mimeType || inlineData.mime_type || "").trim();
+    const sourceAudio = Buffer.from(inlineData.data, "base64");
+    const normalizedMimeType = sourceMimeType.toLowerCase();
+    let outputBuffer = sourceAudio;
+    let mimeType = "audio/wav";
+
+    if (normalizedMimeType.includes("mp3") || normalizedMimeType.includes("mpeg")) {
+      mimeType = "audio/mpeg";
+    } else if (!normalizedMimeType.includes("wav")) {
+      outputBuffer = wrapPcm16ToWav(sourceAudio, {
+        sampleRate: parseMimeParameter(sourceMimeType, "rate") || 24000,
+        channels: parseMimeParameter(sourceMimeType, "channels") || 1
+      });
+    }
+
+    return {
+      provider: "gemini-tts",
+      mimeType,
+      audioContentBase64: outputBuffer.toString("base64"),
+      voiceId: voiceName,
+      modelId: config.model,
+      language
+    };
+  }
+
   async speakWithGoogleCloud({ text, languageCode }) {
     const clippedText = clampTtsText(text);
 
@@ -567,12 +818,22 @@ class TtsService {
     const elevenConfigured = Boolean(config.elevenlabs.apiKey);
     const cartesiaConfigured = Boolean(config.cartesia.apiKey);
     const naverConfigured = Boolean(config.naverClova.clientId && config.naverClova.clientSecret);
+    const openaiConfigured = Boolean(config.openai.apiKey);
+    const geminiConfigured = Boolean(config.gemini.apiKey);
     const googleConfigured = Boolean(config.google.credentialsPath);
 
     let message = "No cloud TTS key is configured. The app will use system speech synthesis as a fallback.";
 
     if (elevenConfigured && naverConfigured) {
       message = "ElevenLabs is ready for English replies and NAVER CLOVA Voice is ready for Korean replies.";
+    } else if (naverConfigured && geminiConfigured) {
+      message = "NAVER CLOVA Voice is ready for Korean replies and Gemini TTS is ready for natural multilingual speech.";
+    } else if (geminiConfigured && openaiConfigured) {
+      message = "Gemini TTS and OpenAI TTS are both ready as cloud voice engines.";
+    } else if (geminiConfigured) {
+      message = "Gemini TTS is configured for natural multilingual speech.";
+    } else if (openaiConfigured) {
+      message = "OpenAI TTS is configured for natural spoken replies.";
     } else if (elevenConfigured) {
       message = "ElevenLabs is configured as the primary English TTS provider.";
     } else if (cartesiaConfigured && naverConfigured) {
@@ -584,12 +845,14 @@ class TtsService {
     }
 
     return {
-      availableProviders: ["elevenlabs", "cartesia", "naver-clova", "google-cloud", "system", "off"],
+      availableProviders: ["elevenlabs", "openai", "gemini", "cartesia", "naver-clova", "google-cloud", "system", "off"],
       defaultProvider: this.getDefaultProvider(),
       configuredProviders: {
         elevenlabs: elevenConfigured,
         cartesia: cartesiaConfigured,
         naverClova: naverConfigured,
+        openai: openaiConfigured,
+        gemini: geminiConfigured,
         googleCloud: googleConfigured
       },
       preferredProviders: {
@@ -613,6 +876,14 @@ class TtsService {
 
     if (this.hasNaverClovaCredentials()) {
       providers.push("naver-clova");
+    }
+
+    if (this.hasGeminiCredentials()) {
+      providers.push("gemini-tts");
+    }
+
+    if (this.hasOpenAICredentials()) {
+      providers.push("openai-tts");
     }
 
     if (this.hasExplicitGoogleCredentials()) {
@@ -655,6 +926,20 @@ class TtsService {
 
     if (provider === "naver-clova") {
       return this.speakWithNaverClova({
+        text,
+        languageCode
+      });
+    }
+
+    if (provider === "openai") {
+      return this.speakWithOpenAI({
+        text,
+        languageCode
+      });
+    }
+
+    if (provider === "gemini") {
+      return this.speakWithGemini({
         text,
         languageCode
       });

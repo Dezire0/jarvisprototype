@@ -52,6 +52,39 @@ test("buildRouteFallback detects direct computer briefing requests", () => {
   });
 });
 
+test("buildRouteFallback detects Steam install requests", () => {
+  assert.deepEqual(buildRouteFallback("스팀에서 PUBG 설치해줘"), {
+    route: "game_install",
+    language: "ko",
+    platform: "steam",
+    query: "PUBG"
+  });
+});
+
+test("buildRouteFallback detects Epic update requests", () => {
+  assert.deepEqual(buildRouteFallback("에픽에서 포트나이트 업데이트해줘"), {
+    route: "game_update",
+    language: "ko",
+    platform: "epic",
+    query: "포트나이트"
+  });
+});
+
+test("buildRouteFallback detects installed game list requests", () => {
+  assert.deepEqual(buildRouteFallback("설치된 게임 목록 보여줘"), {
+    route: "game_list",
+    language: "ko",
+    platform: "both"
+  });
+});
+
+test("buildRouteFallback detects coding project generation requests", () => {
+  assert.deepEqual(buildRouteFallback("스네이크 게임 만들어줘"), {
+    route: "code_project",
+    language: "ko"
+  });
+});
+
 test("buildRouteFallback treats YouTube playback requests as browser work", () => {
   assert.deepEqual(buildRouteFallback("can you play some music in YouTube?"), {
     route: "browser",
@@ -74,16 +107,27 @@ test("buildRouteFallback still routes direct Spotify commands to spotify_play", 
   });
 });
 
+test("buildRouteFallback keeps chained login workflows on the browser route", () => {
+  assert.deepEqual(buildRouteFallback("깃허브에서 openai 검색하고 로그인하고 활동 보여줘"), {
+    route: "browser",
+    language: "ko"
+  });
+});
+
 test("buildHeuristicBrowserPlan builds a chained site workflow", () => {
   const plan = buildHeuristicBrowserPlan("깃허브에서 openai 검색하고 로그인하고 활동 보여줘");
 
   assert.deepEqual(
     plan.steps.map((step) => step.action),
-    ["open_url", "login_saved", "site_search", "read_page"]
+    ["open_url", "site_search", "read_page"]
   );
   assert.equal(plan.steps[0].target, "https://github.com/");
-  assert.equal(plan.steps[1].target, "깃허브");
-  assert.equal(plan.steps[2].query, "openai");
+  assert.equal(plan.steps[1].query, "openai");
+  assert.deepEqual(plan.login, {
+    required: true,
+    mode: "manual",
+    site: "깃허브"
+  });
 });
 
 test("buildHeuristicBrowserPlan opens known sites directly instead of searching for them", () => {
@@ -187,4 +231,112 @@ test("handleBrowser opens YouTube playback results in the system browser", async
   ]);
   assert.equal(result.provider, "system-browser");
   assert.equal(result.reply, "I opened YouTube results so you can play something right away.");
+});
+
+test("handleBrowser waits for manual login before running the rest of a chained site workflow", async () => {
+  const calls = [];
+  const browserPlans = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async executePlan(steps) {
+        browserPlans.push(steps);
+        return {
+          steps: steps.map((step) => ({
+            ...step,
+            result: {
+              url: "https://github.com/search?q=openai"
+            }
+          })),
+          final: {
+            url: "https://github.com/search?q=openai",
+            title: "GitHub",
+            text: ""
+          }
+        };
+      },
+      async open(target) {
+        return {
+          url: target,
+          title: "GitHub"
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const pending = await service.handleBrowser("깃허브에서 openai 검색하고 로그인하고 활동 보여줘");
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_url",
+      target: "https://github.com/"
+    }
+  ]);
+  assert.equal(browserPlans.length, 0);
+  assert.equal(pending.details.pendingBrowserContinuation, true);
+  assert.match(pending.reply, /로그인 화면/);
+
+  const resumed = await service.continuePendingBrowserContinuation("계속");
+
+  assert.equal(browserPlans.length, 1);
+  assert.deepEqual(
+    browserPlans[0].map((step) => step.action),
+    ["open_url", "site_search", "read_page"]
+  );
+  assert.equal(resumed.details.resumedBrowserContinuation, true);
+});
+
+test("handleBrowserLogin opens the login page for manual sign-in by default", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async loginWithStoredCredential() {
+        assert.fail("manual login should not autofill saved credentials by default");
+      },
+      async open(target) {
+        return {
+          url: target,
+          title: "GitHub"
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowserLogin("깃허브 로그인해줘", {
+    siteOrUrl: "깃허브"
+  });
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_url",
+      target: "https://github.com/"
+    }
+  ]);
+  assert.equal(result.details.loginMode, "manual");
+  assert.match(result.reply, /직접 로그인/);
 });

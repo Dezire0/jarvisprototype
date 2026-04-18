@@ -1,6 +1,11 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { loadProjectEnv } = require("../src/main/project-env.cjs");
+
+loadProjectEnv({
+  rootDir: path.join(__dirname, "..")
+});
 
 function readEnv(name) {
   return String(process.env[name] || "").trim();

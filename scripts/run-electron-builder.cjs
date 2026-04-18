@@ -1,9 +1,14 @@
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const { loadProjectEnv } = require("../src/main/project-env.cjs");
 
 const repoRoot = path.join(__dirname, "..");
 const builderCli = path.join(repoRoot, "node_modules", "electron-builder", "cli.js");
 const args = process.argv.slice(2);
+
+loadProjectEnv({
+  rootDir: repoRoot
+});
 
 const sanitizedEnv = {
   ...process.env

@@ -1,7 +1,7 @@
 const http = require("node:http");
 
 const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_PORT = 8010;
+const DEFAULT_PORT = Number(process.env.JARVIS_ASSISTANT_PORT || 8010);
 const STREAM_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -160,7 +160,8 @@ function createThreadAssistantResolver(createAssistantForThread) {
 function createAssistantTransportServer({
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
-  createAssistantForThread
+  createAssistantForThread,
+  allowDynamicPort = true
 }) {
   if (typeof createAssistantForThread !== "function") {
     throw new Error("createAssistantForThread is required.");
@@ -168,6 +169,7 @@ function createAssistantTransportServer({
 
   const resolveAssistant = createThreadAssistantResolver(createAssistantForThread);
   let server = null;
+  let activePort = Number(port) || DEFAULT_PORT;
 
   async function handleAssistantRequest(req, res) {
     let payload;
@@ -287,7 +289,9 @@ function createAssistantTransportServer({
   };
 
   return {
-    url: `http://${host}:${port}/assistant`,
+    get url() {
+      return `http://${host}:${activePort}/assistant`;
+    },
     start() {
       if (server) {
         return Promise.resolve();
@@ -301,12 +305,31 @@ function createAssistantTransportServer({
         });
       });
 
-      return new Promise((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(port, host, () => {
-          server.off("error", reject);
-          resolve();
+      const tryListen = (requestedPort) =>
+        new Promise((resolve, reject) => {
+          const handleError = (error) => {
+            server.off("error", handleError);
+            reject(error);
+          };
+
+          server.once("error", handleError);
+          server.listen(requestedPort, host, () => {
+            server.off("error", handleError);
+            const address = server.address();
+            activePort =
+              typeof address === "object" && address && address.port
+                ? address.port
+                : requestedPort;
+            resolve();
+          });
         });
+
+      return tryListen(activePort).catch((error) => {
+        if (!allowDynamicPort || error?.code !== "EADDRINUSE") {
+          throw error;
+        }
+
+        return tryListen(0);
       });
     },
     stop() {

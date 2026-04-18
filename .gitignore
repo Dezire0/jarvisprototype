@@ -56,6 +56,7 @@ tmp-jarvis-check.txt
 .tmp-browser-smoke/
 .tmp-browser-test/
 .codex_video_frames/
+generated-projects/
 
 # Local secrets and media
 secret

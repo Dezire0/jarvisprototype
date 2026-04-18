@@ -74,6 +74,7 @@ module.exports = {
     }
   ],
   mac: {
+    icon: path.join(__dirname, "resources", "icons", "icon.icns"),
     hardenedRuntime: true,
     gatekeeperAssess: false,
     category: "public.app-category.productivity",
@@ -87,9 +88,11 @@ module.exports = {
     target: ["dmg", "zip"]
   },
   win: {
+    icon: path.join(__dirname, "resources", "icons", "icon.ico"),
     target: ["nsis"]
   },
   linux: {
+    icon: path.join(__dirname, "resources", "icons", "icon.png"),
     category: "Utility",
     target: ["AppImage", "deb"]
   },

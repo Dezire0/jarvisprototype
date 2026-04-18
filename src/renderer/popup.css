@@ -57,6 +57,12 @@ body {
   touch-action: none;
 }
 
+.window-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .drag-strip {
   flex: 1;
   display: flex;
@@ -80,6 +86,10 @@ body {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+.settings-link.active {
+  color: var(--text);
 }
 
 .orb-panel {

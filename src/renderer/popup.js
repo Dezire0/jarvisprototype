@@ -6,6 +6,7 @@ const commandInput = document.getElementById("commandInput");
 const submitButton = document.getElementById("submitButton");
 const shortcutHint = document.getElementById("shortcutHint");
 const openSettingsButton = document.getElementById("openSettingsButton");
+const popupMuteToggle = document.getElementById("popupMuteToggle");
 const windowBar = document.querySelector(".window-bar");
 
 const VOICE_STORAGE_KEY = "jarvis-selected-voice";
@@ -40,6 +41,7 @@ const UI_TEXT = {
 let currentLanguage = "ko";
 let currentAudio = null;
 let isDraggingWindow = false;
+let assistantMuted = false;
 
 function escapeHtml(text = "") {
   return text
@@ -81,6 +83,25 @@ function setWakeState(status) {
 
 function updateStatus(text) {
   popupStatus.textContent = text;
+}
+
+function stopAudioPlayback() {
+  window.speechSynthesis?.cancel();
+
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+}
+
+function applyMuteState(muted) {
+  assistantMuted = Boolean(muted);
+  popupMuteToggle.textContent = assistantMuted ? "Jarvis Voice Off" : "Jarvis Voice On";
+  popupMuteToggle.classList.toggle("active", !assistantMuted);
+
+  if (assistantMuted) {
+    stopAudioPlayback();
+  }
 }
 
 function detectLanguage(text = "") {
@@ -125,11 +146,11 @@ function chooseStoredVoice() {
 function fallbackSpeak(text, language = currentLanguage) {
   const selectedLanguage = getSpeechLocale(language);
 
-  if (!("speechSynthesis" in window)) {
+  if (assistantMuted || !("speechSynthesis" in window)) {
     return;
   }
 
-  window.speechSynthesis.cancel();
+  stopAudioPlayback();
 
   const utterance = new SpeechSynthesisUtterance(text.slice(0, 420));
   utterance.voice = chooseStoredVoice();
@@ -141,23 +162,22 @@ function fallbackSpeak(text, language = currentLanguage) {
 
 async function speakText(text, language = currentLanguage) {
   const shouldSpeak = localStorage.getItem(SPEAK_REPLIES_KEY) !== "0";
-  if (!shouldSpeak || !text) {
+  if (assistantMuted || !shouldSpeak || !text) {
     return;
   }
 
   setConversationLanguage(language);
-  window.speechSynthesis?.cancel();
-
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
-  }
+  stopAudioPlayback();
 
   try {
     const result = await window.assistantAPI.speak({
       text,
       language
     });
+
+    if (result?.muted) {
+      return;
+    }
 
     if (result.audioBase64) {
       currentAudio = new Audio(`data:${result.mimeType || "audio/wav"};base64,${result.audioBase64}`);
@@ -210,6 +230,10 @@ window.assistantAPI.onWakeState((payload) => {
   updateStatus(payload.status === "listening" ? getUiText("listening") : getUiText("ready"));
 });
 
+window.assistantAPI.onMuteState((payload) => {
+  applyMuteState(payload?.muted);
+});
+
 commandForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await submitCommand(commandInput.value.trim());
@@ -217,6 +241,11 @@ commandForm.addEventListener("submit", async (event) => {
 
 openSettingsButton.addEventListener("click", async () => {
   await window.assistantAPI.openSettings();
+});
+
+popupMuteToggle?.addEventListener("click", async () => {
+  const result = await window.assistantAPI.toggleMute();
+  applyMuteState(result?.muted);
 });
 
 windowBar?.addEventListener("pointerdown", async (event) => {
@@ -272,6 +301,7 @@ async function bootstrap() {
   setConversationLanguage(storedLanguage?.startsWith("en") ? "en" : "ko");
   seedWelcomeMessage(currentLanguage);
   shortcutHint.textContent = `${data.shortcut} · ${getUiText("shortcut")}`;
+  applyMuteState(data.mute?.muted);
   updateStatus(getUiText("ready"));
   commandInput.focus();
 }

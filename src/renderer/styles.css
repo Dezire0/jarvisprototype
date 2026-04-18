@@ -200,6 +200,11 @@ button.secondary,
   color: var(--text);
 }
 
+button.active {
+  background: #f4f4f5;
+  color: #0a0a0c;
+}
+
 .thread-new-button {
   width: 100%;
   justify-content: flex-start;

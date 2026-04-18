@@ -9,6 +9,59 @@
 - LiveKit 기반 음성 에이전트가 별도의 음성 세션에서 같은 `friday` MCP 도구들을 사용합니다.
 - 로컬 데스크톱 자동화와 Python MCP 도구를 분리해 두어서, 데스크톱 셸과 음성 에이전트가 같은 기능 축을 공유할 수 있습니다.
 - 자격증명, TTS 설정, 브라우저 프로필, OBS 연결, OCR, 파일 작업을 전부 실사용 기준으로 엮어둔 상태입니다.
+- Electron 비서는 사용자 선호, 프로젝트, 관계, 장기 목표를 별도 메모리로 축적해 후속 대화에 재사용합니다.
+
+## Mark XXXV에서 가져온 핵심 기능
+
+- 게임 설치와 관리
+  - 자연어로 `스팀에서 PUBG 설치해줘`, `에픽에서 포트나이트 업데이트해줘`, `설치된 게임 목록 보여줘` 같은 요청을 처리합니다.
+  - Steam은 설치 / 업데이트 URI를 바로 열고, Epic은 런처와 스토어 검색 흐름을 연결합니다.
+- Jarvis 음성 음소거
+  - `F4` 또는 UI의 `Jarvis Voice` 버튼으로 자비스 응답 음성을 즉시 끄고 다시 켤 수 있습니다.
+  - 메인 데스크톱 UI와 빠른 패널이 같은 음소거 상태를 공유합니다.
+- 기억 기능
+  - 사용자 이름, 선호, 프로젝트, 관계, 장기 목표 같은 장기 기억을 추출해 이후 대화에 반영합니다.
+- 키보드 인터페이스
+  - 마이크 없이도 팝업과 데스크톱 앱에서 텍스트로 같은 자비스 오케스트레이터를 사용할 수 있습니다.
+- 코딩 프로젝트 생성
+  - `스네이크 게임 만들어줘`, `간단한 todo 앱 만들어줘` 같은 요청을 받아 `generated-projects/` 아래에 실제 프로젝트를 생성합니다.
+  - 가능하면 바로 VS Code까지 열어 이어서 작업하게 합니다.
+- 앱 이름 우선 해석
+  - `YouTube에서 음악 틀어줘`, `Spotify 열어줘`, `Steam 켜줘` 같은 요청에서 앱 / 사이트 이름을 일반 키워드보다 우선 해석하도록 라우팅을 보강했습니다.
+
+## 사용자 입력부터 출력까지의 흐름
+
+1. 사용자가 입력합니다.
+   - Electron 팝업 텍스트 입력
+   - 데스크톱 앱 메인 화면 입력
+   - 웨이크워드 / 1회성 음성 입력
+   - LiveKit 기반 음성 세션
+2. 입력이 Electron 메인 프로세스 또는 Python 음성 에이전트로 들어갑니다.
+3. 라우터가 요청을 분류합니다.
+   - 일반 대화
+   - 앱 열기 / 앱 내부 제어
+   - 브라우저 작업 / 저장 로그인
+   - 화면 OCR / 학습 설명
+   - OBS 제어
+   - 파일 읽기 / 쓰기 / 목록
+   - Spotify 제어
+   - Steam / Epic 게임 작업
+   - 코드 프로젝트 생성
+4. 필요하면 플래너가 짧은 실행 계획을 만듭니다.
+   - 브라우저 단계 계획
+   - 앱 내부 단축키 / 입력 / 메뉴 클릭 계획
+   - 코드 프로젝트 스캐폴드 계획
+5. 실제 실행 서비스가 작업을 수행합니다.
+   - Playwright 브라우저 자동화
+   - AppleScript / System Events 기반 데스크톱 자동화
+   - 로컬 파일 시스템
+   - OBS WebSocket
+   - 장기 메모리 저장소
+6. 결과를 정리해 응답합니다.
+   - 화면 메시지
+   - 필요 시 음성 합성
+   - 실행 액션 로그
+   - 후속 질문 또는 다음 단계 제안
 
 ## 구성
 
@@ -65,6 +118,7 @@
   - browser planning
   - app planning
   - general chat tiering
+  - long-term memory extraction and reuse
 - LiveKit voice LLM
   - `Gemini`
   - `OpenAI`
@@ -137,6 +191,8 @@
 
 - Electron `safeStorage`
 - macOS `security` CLI
+- Electron 장기 메모리 저장소
+  - `~/Library/Application Support/<app>/jarvis-memory.json`
 - Python `keyring`
 - 공유 vault 인덱스 파일
   - `~/.friday-jarvis/credentials.json`
@@ -163,6 +219,11 @@
 - 같은 Next 코드베이스로 공개용 다운로드 랜딩 페이지도 만들 수 있습니다.
   - `NEXT_PUBLIC_JARVIS_SITE_MODE=download` 이면 루트 `/`가 다운로드 사이트처럼 동작합니다.
   - `/download` 경로는 항상 공개용 다운로드 페이지를 제공합니다.
+- 별도 정적 설치 사이트도 함께 포함됩니다.
+  - 위치: `site/install-web`
+  - 목적: Cloudflare Pages로 공개 배포하는 설치 전용 홍보 / 다운로드 사이트
+  - 특징: Apple 스타일 랜딩, 다크 / 라이트 모드, 설치 마법사, 이용 약관/권한 동의, 실제 릴리스 자산 기준 다운로드 분기
+  - 명령: `npm run site:install:sync`, `npm run site:install:dev`, `npm run site:install:deploy`
 - `electron-updater` + `electron-builder` 기반 자동 업데이트 흐름을 지원합니다.
 - 배포 / 릴리스 절차는 [DISTRIBUTION.md](docs/DISTRIBUTION.md) 에 정리되어 있습니다.
 
@@ -243,7 +304,7 @@
 6. 로컬 작업은 브라우저 서비스, 파일 서비스, OBS 서비스, 화면 OCR 서비스, 데스크톱 자동화 어댑터 등으로 실행됩니다.
 7. 작업이 끝나면 `polishCommandReply`가 결과를 자연스러운 자비스 말투로 다듬습니다.
 8. 결과는 팝업 UI에 텍스트로 표시됩니다.
-9. 사용자가 응답 읽기를 켜 두었으면 TTS 서비스가 클라우드 TTS를 시도하고, 실패하면 브라우저 `speechSynthesis`로 fallback 합니다.
+9. 사용자가 응답 읽기를 켜 두었으면 TTS 서비스가 `ElevenLabs / NAVER CLOVA / Gemini TTS / OpenAI TTS / Cartesia / Google Cloud` 순서의 클라우드 음성을 시도하고, 실패하면 브라우저 `speechSynthesis`로 fallback 합니다.
 
 ### 2. Electron 설정창 웨이크워드 / 1회성 음성 입력 경로
 
@@ -511,6 +572,12 @@ npm run e2e:smoke
 - `CARTESIA_API_KEY`
 - `NAVER_CLOVA_CLIENT_ID`
 - `NAVER_CLOVA_CLIENT_SECRET`
+- `GEMINI_TTS_MODEL`
+- `GEMINI_TTS_VOICE_EN`
+- `GEMINI_TTS_VOICE_KO`
+- `OPENAI_TTS_MODEL_DESKTOP`
+- `OPENAI_TTS_VOICE_EN`
+- `OPENAI_TTS_VOICE_KO`
 - `GOOGLE_APPLICATION_CREDENTIALS`
 - `OBS_HOST`
 - `OBS_PORT`

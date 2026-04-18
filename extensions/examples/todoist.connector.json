@@ -1,0 +1,13 @@
+{
+  "kind": "connector",
+  "name": "todoist",
+  "description": "Alias and planning hints for Todoist.",
+  "connector": {
+    "canonicalName": "Todoist",
+    "aliases": ["투두이스트", "할일앱", "task inbox"],
+    "planningHints": [
+      "Use quick add when creating a new task.",
+      "When the user mentions a date, prefer entering a due date in the task flow."
+    ]
+  }
+}

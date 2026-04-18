@@ -31,6 +31,15 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   speak(payload = {}) {
     return ipcRenderer.invoke("assistant:speak", payload);
   },
+  getMuteState() {
+    return ipcRenderer.invoke("assistant:get-mute-state");
+  },
+  setMuteState(payload = {}) {
+    return ipcRenderer.invoke("assistant:set-mute-state", payload);
+  },
+  toggleMute() {
+    return ipcRenderer.invoke("assistant:toggle-mute");
+  },
   getTtsSettings() {
     return ipcRenderer.invoke("assistant:get-tts-settings");
   },
@@ -48,6 +57,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   },
   onWakeState(callback) {
     ipcRenderer.on("assistant:wake-state", (_event, payload) => callback(payload));
+  },
+  onMuteState(callback) {
+    ipcRenderer.on("assistant:mute-state", (_event, payload) => callback(payload));
   },
   onUpdateStatus(callback) {
     ipcRenderer.on("assistant:update-status", (_event, payload) => callback(payload));

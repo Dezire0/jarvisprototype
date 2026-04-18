@@ -10,6 +10,8 @@
    Python 도구를 FastMCP로 노출하는 백엔드
 2. `Electron 데스크톱 셸`
    대화, 설정, 앱 자동화, 브라우저 자동화를 묶는 로컬 실행 레이어
+3. `Extensions 레이어`
+   웹훅, 스킬, 커넥터를 통해 앱별 힌트와 외부 자동화를 확장하는 레이어
 
 음성 에이전트는 별도 엔트리포인트에서 MCP 서버를 호출하는 구조로 붙습니다.
 
@@ -18,11 +20,12 @@
 ```text
 Microphone / Text Input
         │
-        ├── Electron Popup
+        ├── Electron Desktop Window
         │      ├─ typed command UI
+        │      ├─ call-style voice loop
         │      ├─ speech output
         │      ├─ local desktop automation
-        │      └─ settings window
+        │      └─ optional floating popup
         │
         └── Voice Agent (LiveKit)
                ├─ STT
@@ -62,7 +65,15 @@ Microphone / Text Input
   - `friday`의 “짧고 유능한 보좌관” 느낌을 유지
   - 하지만 실제 데스크톱 사용에 맞게 대화형 UX를 강화
 
-### 3. Model Layer
+### 3. Extensions Layer
+
+- 위치: `src/main/extensions-service.cjs`, `extensions/*.json`
+- 역할:
+  - connector alias로 앱 이름 보정
+  - skill 힌트를 앱 플래너에 주입
+  - webhook 트리거를 일반 라우팅 전에 실행
+
+### 4. Model Layer
 
 - Electron 쪽:
   - Ollama 기반 로컬 모델
@@ -71,7 +82,7 @@ Microphone / Text Input
   - LiveKit Agents 기반
   - STT / LLM / TTS 공급자 교체 가능
 
-### 4. Automation Layer
+### 5. Automation Layer
 
 - 앱 실행/입력/단축키
 - Playwright 브라우저 자동화
@@ -80,7 +91,7 @@ Microphone / Text Input
 - 파일 시스템 읽기/쓰기
 - 공용 자격증명 vault 사용
 
-### 5. MCP Layer
+### 6. MCP Layer
 
 - 위치: `friday/`, `server.py`
 - 역할:

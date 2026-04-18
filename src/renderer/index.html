@@ -13,12 +13,12 @@
           <div class="sidebar-brand-row">
             <div class="orb" id="orb" aria-hidden="true"></div>
             <div>
-              <p class="eyebrow">assistant-ui style</p>
+              <p class="eyebrow">desktop command center</p>
               <h1>Jarvis Desktop</h1>
             </div>
           </div>
           <p class="sidebar-description">
-            네가 붙여둔 Jarvis UI 흐름에 맞춰, 이제 메인 화면은 스레드 중심으로 움직입니다.
+            원래 로컬 Jarvis 화면입니다. 음성, 브라우저, 앱 자동화, 파일, OBS를 한곳에서 다룹니다.
           </p>
           <p class="sidebar-hint" id="shortcutHint"></p>
         </section>
@@ -38,13 +38,21 @@
             <p id="voiceStatus">웨이크워드는 꺼져 있어요.</p>
           </div>
           <div class="controls-row">
-            <button type="button" class="secondary" id="openQuickPanelButton">Quick Panel</button>
             <button type="button" class="secondary" id="voiceOnceButton">Voice Once</button>
           </div>
           <div class="controls-row">
+            <button type="button" class="secondary" id="voiceCallToggle">Call Mode</button>
+          </div>
+          <div class="controls-row">
             <button type="button" id="wakeToggle">Wake Word</button>
+            <button type="button" class="secondary" id="muteToggle">Jarvis Voice</button>
+          </div>
+          <div class="controls-row">
             <button type="button" class="secondary" id="previewVoiceButton">Preview</button>
           </div>
+          <p class="sidebar-hint" id="callModeHint">
+            통화 모드를 켜면 응답 후 자동으로 다시 듣고, 중간에 바로 다시 말할 수도 있어요.
+          </p>
           <div class="stack compact-stack">
             <label class="field-group">
               <span>입력 언어</span>
@@ -78,6 +86,7 @@
             <button type="button" class="chip-button mission-button" data-command="지금 화면에서 중요한 것만 설명해줘">화면 설명</button>
             <button type="button" class="chip-button mission-button" data-command="브라우저에서 최근 AI 뉴스 찾아줘">AI 뉴스</button>
             <button type="button" class="chip-button mission-button" data-command="설치된 앱 목록 보여줘">앱 목록</button>
+            <button type="button" class="chip-button mission-button" data-command="설치된 게임 목록 보여줘">게임 목록</button>
           </div>
         </header>
 
@@ -90,6 +99,8 @@
               <button type="button" class="chip-button" data-command="크롬 켜고 Gmail 열어줘">Gmail 열기</button>
               <button type="button" class="chip-button" data-command="Spotify에서 집중 음악 틀어줘">집중 음악</button>
               <button type="button" class="chip-button" data-command="Notes에서 새 노트 만들어줘">노트 만들기</button>
+              <button type="button" class="chip-button" data-command="스팀에서 설치된 게임 목록 보여줘">설치 게임</button>
+              <button type="button" class="chip-button" data-command="스네이크 게임 만들어줘">스네이크 생성</button>
             </div>
 
             <form id="commandForm" class="composer">
@@ -177,7 +188,7 @@
           <summary class="section-head summary-head">
             <span>
               <h2>Voice Output</h2>
-              <p id="ttsProviderStatus">영어는 ElevenLabs, 한국어는 NAVER CLOVA Voice를 추천해요.</p>
+              <p id="ttsProviderStatus">영어는 ElevenLabs, 한국어는 NAVER CLOVA, 범용 자연음성은 Gemini TTS를 추천해요.</p>
             </span>
           </summary>
           <div class="controls-row">
@@ -186,6 +197,8 @@
               <select id="ttsProviderEn">
                 <option value="auto">자동 추천</option>
                 <option value="elevenlabs">ElevenLabs</option>
+                <option value="openai">OpenAI TTS</option>
+                <option value="gemini">Gemini TTS</option>
                 <option value="cartesia">Cartesia</option>
                 <option value="google-cloud">Google Cloud</option>
                 <option value="system">시스템 음성</option>
@@ -197,7 +210,9 @@
               <select id="ttsProviderKo">
                 <option value="auto">자동 추천</option>
                 <option value="naver-clova">NAVER CLOVA</option>
+                <option value="gemini">Gemini TTS</option>
                 <option value="elevenlabs">ElevenLabs</option>
+                <option value="openai">OpenAI TTS</option>
                 <option value="cartesia">Cartesia</option>
                 <option value="google-cloud">Google Cloud</option>
                 <option value="system">시스템 음성</option>
@@ -234,6 +249,28 @@
               </div>
             </details>
             <details class="provider-card">
+              <summary>Gemini TTS</summary>
+              <div class="stack">
+                <input id="geminiApiKey" type="password" placeholder="Gemini API Key" />
+                <div class="controls-row">
+                  <input id="geminiModel" type="text" placeholder="Gemini TTS 모델 ID" />
+                  <input id="geminiVoiceEn" type="text" placeholder="영어 voice name 예: Aoede" />
+                </div>
+                <input id="geminiVoiceKo" type="text" placeholder="한국어 voice name 예: Kore" />
+              </div>
+            </details>
+            <details class="provider-card">
+              <summary>OpenAI TTS</summary>
+              <div class="stack">
+                <input id="openaiApiKey" type="password" placeholder="OpenAI API Key" />
+                <div class="controls-row">
+                  <input id="openaiModel" type="text" placeholder="OpenAI TTS 모델 ID" />
+                  <input id="openaiVoiceEn" type="text" placeholder="영어 voice 예: marin" />
+                </div>
+                <input id="openaiVoiceKo" type="text" placeholder="한국어 fallback voice" />
+              </div>
+            </details>
+            <details class="provider-card">
               <summary>Cartesia</summary>
               <div class="stack">
                 <input id="cartesiaApiKey" type="password" placeholder="Cartesia API Key" />
@@ -255,7 +292,7 @@
             <button type="button" id="saveTtsSettingsButton">Save</button>
             <button type="button" class="secondary" id="refreshTtsSettingsButton">Refresh</button>
           </div>
-          <p class="sidebar-hint" id="ttsProviderSummary">저장 후 미리듣기를 누르면 현재 연결된 TTS로 확인할 수 있어요.</p>
+          <p class="sidebar-hint" id="ttsProviderSummary">저장 후 미리듣기를 누르면 현재 연결된 ElevenLabs, NAVER, Gemini, OpenAI 음성을 바로 확인할 수 있어요.</p>
         </details>
 
         <details class="rail-panel" id="vaultPanel">

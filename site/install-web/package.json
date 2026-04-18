@@ -1,0 +1,12 @@
+{
+  "name": "jarvis-install-web",
+  "private": true,
+  "scripts": {
+    "sync": "node ../../scripts/sync-install-site-config.cjs",
+    "dev": "npm run sync && wrangler pages dev public",
+    "deploy": "npm run sync && wrangler pages deploy public --project-name dexproject --branch main --commit-dirty=true"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

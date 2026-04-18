@@ -1,13 +1,21 @@
+const { loadProjectEnv } = require("./project-env.cjs");
+
+loadProjectEnv();
+
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage } = require("electron");
+const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell } = require("electron");
 const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
 const { BrowserService } = require("./browser-service.cjs");
+const { CodeProjectService } = require("./code-project-service.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
 const { DesktopUiServer } = require("./desktop-ui-server.cjs");
+const { ExtensionsService } = require("./extensions-service.cjs");
 const { FileService } = require("./file-service.cjs");
+const { GameService } = require("./game-service.cjs");
 const { getTierProviderLabel } = require("./ollama-service.cjs");
+const { MemoryStore } = require("./memory-store.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
 const { createAutomationAdapter } = require("./platform-adapters.cjs");
@@ -25,6 +33,41 @@ let desktopUiUrl = String(process.env.JARVIS_UI_URL || "").trim();
 let updaterService;
 let popupStateCache = null;
 let popupDragState = null;
+let assistantMuted = false;
+const POPUP_ENABLED = String(process.env.JARVIS_POPUP_ENABLED || "0").trim() === "1";
+const DESKTOP_UI_MODE = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").trim().toLowerCase() === "next"
+  ? "next"
+  : "local";
+
+function broadcastToWindows(channel, payload) {
+  [popupWindow, settingsWindow].forEach((windowRef) => {
+    if (!windowRef || windowRef.isDestroyed()) {
+      return;
+    }
+
+    windowRef.webContents.send(channel, payload);
+  });
+}
+
+function broadcastMuteState(source = "system") {
+  broadcastToWindows("assistant:mute-state", {
+    muted: assistantMuted,
+    source
+  });
+}
+
+function setAssistantMuted(nextValue, source = "system") {
+  assistantMuted = Boolean(nextValue);
+  broadcastMuteState(source);
+
+  return {
+    muted: assistantMuted
+  };
+}
+
+function toggleAssistantMuted(source = "system") {
+  return setAssistantMuted(!assistantMuted, source);
+}
 
 function ensureReadyServices() {
   if (!assistant || !services) {
@@ -39,8 +82,12 @@ function ensureReadyServices() {
 
 async function createServices() {
   const credentials = new CredentialStore({ app, safeStorage });
+  const memory = new MemoryStore({ app });
+  await memory.load();
   const settings = new SettingsStore({ app });
   await settings.load();
+  const extensions = new ExtensionsService({ app });
+  await extensions.load();
   const browser = new BrowserService({
     userDataDir: app.getPath("userData"),
     credentialStore: credentials
@@ -53,6 +100,13 @@ async function createServices() {
   const automation = createAutomationAdapter({
     screen: screenService
   });
+  const games = new GameService({
+    automation
+  });
+  const codeProjects = new CodeProjectService({
+    files,
+    automation
+  });
   const tts = new TtsService({
     settingsStore: settings
   });
@@ -60,8 +114,12 @@ async function createServices() {
   services = {
     automation,
     browser,
+    codeProjects,
     credentials,
+    extensions,
     files,
+    games,
+    memory,
     obs,
     screen: screenService,
     settings,
@@ -71,20 +129,29 @@ async function createServices() {
   assistant = new AssistantService({
     automation,
     browser,
+    codeProjects,
     credentials,
+    extensions,
     files,
+    games,
+    memory,
     obs,
     screen: screenService,
     tts
   });
 
   assistantTransportServer = createAssistantTransportServer({
+    port: Number(process.env.JARVIS_ASSISTANT_PORT || 8010),
     createAssistantForThread() {
       return new AssistantService({
         automation,
         browser,
+        codeProjects,
         credentials,
+        extensions,
         files,
+        games,
+        memory,
         obs,
         screen: screenService,
         tts
@@ -93,9 +160,16 @@ async function createServices() {
   });
 
   await assistantTransportServer.start();
+  process.env.JARVIS_TRANSPORT_URL = assistantTransportServer.url;
+  process.env.NEXT_PUBLIC_API_URL = assistantTransportServer.url;
 }
 
 async function ensureDesktopUiServer() {
+  if (DESKTOP_UI_MODE !== "next") {
+    desktopUiUrl = "";
+    return desktopUiUrl;
+  }
+
   if (!desktopUiServer) {
     desktopUiServer = new DesktopUiServer({ app });
   }
@@ -111,6 +185,10 @@ async function ensureDesktopUiServer() {
 }
 
 function getDesktopUiUrl() {
+  if (DESKTOP_UI_MODE !== "next") {
+    return "";
+  }
+
   return desktopUiUrl || String(process.env.JARVIS_UI_URL || "").trim();
 }
 
@@ -149,21 +227,29 @@ function buildApplicationMenu() {
     });
   }
 
+  const windowSubmenu = [
+    {
+      label: "Open Jarvis Desktop",
+      click: () => openSettingsWindow()
+    }
+  ];
+
+  if (POPUP_ENABLED) {
+    windowSubmenu.push({
+      label: "Show Quick Panel",
+      click: () => showPopup("listening")
+    });
+  }
+
+  windowSubmenu.push(
+    { type: "separator" },
+    { role: "minimize" },
+    { role: "close" }
+  );
+
   template.push({
     label: "Window",
-    submenu: [
-      {
-        label: "Open Jarvis Desktop",
-        click: () => openSettingsWindow()
-      },
-      {
-        label: "Show Quick Panel",
-        click: () => showPopup("listening")
-      },
-      { type: "separator" },
-      { role: "minimize" },
-      { role: "close" }
-    ]
+    submenu: windowSubmenu
   });
 
   template.push({
@@ -290,16 +376,21 @@ async function createPopupWindow() {
     popupWindow = null;
   });
 
+  popupWindow.webContents.on("did-finish-load", () => {
+    broadcastMuteState("bootstrap");
+  });
+
   popupWindow.loadFile(path.join(__dirname, "../renderer/popup.html"));
 }
 
 function createSettingsWindow() {
+  console.log("Creating Jarvis Desktop window...");
   settingsWindow = new BrowserWindow({
     width: 1480,
     height: 960,
     minWidth: 1180,
     minHeight: 780,
-    show: false,
+    show: true,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
     title: "Jarvis Desktop",
@@ -312,17 +403,102 @@ function createSettingsWindow() {
 
   const desktopUrl = getDesktopUiUrl();
 
-  if (desktopUrl) {
+  if (DESKTOP_UI_MODE === "next" && desktopUrl) {
     settingsWindow.loadURL(desktopUrl).catch(() => {
+      console.error("Desktop UI URL load failed, falling back to local renderer.");
       settingsWindow?.loadFile(path.join(__dirname, "../renderer/index.html"));
     });
   } else {
     settingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 
+  settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (!url) {
+      return {
+        action: "deny"
+      };
+    }
+
+    shell.openExternal(url).catch(() => {});
+    return {
+      action: "deny"
+    };
+  });
+
+  settingsWindow.webContents.on("will-navigate", (event, url) => {
+    const desktopOrigin = desktopUrl
+      ? new URL(desktopUrl).origin
+      : "";
+
+    const targetOrigin = (() => {
+      try {
+        return new URL(url).origin;
+      } catch (_error) {
+        return "";
+      }
+    })();
+
+    if (desktopOrigin && targetOrigin === desktopOrigin) {
+      return;
+    }
+
+    if (url && /^https?:\/\//i.test(url)) {
+      event.preventDefault();
+      shell.openExternal(url).catch(() => {});
+    }
+  });
+
   settingsWindow.on("closed", () => {
     settingsWindow = null;
   });
+
+  settingsWindow.once("ready-to-show", () => {
+    console.log("Jarvis Desktop window is ready to show.");
+    if (!settingsWindow || settingsWindow.isDestroyed()) {
+      return;
+    }
+
+    settingsWindow.show();
+    settingsWindow.focus();
+    settingsWindow.moveTop();
+    app.focus({
+      steal: true
+    });
+  });
+
+  settingsWindow.webContents.on("did-finish-load", () => {
+    console.log("Jarvis Desktop window finished loading.");
+    broadcastMuteState("bootstrap");
+  });
+
+  settingsWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl) => {
+    console.error("Jarvis Desktop failed to load UI:", {
+      errorCode,
+      errorDescription,
+      validatedUrl
+    });
+  });
+
+  settingsWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("Jarvis Desktop renderer process exited:", details);
+  });
+
+  setTimeout(() => {
+    if (!settingsWindow || settingsWindow.isDestroyed()) {
+      return;
+    }
+
+    if (!settingsWindow.isVisible()) {
+      console.log("Forcing Jarvis Desktop window visible after startup timeout.");
+      settingsWindow.show();
+    }
+
+    settingsWindow.focus();
+    settingsWindow.moveTop();
+    app.focus({
+      steal: true
+    });
+  }, 1200);
 }
 
 function openSettingsWindow() {
@@ -330,12 +506,25 @@ function openSettingsWindow() {
     createSettingsWindow();
   }
 
+  if (settingsWindow.isMinimized()) {
+    settingsWindow.restore();
+  }
+
   settingsWindow.show();
   settingsWindow.focus();
+  settingsWindow.moveTop();
+  app.focus({
+    steal: true
+  });
 }
 
 function showPopup(status = "listening") {
-  if (!popupWindow) {
+  if (!POPUP_ENABLED || !popupWindow) {
+    openSettingsWindow();
+    broadcastToWindows("assistant:wake-state", {
+      source: "voice",
+      status
+    });
     return;
   }
 
@@ -348,7 +537,7 @@ function showPopup(status = "listening") {
 }
 
 function hidePopup() {
-  if (!popupWindow) {
+  if (!POPUP_ENABLED || !popupWindow) {
     return;
   }
 
@@ -415,6 +604,18 @@ async function dispatchTool(tool, payload = {}) {
       return {
         ok: true
       };
+    case "extensions:list":
+      return {
+        ok: true,
+        tool,
+        data: liveServices.extensions.list()
+      };
+    case "extensions:reload":
+      return {
+        ok: true,
+        tool,
+        data: await liveServices.extensions.load()
+      };
     case "apps:list": {
       const data = await liveServices.automation.listInstalledApps(payload);
       return {
@@ -480,6 +681,30 @@ async function dispatchTool(tool, payload = {}) {
     }
     case "browser:login": {
       const data = await liveServices.browser.loginWithStoredCredential(payload.siteOrUrl);
+      return {
+        ok: true,
+        tool,
+        data
+      };
+    }
+    case "games:list": {
+      const data = await liveServices.games.listInstalledGames(payload);
+      return {
+        ok: true,
+        tool,
+        data
+      };
+    }
+    case "games:install": {
+      const data = await liveServices.games.installGame(payload);
+      return {
+        ok: true,
+        tool,
+        data
+      };
+    }
+    case "games:update": {
+      const data = await liveServices.games.updateGame(payload);
       return {
         ok: true,
         tool,
@@ -574,6 +799,16 @@ async function dispatchTool(tool, payload = {}) {
         data
       };
     }
+    case "project:create": {
+      const data = await liveServices.codeProjects.createProject(
+        payload.prompt || payload.input || ""
+      );
+      return {
+        ok: true,
+        tool,
+        data
+      };
+    }
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }
@@ -590,13 +825,23 @@ app.whenReady().then(async () => {
   updaterService = new UpdaterService({ app });
   await updaterService.init();
   buildApplicationMenu();
-  await createPopupWindow();
+  if (POPUP_ENABLED) {
+    await createPopupWindow();
+  }
   createSettingsWindow();
   openSettingsWindow();
   globalShortcut.register("CommandOrControl+Shift+Space", () => {
-    showPopup("listening");
+    if (POPUP_ENABLED) {
+      showPopup("listening");
+      return;
+    }
+
+    openSettingsWindow();
   });
   globalShortcut.register("CommandOrControl+,", openSettingsWindow);
+  globalShortcut.register("F4", () => {
+    toggleAssistantMuted("shortcut");
+  });
 
   app.on("activate", async () => {
     if (!settingsWindow) {
@@ -609,6 +854,8 @@ app.whenReady().then(async () => {
   setTimeout(() => {
     updaterService?.checkForUpdates("startup").catch(() => {});
   }, 15_000);
+}).catch((error) => {
+  console.error("Jarvis Desktop failed to initialize:", error);
 });
 
 app.on("will-quit", () => {
@@ -661,7 +908,25 @@ ipcMain.handle("assistant:end-popup-drag", async () => {
 });
 
 ipcMain.handle("assistant:speak", async (_event, payload) => {
+  if (assistantMuted) {
+    return {
+      muted: true
+    };
+  }
+
   return ensureReadyServices().services.tts.synthesize(payload);
+});
+
+ipcMain.handle("assistant:get-mute-state", async () => ({
+  muted: assistantMuted
+}));
+
+ipcMain.handle("assistant:set-mute-state", async (_event, payload) => {
+  return setAssistantMuted(payload?.muted, "renderer");
+});
+
+ipcMain.handle("assistant:toggle-mute", async () => {
+  return toggleAssistantMuted("renderer");
 });
 
 ipcMain.handle("assistant:get-tts-settings", async () => {
@@ -694,7 +959,8 @@ ipcMain.handle("assistant:get-app-state", async () => {
     version: app.getVersion(),
     packaged: app.isPackaged,
     desktopUiUrl: getDesktopUiUrl(),
-    updater: updaterService ? updaterService.getStatus() : null
+    updater: updaterService ? updaterService.getStatus() : null,
+    muted: assistantMuted
   };
 });
 
@@ -711,14 +977,19 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
   }));
 
   return {
-    shortcut: "Cmd/Ctrl + Shift + Space · 빠른 패널 / Cmd/Ctrl + , · 데스크톱 앱",
+    shortcut: POPUP_ENABLED
+      ? "Cmd/Ctrl + Shift + Space · 빠른 패널 / Cmd/Ctrl + , · Jarvis 앱 / F4 · 자비스 음성 음소거"
+      : "Cmd/Ctrl + Shift + Space · Jarvis 앱 열기 / Cmd/Ctrl + , · Jarvis 앱 / F4 · 자비스 음성 음소거",
     capabilities: {
       ...liveServices.automation.getCapabilities(),
       appCatalogCount: appCatalog.totalCount || 0,
       screenOcr: "tesseract-cli",
       browserAutomation: liveServices.browser.getProviderLabel(),
       obsControl: "obs-websocket-js",
-      fileAutomation: "local-fs"
+      fileAutomation: "local-fs",
+      gameLaunchers: "steam+epic",
+      codeProjects: "generated-projects",
+      extensions: liveServices.extensions.getSummary()
     },
     providers: {
       llm: `${getTierProviderLabel("fast")} -> ${getTierProviderLabel("complex")}`,
@@ -730,8 +1001,13 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
     app: {
       version: app.getVersion(),
       packaged: app.isPackaged,
-      desktopUi: getDesktopUiUrl() ? "embedded-next" : "fallback-renderer",
+      desktopUi: DESKTOP_UI_MODE === "next" && getDesktopUiUrl() ? "embedded-next" : "local-renderer",
+      popupMode: POPUP_ENABLED ? "floating-panel" : "disabled",
       updater: updaterService ? updaterService.getStatus() : null
+    },
+    mute: {
+      muted: assistantMuted,
+      hotkey: "F4"
     }
   };
 });

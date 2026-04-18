@@ -113,6 +113,10 @@ class DesktopUiServer {
         NODE_ENV: "production",
         HOSTNAME: host,
         PORT: String(port),
+        JARVIS_TRANSPORT_URL:
+          process.env.JARVIS_TRANSPORT_URL ||
+          process.env.NEXT_PUBLIC_API_URL ||
+          "http://127.0.0.1:8010/assistant",
         NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8010/assistant"
       },
       stdio: "pipe"

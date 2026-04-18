@@ -1,0 +1,7 @@
+{
+  "kind": "skill",
+  "name": "todoist-priority-skill",
+  "description": "Extra planning instructions for Todoist.",
+  "apps": ["Todoist"],
+  "instructions": "Prefer concise task names, and when the user gives a deadline, include a due date as part of the app interaction."
+}

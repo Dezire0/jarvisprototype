@@ -26,6 +26,18 @@ const DEFAULT_TTS_SETTINGS = {
     clientIdEncrypted: "",
     clientSecretEncrypted: ""
   },
+  openai: {
+    model: "gpt-4o-mini-tts",
+    voiceEn: "marin",
+    voiceKo: "marin",
+    apiKeyEncrypted: ""
+  },
+  gemini: {
+    model: "gemini-3.1-flash-tts-preview",
+    voiceEn: "Aoede",
+    voiceKo: "Kore",
+    apiKeyEncrypted: ""
+  },
   google: {
     credentialsPath: ""
   }
@@ -46,6 +58,12 @@ function createDefaultSettings() {
       },
       naverClova: {
         ...DEFAULT_TTS_SETTINGS.naverClova
+      },
+      openai: {
+        ...DEFAULT_TTS_SETTINGS.openai
+      },
+      gemini: {
+        ...DEFAULT_TTS_SETTINGS.gemini
       },
       google: {
         ...DEFAULT_TTS_SETTINGS.google
@@ -127,6 +145,18 @@ class SettingsStore {
           clientIdEncrypted: String(storedTts.naverClova?.clientIdEncrypted || ""),
           clientSecretEncrypted: String(storedTts.naverClova?.clientSecretEncrypted || "")
         },
+        openai: {
+          model: trimmedOrFallback(storedTts.openai?.model, defaults.tts.openai.model),
+          voiceEn: trimmedOrFallback(storedTts.openai?.voiceEn, defaults.tts.openai.voiceEn),
+          voiceKo: trimmedOrFallback(storedTts.openai?.voiceKo, defaults.tts.openai.voiceKo),
+          apiKeyEncrypted: String(storedTts.openai?.apiKeyEncrypted || "")
+        },
+        gemini: {
+          model: trimmedOrFallback(storedTts.gemini?.model, defaults.tts.gemini.model),
+          voiceEn: trimmedOrFallback(storedTts.gemini?.voiceEn, defaults.tts.gemini.voiceEn),
+          voiceKo: trimmedOrFallback(storedTts.gemini?.voiceKo, defaults.tts.gemini.voiceKo),
+          apiKeyEncrypted: String(storedTts.gemini?.apiKeyEncrypted || "")
+        },
         google: {
           credentialsPath: String(storedTts.google?.credentialsPath || "").trim()
         }
@@ -183,6 +213,18 @@ class SettingsStore {
         clientId: this.decryptSecret(tts.naverClova.clientIdEncrypted),
         clientSecret: this.decryptSecret(tts.naverClova.clientSecretEncrypted)
       },
+      openai: {
+        model: tts.openai.model,
+        voiceEn: tts.openai.voiceEn,
+        voiceKo: tts.openai.voiceKo,
+        apiKey: this.decryptSecret(tts.openai.apiKeyEncrypted)
+      },
+      gemini: {
+        model: tts.gemini.model,
+        voiceEn: tts.gemini.voiceEn,
+        voiceKo: tts.gemini.voiceKo,
+        apiKey: this.decryptSecret(tts.gemini.apiKeyEncrypted)
+      },
       google: {
         credentialsPath: tts.google.credentialsPath
       }
@@ -213,6 +255,18 @@ class SettingsStore {
         configured: Boolean(tts.naverClova.clientId && tts.naverClova.clientSecret),
         speakerEn: tts.naverClova.speakerEn,
         speakerKo: tts.naverClova.speakerKo
+      },
+      openai: {
+        configured: Boolean(tts.openai.apiKey),
+        model: tts.openai.model,
+        voiceEn: tts.openai.voiceEn,
+        voiceKo: tts.openai.voiceKo
+      },
+      gemini: {
+        configured: Boolean(tts.gemini.apiKey),
+        model: tts.gemini.model,
+        voiceEn: tts.gemini.voiceEn,
+        voiceKo: tts.gemini.voiceKo
       },
       google: {
         configured: Boolean(tts.google.credentialsPath),
@@ -256,6 +310,22 @@ class SettingsStore {
           clientSecretEncrypted: String(patch.naverClova?.clientSecret || "").trim()
             ? this.encryptSecret(String(patch.naverClova.clientSecret).trim())
             : current.naverClova.clientSecretEncrypted
+        },
+        openai: {
+          model: trimmedOrFallback(patch.openai?.model, current.openai.model),
+          voiceEn: trimmedOrFallback(patch.openai?.voiceEn, current.openai.voiceEn),
+          voiceKo: trimmedOrFallback(patch.openai?.voiceKo, current.openai.voiceKo),
+          apiKeyEncrypted: String(patch.openai?.apiKey || "").trim()
+            ? this.encryptSecret(String(patch.openai.apiKey).trim())
+            : current.openai.apiKeyEncrypted
+        },
+        gemini: {
+          model: trimmedOrFallback(patch.gemini?.model, current.gemini.model),
+          voiceEn: trimmedOrFallback(patch.gemini?.voiceEn, current.gemini.voiceEn),
+          voiceKo: trimmedOrFallback(patch.gemini?.voiceKo, current.gemini.voiceKo),
+          apiKeyEncrypted: String(patch.gemini?.apiKey || "").trim()
+            ? this.encryptSecret(String(patch.gemini.apiKey).trim())
+            : current.gemini.apiKeyEncrypted
         },
         google: {
           credentialsPath: patch.google?.credentialsPath !== undefined

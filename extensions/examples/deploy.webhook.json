@@ -1,0 +1,14 @@
+{
+  "kind": "webhook",
+  "name": "deploy-runner",
+  "description": "Example webhook for deployment automation.",
+  "match": {
+    "phrases": ["배포 시작", "run deploy"]
+  },
+  "webhook": {
+    "url": "https://example.com/webhook",
+    "method": "POST",
+    "responsePath": "reply",
+    "successReply": "배포 웹훅을 실행했어요."
+  }
+}

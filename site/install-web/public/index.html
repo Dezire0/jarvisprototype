@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>Jarvis Desktop</title>
+    <meta
+      name="description"
+      content="Jarvis Desktop 소개와 무료 다운로드 안내."
+    />
+    <meta name="theme-color" content="#f5f5f7" id="theme-color-meta" />
+    <link rel="icon" href="./assets/jarvis-logo-badge.png" />
+    <script>
+      (() => {
+        try {
+          const storedTheme = window.localStorage.getItem("jarvis-install-theme-v1");
+          const resolvedTheme =
+            storedTheme === "dark" || storedTheme === "light"
+              ? storedTheme
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+
+          document.documentElement.dataset.theme = resolvedTheme;
+        } catch (_error) {
+          document.documentElement.dataset.theme = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches
+            ? "dark"
+            : "light";
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./config.js"></script>
+    <script src="./script.js" defer></script>
+  </head>
+  <body data-page="overview">
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="brand" href="#overview" aria-label="홈으로 이동">
+          <img
+            src="./assets/jarvis-logo-badge.png"
+            alt=""
+            class="brand-mark"
+            width="42"
+            height="42"
+          />
+          <div class="brand-text">
+            <p class="brand-kicker">DexProject</p>
+            <p class="brand-label">Jarvis Desktop</p>
+          </div>
+        </a>
+
+        <nav class="topnav" aria-label="페이지 섹션">
+          <a href="#overview">Overview</a>
+          <a href="#capabilities">Capabilities</a>
+          <a href="#platforms">Platforms</a>
+          <a href="./downloads.html">Downloads</a>
+        </nav>
+
+        <div class="topbar-actions">
+          <button
+            type="button"
+            class="theme-toggle"
+            id="theme-toggle"
+            aria-label="테마 전환"
+          >
+            <span class="theme-toggle-track">
+              <span class="theme-toggle-label">밝게</span>
+              <span class="theme-toggle-label">어둡게</span>
+            </span>
+          </button>
+          <a href="./downloads.html" class="cta cta-primary" id="hero-primary-download">
+            무료 다운로드하기
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero hero-home hero-animate" id="overview">
+        <div class="hero-orb hero-orb-a" aria-hidden="true"></div>
+        <div class="hero-orb hero-orb-b" aria-hidden="true"></div>
+        <div class="shell hero-grid">
+          <div class="hero-copy">
+            <p class="hero-kicker">DESKTOP AI FOR VOICE, BROWSER, AND COMPUTER CONTROL</p>
+            <h1 class="hero-title headline-balance">
+              Jarvis Desktop,<br />
+              the AI layer<br />
+              for your computer.
+            </h1>
+            <p class="hero-body body-balance">
+              Jarvis Desktop은 대화로 끝나지 않습니다. 말하거나 입력한 요청을
+              브라우저, 앱, 파일, 데스크톱 작업으로 자연스럽게 이어 주는
+              데스크톱용 AI 인터페이스입니다.
+            </p>
+
+            <div class="hero-meta" id="hero-meta"></div>
+
+            <div class="hero-actions">
+              <a
+                href="./downloads.html"
+                class="cta cta-primary"
+                id="overview-download-cta"
+              >
+                무료 다운로드하기
+              </a>
+              <a href="#capabilities" class="cta cta-secondary">기능 둘러보기</a>
+              <a
+                href="#"
+                class="cta cta-secondary"
+                id="release-notes-link"
+                hidden
+              >
+                변경 사항
+              </a>
+            </div>
+
+            <div class="stat-grid">
+              <article class="surface-card stat-card">
+                <p class="surface-label">Supported</p>
+                <h2 id="supported-platform-count">0</h2>
+                <p class="stat-desc">
+                  현재 공개 준비가 끝난 플랫폼 수를 표시합니다.
+                </p>
+              </article>
+              <article class="surface-card stat-card">
+                <p class="surface-label">Conversation</p>
+                <h2>Voice + Browser</h2>
+                <p class="stat-desc">
+                  음성 대화와 웹 작업, 앱 제어를 같은 흐름으로 이어갑니다.
+                </p>
+              </article>
+              <article class="surface-card stat-card">
+                <p class="surface-label">Release</p>
+                <h2 id="hero-version">v0.1.0</h2>
+                <p class="stat-desc">
+                  설치 전 안내와 다운로드 경험이 함께 정리된 현재 공개 버전입니다.
+                </p>
+              </article>
+            </div>
+          </div>
+
+          <div class="hero-stage">
+            <div class="device-frame">
+              <div class="device-topline">
+                <span class="device-dot"></span>
+                <span class="device-dot"></span>
+                <span class="device-dot"></span>
+              </div>
+              <div class="device-screen">
+                <p class="device-kicker">Jarvis Workflow</p>
+                <h2 class="device-title headline-balance">
+                  Ask naturally.<br />
+                  Watch it move.
+                </h2>
+                <p class="device-body body-balance">
+                  음악 재생, 브라우저 이동, 앱 실행, 간단한 정리부터 복합 작업
+                  흐름까지 한 화면에서 이어지는 데스크톱 경험을 목표로 합니다.
+                </p>
+                <div class="device-pill-row">
+                  <span class="device-pill">Voice</span>
+                  <span class="device-pill">Browser</span>
+                  <span class="device-pill">Desktop</span>
+                  <span class="device-pill">Memory</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="floating-card floating-card-top float-soft">
+              <p class="floating-label">Recommended</p>
+              <h3 id="featured-platform">macOS</h3>
+              <p id="featured-platform-hint">
+                현재 가장 먼저 공개된 플랫폼이 여기에 표시됩니다.
+              </p>
+            </div>
+
+            <div class="floating-card floating-card-bottom float-soft float-delay">
+              <p class="floating-label">Start Here</p>
+              <h3>무료 다운로드</h3>
+              <p>
+                홍보 페이지에서 기능을 보고, 전용 다운로드 페이지에서 바로
+                설치를 시작할 수 있습니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="showcase-band reveal" id="capabilities">
+        <div class="shell showcase-grid">
+          <article class="showcase-card showcase-card-light">
+            <p class="surface-label">Natural Intent</p>
+            <h2 class="feature-title headline-balance">
+              말한 목적을 먼저 이해하고 실행 흐름으로 잇습니다.
+            </h2>
+            <p class="body-balance">
+              앱 이름과 사이트 이름, 작업 의도를 먼저 파악하는 방향으로 UX를
+              설계했습니다. 답변보다 실행이 앞서는 데스크톱 경험을 목표로 합니다.
+            </p>
+          </article>
+          <article class="showcase-card showcase-card-dark">
+            <p class="surface-label">Local Control</p>
+            <h2 class="feature-title headline-balance">
+              브라우저와 컴퓨터를 직접 다루는 데스크톱 AI.
+            </h2>
+            <p class="body-balance">
+              음성 입력, 앱 실행, 브라우저 제어, 파일 작업까지 한 스레드 안에서
+              이어지는 구조를 지향합니다.
+            </p>
+          </article>
+          <article class="showcase-card showcase-card-light">
+            <p class="surface-label">Guided Install</p>
+            <h2 class="feature-title headline-balance">
+              설치 전에도 제품의 성격과 권한 흐름을 분명하게 보여 줍니다.
+            </h2>
+            <p class="body-balance">
+              홍보는 더 매력적으로, 다운로드는 더 간결하게, 동의 과정은 더
+              명확하게 분리해 사용자가 헷갈리지 않도록 정리했습니다.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="platform-preview reveal" id="platforms">
+        <div class="shell">
+          <div class="section-heading">
+            <div class="section-heading-text">
+              <p class="surface-label">Platforms</p>
+              <h2 class="section-title headline-balance">
+                운영체제를 고른 뒤, 바로 다운로드 페이지로 이어집니다.
+              </h2>
+            </div>
+            <p class="section-copy body-balance">
+              메인 페이지에서는 제품을 소개하고, 다운로드 페이지에서는
+              macOS·Windows·Linux 가운데 원하는 환경을 골라 약관 확인 후
+              설치를 시작합니다.
+            </p>
+          </div>
+
+          <div class="platform-preview-grid" id="platform-preview-grid"></div>
+
+          <div class="platform-preview-actions">
+            <a href="./downloads.html" class="cta cta-primary">무료 다운로드하기</a>
+            <a href="./downloads.html#agreement-panel" class="cta cta-secondary">
+              설치 전 동의 보기
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-inner">
+        <p class="footer-copy">
+          Jarvis Desktop은 음성, 브라우저, 데스크톱 제어를 하나의 인터페이스로
+          묶는 데스크톱 AI 제품입니다.
+        </p>
+        <div class="footer-links">
+          <a href="#overview">Overview</a>
+          <a href="#capabilities">Capabilities</a>
+          <a href="./downloads.html">Downloads</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

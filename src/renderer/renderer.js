@@ -12,12 +12,15 @@ const commandInput = document.getElementById("commandInput");
 const submitButton = document.getElementById("submitButton");
 const shortcutHint = document.getElementById("shortcutHint");
 const wakeToggle = document.getElementById("wakeToggle");
+const muteToggle = document.getElementById("muteToggle");
 const voiceOnceButton = document.getElementById("voiceOnceButton");
+const voiceCallToggle = document.getElementById("voiceCallToggle");
 const speechLanguage = document.getElementById("speechLanguage");
 const voiceSelect = document.getElementById("voiceSelect");
 const previewVoiceButton = document.getElementById("previewVoiceButton");
 const speakReplies = document.getElementById("speakReplies");
 const voiceStatus = document.getElementById("voiceStatus");
+const callModeHint = document.getElementById("callModeHint");
 const ttsProviderStatus = document.getElementById("ttsProviderStatus");
 const ttsProviderSummary = document.getElementById("ttsProviderSummary");
 const ttsProviderEn = document.getElementById("ttsProviderEn");
@@ -31,6 +34,14 @@ const naverClovaClientId = document.getElementById("naverClovaClientId");
 const naverClovaClientSecret = document.getElementById("naverClovaClientSecret");
 const naverClovaSpeakerKo = document.getElementById("naverClovaSpeakerKo");
 const naverClovaSpeakerEn = document.getElementById("naverClovaSpeakerEn");
+const geminiApiKey = document.getElementById("geminiApiKey");
+const geminiModel = document.getElementById("geminiModel");
+const geminiVoiceEn = document.getElementById("geminiVoiceEn");
+const geminiVoiceKo = document.getElementById("geminiVoiceKo");
+const openaiApiKey = document.getElementById("openaiApiKey");
+const openaiModel = document.getElementById("openaiModel");
+const openaiVoiceEn = document.getElementById("openaiVoiceEn");
+const openaiVoiceKo = document.getElementById("openaiVoiceKo");
 const cartesiaApiKey = document.getElementById("cartesiaApiKey");
 const cartesiaModelId = document.getElementById("cartesiaModelId");
 const cartesiaVoiceEn = document.getElementById("cartesiaVoiceEn");
@@ -85,13 +96,22 @@ const chipButtons = Array.from(document.querySelectorAll(".chip-button"));
 
 const state = {
   recognition: null,
+  recognitionRunning: false,
   wakeEnabled: false,
+  callModeEnabled: false,
   waitingForVoiceCommand: false,
   recognitionMode: "idle",
+  manualRecognitionReason: "",
   commandTimeout: null,
+  pendingRecognitionStart: null,
+  pendingRecognitionTimer: null,
   appSearchDebounce: null,
   voicesLoaded: false,
   currentAudio: null,
+  currentUtterance: null,
+  speechSession: null,
+  muted: false,
+  submitInFlight: false,
   appCatalog: [],
   appCatalogTotalCount: 0,
   threads: [],
@@ -102,6 +122,7 @@ const state = {
 const VOICE_STORAGE_KEY = "jarvis-selected-voice";
 const LANGUAGE_STORAGE_KEY = "jarvis-speech-language";
 const SPEAK_REPLIES_KEY = "jarvis-speak-replies";
+const CALL_MODE_STORAGE_KEY = "jarvis-call-mode";
 const THREAD_STORAGE_KEY = "jarvis-thread-state-v2";
 
 function escapeHtml(text = "") {
@@ -470,6 +491,159 @@ function updateVoiceStatus(text) {
   voiceStatus.textContent = text;
 }
 
+function clearPendingRecognitionTimer() {
+  if (state.pendingRecognitionTimer) {
+    clearTimeout(state.pendingRecognitionTimer);
+    state.pendingRecognitionTimer = null;
+  }
+}
+
+function clearCommandTimeout() {
+  if (state.commandTimeout) {
+    clearTimeout(state.commandTimeout);
+    state.commandTimeout = null;
+  }
+}
+
+function resolveSpeechSession() {
+  if (state.speechSession?.resolve) {
+    state.speechSession.resolve();
+  }
+
+  state.speechSession = null;
+}
+
+function createSpeechSession() {
+  resolveSpeechSession();
+
+  return new Promise((resolve) => {
+    let settled = false;
+
+    state.speechSession = {
+      resolve: () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      }
+    };
+  });
+}
+
+function stopAudioPlayback() {
+  if (state.currentAudio) {
+    state.currentAudio.onended = null;
+    state.currentAudio.onerror = null;
+    state.currentAudio.pause();
+    state.currentAudio = null;
+  }
+
+  if (state.currentUtterance) {
+    state.currentUtterance.onend = null;
+    state.currentUtterance.onerror = null;
+    state.currentUtterance = null;
+  }
+
+  window.speechSynthesis?.cancel();
+  resolveSpeechSession();
+}
+
+function syncWakeButton() {
+  if (!wakeToggle) {
+    return;
+  }
+
+  wakeToggle.textContent = state.wakeEnabled ? "Wake Word On" : "Wake Word";
+  wakeToggle.classList.toggle("active", state.wakeEnabled);
+}
+
+function syncMuteButton() {
+  if (!muteToggle) {
+    return;
+  }
+
+  muteToggle.textContent = state.muted ? "Jarvis Voice Off" : "Jarvis Voice On";
+  muteToggle.classList.toggle("active", !state.muted);
+}
+
+function applyMuteState(muted) {
+  state.muted = Boolean(muted);
+
+  if (state.muted) {
+    stopAudioPlayback();
+  }
+
+  syncMuteButton();
+}
+
+function syncCallModeButton() {
+  if (!voiceCallToggle) {
+    return;
+  }
+
+  voiceCallToggle.textContent = state.callModeEnabled ? "Call Mode On" : "Call Mode";
+  voiceCallToggle.classList.toggle("active", state.callModeEnabled);
+
+  if (callModeHint) {
+    callModeHint.textContent = state.callModeEnabled
+      ? "통화 모드가 켜져 있어요. 답이 끝나면 자동으로 다시 듣고, 필요하면 중간에 바로 끊고 말할 수 있어요."
+      : "통화 모드를 켜면 응답 후 자동으로 다시 듣고, 중간에 바로 다시 말할 수도 있어요.";
+  }
+}
+
+function syncVoiceOnceButton() {
+  if (!voiceOnceButton) {
+    return;
+  }
+
+  const isManualListening = state.recognitionMode === "manual" && state.waitingForVoiceCommand;
+  voiceOnceButton.textContent = isManualListening ? "Listening..." : "Voice Once";
+  voiceOnceButton.classList.toggle("active", isManualListening);
+}
+
+function applyCallModeState(enabled) {
+  state.callModeEnabled = Boolean(enabled);
+  localStorage.setItem(CALL_MODE_STORAGE_KEY, state.callModeEnabled ? "1" : "0");
+  syncCallModeButton();
+}
+
+function requestRecognitionStart(mode, options = {}) {
+  const { delayMs = 0, reason = "" } = options;
+  clearPendingRecognitionTimer();
+
+  const startRequestedMode = () => {
+    state.pendingRecognitionTimer = null;
+
+    if (state.recognitionRunning) {
+      state.pendingRecognitionStart = {
+        mode,
+        reason
+      };
+
+      try {
+        state.recognition?.stop();
+      } catch (_error) {
+        // Ignore "already stopped" races and let onend settle the restart.
+      }
+      return;
+    }
+
+    if (mode === "wake") {
+      startWakeRecognition();
+      return;
+    }
+
+    startManualRecognition(reason || "single-turn");
+  };
+
+  if (delayMs > 0) {
+    state.pendingRecognitionTimer = setTimeout(startRequestedMode, delayMs);
+    return;
+  }
+
+  startRequestedMode();
+}
+
 function buildProviderConfiguredLabel(name, configured) {
   return `${name} ${configured ? "연결됨" : "미연결"}`;
 }
@@ -479,6 +653,8 @@ function updateTtsSummary(status, settings) {
   const summaryParts = [
     buildProviderConfiguredLabel("ElevenLabs", configured.elevenlabs),
     buildProviderConfiguredLabel("NAVER CLOVA", configured.naverClova),
+    buildProviderConfiguredLabel("Gemini", configured.gemini),
+    buildProviderConfiguredLabel("OpenAI", configured.openai),
     buildProviderConfiguredLabel("Cartesia", configured.cartesia),
     buildProviderConfiguredLabel("Google", configured.googleCloud)
   ];
@@ -495,6 +671,8 @@ function populateTtsSettings(payload = {}) {
   const settings = payload.settings || {};
   const eleven = settings.elevenlabs || {};
   const naver = settings.naverClova || {};
+  const gemini = settings.gemini || {};
+  const openai = settings.openai || {};
   const cartesia = settings.cartesia || {};
   const google = settings.google || {};
 
@@ -509,6 +687,14 @@ function populateTtsSettings(payload = {}) {
   naverClovaSpeakerKo.value = naver.speakerKo || "vyuna";
   naverClovaSpeakerEn.value = naver.speakerEn || "matt";
 
+  geminiModel.value = gemini.model || "gemini-3.1-flash-tts-preview";
+  geminiVoiceEn.value = gemini.voiceEn || "Aoede";
+  geminiVoiceKo.value = gemini.voiceKo || "Kore";
+
+  openaiModel.value = openai.model || "gpt-4o-mini-tts";
+  openaiVoiceEn.value = openai.voiceEn || "marin";
+  openaiVoiceKo.value = openai.voiceKo || "marin";
+
   cartesiaModelId.value = cartesia.modelId || "sonic-3";
   cartesiaVoiceEn.value = cartesia.voiceEn || "";
   cartesiaVoiceKo.value = cartesia.voiceKo || "";
@@ -518,6 +704,8 @@ function populateTtsSettings(payload = {}) {
   elevenlabsApiKey.value = "";
   naverClovaClientId.value = "";
   naverClovaClientSecret.value = "";
+  geminiApiKey.value = "";
+  openaiApiKey.value = "";
   cartesiaApiKey.value = "";
 
   updateTtsSummary(payload.status, settings);
@@ -554,6 +742,18 @@ async function saveTtsSettings() {
       clientSecret: naverClovaClientSecret.value.trim(),
       speakerKo: naverClovaSpeakerKo.value.trim(),
       speakerEn: naverClovaSpeakerEn.value.trim()
+    },
+    gemini: {
+      apiKey: geminiApiKey.value,
+      model: geminiModel.value.trim(),
+      voiceEn: geminiVoiceEn.value.trim(),
+      voiceKo: geminiVoiceKo.value.trim()
+    },
+    openai: {
+      apiKey: openaiApiKey.value,
+      model: openaiModel.value.trim(),
+      voiceEn: openaiVoiceEn.value.trim(),
+      voiceKo: openaiVoiceKo.value.trim()
     },
     cartesia: {
       apiKey: cartesiaApiKey.value,
@@ -675,32 +875,39 @@ function detectLanguage(text = "") {
   return koreanCount >= englishCount ? "ko" : "en";
 }
 
-function fallbackSpeakText(text, language = detectLanguage(text)) {
-  if (!("speechSynthesis" in window) || !text) {
+async function fallbackSpeakText(text, language = detectLanguage(text)) {
+  if (state.muted || !("speechSynthesis" in window) || !text) {
     return;
   }
 
-  window.speechSynthesis.cancel();
+  stopAudioPlayback();
 
+  const speechSession = createSpeechSession();
   const utterance = new SpeechSynthesisUtterance(text.slice(0, 500));
   utterance.voice = chooseVoice();
   utterance.lang = utterance.voice?.lang || (language === "ko" ? "ko-KR" : "en-US");
   utterance.rate = language === "ko" ? 1 : 0.98;
   utterance.pitch = language === "ko" ? 1.02 : 1;
+  utterance.onend = () => {
+    state.currentUtterance = null;
+    resolveSpeechSession();
+  };
+  utterance.onerror = () => {
+    state.currentUtterance = null;
+    resolveSpeechSession();
+  };
+
+  state.currentUtterance = utterance;
   window.speechSynthesis.speak(utterance);
+  await speechSession;
 }
 
 async function speakText(text, language = detectLanguage(text)) {
-  if (!speakReplies.checked || !text) {
+  if (state.muted || !speakReplies.checked || !text) {
     return;
   }
 
-  window.speechSynthesis?.cancel();
-
-  if (state.currentAudio) {
-    state.currentAudio.pause();
-    state.currentAudio = null;
-  }
+  stopAudioPlayback();
 
   try {
     const result = await window.assistantAPI.speak({
@@ -708,16 +915,36 @@ async function speakText(text, language = detectLanguage(text)) {
       language
     });
 
+    if (result?.muted) {
+      return;
+    }
+
     if (result.audioBase64) {
-      state.currentAudio = new Audio(`data:${result.mimeType || "audio/wav"};base64,${result.audioBase64}`);
-      await state.currentAudio.play();
+      const speechSession = createSpeechSession();
+      const audio = new Audio(`data:${result.mimeType || "audio/wav"};base64,${result.audioBase64}`);
+      audio.onended = () => {
+        if (state.currentAudio === audio) {
+          state.currentAudio = null;
+        }
+        resolveSpeechSession();
+      };
+      audio.onerror = () => {
+        if (state.currentAudio === audio) {
+          state.currentAudio = null;
+        }
+        resolveSpeechSession();
+      };
+
+      state.currentAudio = audio;
+      await audio.play();
+      await speechSession;
       return;
     }
   } catch (_error) {
     // Fall back to browser TTS below.
   }
 
-  fallbackSpeakText(text, language);
+  await fallbackSpeakText(text, language);
 }
 
 function getRecognitionConstructor() {
@@ -739,21 +966,29 @@ function stripWakeWord(text, wakeWord) {
 }
 
 async function handleAssistantResult(result) {
+  const previewText = result.details?.showInlinePreview === true
+    ? result.details?.ocrText || result.details?.text || result.details?.content || ""
+    : "";
+
   addMessage(
     "assistant",
     result.reply || "처리를 마쳤어요.",
-    result.details?.ocrText || result.details?.text || result.details?.content || ""
+    previewText
   );
   renderActions(result.actions || []);
-  void speakText(result.reply || "", result.language || detectLanguage(result.reply || ""));
+  await speakText(result.reply || "", result.language || detectLanguage(result.reply || ""));
 }
 
-async function submitCommandText(input) {
+async function submitCommandText(input, options = {}) {
   if (!input) {
     return;
   }
 
+  const source = options.source || "text";
+  const shouldResumeCall = state.callModeEnabled && source === "voice";
+
   addMessage("user", input);
+  state.submitInFlight = true;
   setWakeState("listening");
   submitButton.disabled = true;
 
@@ -762,10 +997,24 @@ async function submitCommandText(input) {
     await handleAssistantResult(result);
   } catch (error) {
     addMessage("assistant", `처리 중 문제가 있었어요: ${error.message}`);
+    await speakText(`처리 중 문제가 있었어요. ${error.message}`, detectLanguage(error.message || ""));
   } finally {
+    state.submitInFlight = false;
     submitButton.disabled = false;
     commandInput.value = "";
     setWakeState("idle");
+
+    if (shouldResumeCall) {
+      updateVoiceStatus("이어서 듣고 있어요...");
+      requestRecognitionStart("manual", {
+        reason: "call-mode",
+        delayMs: 380
+      });
+    } else if (state.wakeEnabled) {
+      updateVoiceStatus("웨이크워드를 듣는 중이에요.");
+    } else if (!state.callModeEnabled) {
+      updateVoiceStatus("음성 대기 중이 아니에요.");
+    }
   }
 }
 
@@ -797,6 +1046,10 @@ function buildRecognition() {
   const recognition = new Recognition();
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
+  recognition.onstart = () => {
+    state.recognitionRunning = true;
+    syncVoiceOnceButton();
+  };
 
   recognition.onresult = async (event) => {
     let finalTranscript = "";
@@ -816,10 +1069,31 @@ function buildRecognition() {
       return;
     }
 
+    if (state.waitingForVoiceCommand && state.recognitionMode === "wake") {
+      const repeatedWakeWord = detectWakeWord(transcript);
+      const followUpCommand = stripWakeWord(transcript, repeatedWakeWord);
+
+      if (followUpCommand) {
+        state.waitingForVoiceCommand = false;
+        clearCommandTimeout();
+        syncVoiceOnceButton();
+        updateVoiceStatus("이어서 말씀하신 내용을 실행할게요...");
+        await submitCommandText(followUpCommand, {
+          source: "voice"
+        });
+      }
+
+      return;
+    }
+
     if (state.recognitionMode === "manual" && state.waitingForVoiceCommand) {
       state.waitingForVoiceCommand = false;
+      state.manualRecognitionReason = state.manualRecognitionReason || "single-turn";
+      syncVoiceOnceButton();
       updateVoiceStatus("말씀하신 내용을 처리하고 있어요...");
-      await submitCommandText(transcript);
+      await submitCommandText(transcript, {
+        source: "voice"
+      });
       return;
     }
 
@@ -829,45 +1103,86 @@ function buildRecognition() {
       return;
     }
 
-    await window.assistantAPI.showPopup({
-      status: "listening"
-    });
-
     const directCommand = stripWakeWord(transcript, wakeWord);
 
     if (directCommand) {
       updateVoiceStatus("호출어를 감지했어요. 바로 실행할게요...");
-      await submitCommandText(directCommand);
+      await submitCommandText(directCommand, {
+        source: "voice"
+      });
       return;
     }
 
     state.waitingForVoiceCommand = true;
+    syncVoiceOnceButton();
     updateVoiceStatus("호출어를 감지했어요. 이어서 말씀해 주세요...");
-    speakText(speechLanguage.value.startsWith("ko") ? "네, 말씀하세요." : "Yes, I'm listening.");
+    void speakText(speechLanguage.value.startsWith("ko") ? "네, 말씀하세요." : "Yes, I'm listening.");
 
-    clearTimeout(state.commandTimeout);
+    clearCommandTimeout();
     state.commandTimeout = setTimeout(() => {
       state.waitingForVoiceCommand = false;
+      syncVoiceOnceButton();
       updateVoiceStatus("웨이크워드를 듣는 중이에요.");
     }, 7000);
   };
 
   recognition.onerror = (event) => {
+    if (event.error === "aborted") {
+      return;
+    }
+
+    if (event.error === "no-speech") {
+      updateVoiceStatus(
+        state.callModeEnabled ? "아직 말씀이 없어서 잠깐 후 다시 들을게요." : "말씀을 더 또렷하게 해주시면 바로 다시 들을게요."
+      );
+      return;
+    }
+
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      state.wakeEnabled = false;
+      applyCallModeState(false);
+      syncWakeButton();
+      updateVoiceStatus("마이크 권한이 필요해요. 브라우저나 앱 권한에서 마이크를 허용해 주세요.");
+      return;
+    }
+
     updateVoiceStatus(`음성 인식 오류: ${event.error}`);
   };
 
   recognition.onend = () => {
-    if (state.wakeEnabled && state.recognitionMode === "wake") {
+    const previousMode = state.recognitionMode;
+    const previousManualReason = state.manualRecognitionReason;
+    const pendingStart = state.pendingRecognitionStart;
+
+    state.recognitionRunning = false;
+    state.pendingRecognitionStart = null;
+    state.recognitionMode = "idle";
+    state.manualRecognitionReason = "";
+    setWakeState("idle");
+    syncVoiceOnceButton();
+
+    if (pendingStart) {
       setTimeout(() => {
-        try {
-          startWakeRecognition();
-        } catch (_error) {
-          updateVoiceStatus("웨이크워드 듣기가 멈췄어요. 다시 켜 주세요.");
-        }
-      }, 300);
-    } else {
-      state.recognitionMode = "idle";
-      setWakeState("idle");
+        requestRecognitionStart(pendingStart.mode, {
+          reason: pendingStart.reason
+        });
+      }, 140);
+      return;
+    }
+
+    if (state.wakeEnabled && previousMode === "wake") {
+      requestRecognitionStart("wake", {
+        delayMs: 300
+      });
+      return;
+    }
+
+    if (state.callModeEnabled && previousMode === "manual" && previousManualReason === "call-mode" && !state.submitInFlight) {
+      requestRecognitionStart("manual", {
+        reason: "call-mode",
+        delayMs: 520
+      });
+      return;
     }
   };
 
@@ -884,12 +1199,18 @@ function getRecognition() {
 
 function startWakeRecognition() {
   const recognition = getRecognition();
+  clearPendingRecognitionTimer();
+  clearCommandTimeout();
   recognition.lang = speechLanguage.value;
   recognition.continuous = true;
   state.recognitionMode = "wake";
   state.wakeEnabled = true;
+  state.waitingForVoiceCommand = false;
+  state.manualRecognitionReason = "";
   setWakeState("listening");
   updateVoiceStatus("웨이크워드를 듣는 중이에요.");
+  syncWakeButton();
+  syncVoiceOnceButton();
 
   try {
     recognition.start();
@@ -901,8 +1222,11 @@ function startWakeRecognition() {
 function stopWakeRecognition() {
   state.wakeEnabled = false;
   state.waitingForVoiceCommand = false;
-  clearTimeout(state.commandTimeout);
+  clearPendingRecognitionTimer();
+  clearCommandTimeout();
   updateVoiceStatus("웨이크워드는 꺼져 있어요.");
+  syncWakeButton();
+  syncVoiceOnceButton();
 
   if (state.recognition) {
     state.recognitionMode = "idle";
@@ -912,14 +1236,17 @@ function stopWakeRecognition() {
   setWakeState("idle");
 }
 
-function startManualRecognition() {
+function startManualRecognition(reason = "single-turn") {
   const recognition = getRecognition();
+  clearPendingRecognitionTimer();
   recognition.lang = speechLanguage.value;
   recognition.continuous = false;
   state.recognitionMode = "manual";
   state.waitingForVoiceCommand = true;
+  state.manualRecognitionReason = reason;
   setWakeState("listening");
-  updateVoiceStatus("한 번만 듣는 중이에요...");
+  updateVoiceStatus(reason === "call-mode" ? "통화 모드로 듣는 중이에요..." : "한 번만 듣는 중이에요...");
+  syncVoiceOnceButton();
 
   try {
     recognition.start();
@@ -951,6 +1278,10 @@ async function refreshCredentialList() {
 
 window.assistantAPI.onWakeState((payload) => {
   setWakeState(payload.status);
+});
+
+window.assistantAPI.onMuteState((payload) => {
+  applyMuteState(payload?.muted);
 });
 
 commandForm.addEventListener("submit", async (event) => {
@@ -992,29 +1323,64 @@ newThreadButton?.addEventListener("click", () => {
   commandInput.focus();
 });
 
-openQuickPanelButton?.addEventListener("click", async () => {
-  await window.assistantAPI.showPopup({
-    status: "idle"
-  });
-});
-
 wakeToggle.addEventListener("click", () => {
   if (state.wakeEnabled) {
     stopWakeRecognition();
-    wakeToggle.textContent = "웨이크워드 켜기";
   } else {
     try {
-      startWakeRecognition();
-      wakeToggle.textContent = "웨이크워드 끄기";
+      if (state.callModeEnabled) {
+        applyCallModeState(false);
+      }
+
+      requestRecognitionStart("wake");
     } catch (error) {
       addMessage("assistant", error.message);
     }
   }
 });
 
+muteToggle?.addEventListener("click", async () => {
+  const result = await window.assistantAPI.toggleMute();
+  applyMuteState(result?.muted);
+});
+
 voiceOnceButton.addEventListener("click", () => {
   try {
-    startManualRecognition();
+    stopAudioPlayback();
+    requestRecognitionStart("manual", {
+      reason: state.callModeEnabled ? "call-mode" : "single-turn"
+    });
+  } catch (error) {
+    addMessage("assistant", error.message);
+  }
+});
+
+voiceCallToggle?.addEventListener("click", () => {
+  try {
+    if (state.callModeEnabled) {
+      applyCallModeState(false);
+      clearPendingRecognitionTimer();
+
+      if (state.recognitionMode === "manual" && state.recognition) {
+        state.waitingForVoiceCommand = false;
+        syncVoiceOnceButton();
+        state.recognition.stop();
+      }
+
+      updateVoiceStatus("통화 모드를 껐어요.");
+      return;
+    }
+
+    if (state.wakeEnabled) {
+      stopWakeRecognition();
+    }
+
+    stopAudioPlayback();
+    applyCallModeState(true);
+    requestRecognitionStart("manual", {
+      reason: "call-mode",
+      delayMs: 120
+    });
   } catch (error) {
     addMessage("assistant", error.message);
   }
@@ -1023,9 +1389,19 @@ voiceOnceButton.addEventListener("click", () => {
 speechLanguage.addEventListener("change", () => {
   localStorage.setItem(LANGUAGE_STORAGE_KEY, speechLanguage.value);
   populateVoiceOptions();
+
   if (state.wakeEnabled) {
     stopWakeRecognition();
-    startWakeRecognition();
+    requestRecognitionStart("wake", {
+      delayMs: 150
+    });
+  }
+
+  if (state.callModeEnabled) {
+    requestRecognitionStart("manual", {
+      reason: "call-mode",
+      delayMs: 150
+    });
   }
 });
 
@@ -1278,6 +1654,7 @@ async function bootstrap() {
   const data = await window.assistantAPI.getBootstrap();
   const storedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
   const storedSpeakReplies = localStorage.getItem(SPEAK_REPLIES_KEY);
+  const storedCallMode = localStorage.getItem(CALL_MODE_STORAGE_KEY);
 
   loadThreadState();
   renderThreadList();
@@ -1291,13 +1668,21 @@ async function bootstrap() {
     speakReplies.checked = storedSpeakReplies !== "0";
   }
 
+  applyCallModeState(storedCallMode !== "0");
+
   shortcutHint.textContent = data.shortcut;
+  applyMuteState(data.mute?.muted);
+  syncWakeButton();
+  syncVoiceOnceButton();
   renderStatusCards([
     ["LLM", data.providers.llm],
     ["웨이크워드", data.providers.wakeWord],
     ["STT / TTS", `${data.providers.stt} / ${data.providers.tts}`],
     ["브라우저", data.providers.browser],
     ["앱", `${data.capabilities.appAutomation || "basic"} · ${data.capabilities.appCatalogCount || 0}`],
+    ["확장", data.capabilities.extensions
+      ? `hooks ${data.capabilities.extensions.webhooks} · skills ${data.capabilities.extensions.skills} · connectors ${data.capabilities.extensions.connectors}`
+      : "none"],
     ["로그인 보관", data.capabilities.credentialHandling],
     ["OCR / OBS", `${data.capabilities.screenOcr} / ${data.capabilities.obsControl}`]
   ]);
@@ -1315,6 +1700,17 @@ async function bootstrap() {
 
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
+  }
+
+  if (state.callModeEnabled) {
+    try {
+      requestRecognitionStart("manual", {
+        reason: "call-mode",
+        delayMs: 650
+      });
+    } catch (error) {
+      updateVoiceStatus(error.message);
+    }
   }
 }
 

@@ -1,6 +1,11 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { notarize } = require("@electron/notarize");
+const { loadProjectEnv } = require("../src/main/project-env.cjs");
+
+loadProjectEnv({
+  rootDir: path.join(__dirname, "..")
+});
 
 function readEnv(name) {
   return String(process.env[name] || "").trim();

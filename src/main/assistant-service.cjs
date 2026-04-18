@@ -7,6 +7,17 @@ const {
   getTierProviderLabel
 } = require("./ollama-service.cjs");
 
+const LONG_TERM_MEMORY_SYSTEM_PROMPT = [
+  "You extract durable long-term user memory for a desktop assistant.",
+  "Return valid JSON only.",
+  'Schema: {"identity":{},"preferences":{},"projects":{},"relationships":{},"wishes":{},"notes":{}}',
+  'Each saved fact should use the shape {"value":"..."} inside the category object.',
+  "Store only facts that will still be useful later: identity, preferences, recurring habits, ongoing projects, important relationships, future plans, or stable personal context.",
+  "Do not store temporary web content, raw URLs, one-off commands, current machine state, passwords, API keys, tokens, secrets, or other sensitive credentials.",
+  "Keep values concise. Use English when practical, even if the conversation is Korean.",
+  "If nothing is worth saving, return {}."
+].join(" ");
+
 const WEB_TARGET_ALIASES = new Set([
   "google",
   "구글",
@@ -92,6 +103,33 @@ function safeJsonParse(raw) {
       return null;
     }
   }
+}
+
+function hasLongTermMemoryContent(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Object.values(value).some(
+        (section) =>
+          section &&
+          typeof section === "object" &&
+          !Array.isArray(section) &&
+          Object.keys(section).length
+      )
+  );
+}
+
+function looksPotentiallyMemorableConversation(userText = "", assistantText = "") {
+  const combined = `${normalizeWhitespace(userText)}\n${normalizeWhitespace(assistantText)}`.trim();
+
+  if (!combined || combined.length < 8) {
+    return false;
+  }
+
+  return /(?:\b(?:my name|i am|i'm|i live|i work|i study|i prefer|i like|i love|i hate|my favorite|favorite|my project|my goal|my friend|my family|my partner|i want|i plan|usually|often)\b|저는|나는|내 이름|살아요|살고 있어|일해|학생|좋아해|싫어해|취향|선호|프로젝트|목표|계획|친구|가족|연인|사고 싶|가고 싶|하고 싶|자주|보통)/i.test(
+    combined
+  );
 }
 
 function normalizeEntityToken(value = "") {
@@ -467,7 +505,8 @@ function buildHeuristicBrowserPlan(input) {
   const normalized = normalizePlanText(input);
   const plan = {
     reply: "",
-    steps: []
+    steps: [],
+    login: null
   };
   const complexSiteIntent = extractComplexBrowserIntent(normalized);
 
@@ -482,10 +521,11 @@ function buildHeuristicBrowserPlan(input) {
     }
 
     if (complexSiteIntent.wantsLogin) {
-      plan.steps.push({
-        action: "login_saved",
-        target: complexSiteIntent.site
-      });
+      plan.login = {
+        required: true,
+        mode: "manual",
+        site: complexSiteIntent.site
+      };
     }
 
     if (complexSiteIntent.query) {
@@ -637,6 +677,107 @@ function buildHeuristicBrowserPlan(input) {
   return plan;
 }
 
+function wantsSavedBrowserLogin(text = "") {
+  return /(?:자동 로그인|저장된 (?:계정|로그인|자격 증명)|saved (?:login|credential|credentials)|autofill|auto[- ]?login|use (?:my )?saved (?:login|credential|credentials))/i.test(
+    normalizePlanText(text)
+  );
+}
+
+function looksLikeBrowserContinuationResponse(text = "") {
+  return /^(?:계속|계속해|계속해줘|이어가|이어서|다음|다음으로|로그인했어|로그인 완료|완료했어|됐어|다 했어|continue|go on|resume|done|i(?:'m| am) logged in|logged in|finished)$/i.test(
+    normalizePlanText(text)
+  );
+}
+
+function detectBrowserSpecialCases(finalPage = {}) {
+  const haystack = normalizeWhitespace(
+    `${finalPage.title || ""}\n${finalPage.url || ""}\n${finalPage.text || ""}`
+  ).toLowerCase();
+  const notices = [];
+
+  if (
+    /(captcha|not a robot|human verification|verify (?:you'?re|you are) human|robot check|security check|보안문자|자동화된 요청|로봇 인증)/i.test(
+      haystack
+    )
+  ) {
+    notices.push("captcha");
+  }
+
+  if (
+    /(two[- ]factor|two step|two-step|2fa|otp|verification code|authenticator|인증 코드|보안 코드|일회용 코드|2단계 인증|이중 인증)/i.test(
+      haystack
+    )
+  ) {
+    notices.push("verification");
+  }
+
+  if (/(access denied|forbidden|blocked|access blocked|접근 거부|권한이 없습니다|차단됨)/i.test(haystack)) {
+    notices.push("access_denied");
+  }
+
+  if (
+    /(continue with google|continue with apple|enter your password|sign in|sign-in|signin|log in|login|로그인|사인인)/i.test(
+      haystack
+    ) &&
+    /(login|signin|sign-in|auth|account|session|password|continue with)/i.test(haystack)
+  ) {
+    notices.push("login_required");
+  }
+
+  if (/(404|page not found|not found|찾을 수 없습니다|존재하지 않는 페이지)/i.test(haystack)) {
+    notices.push("not_found");
+  }
+
+  return [...new Set(notices)];
+}
+
+function localizeBrowserNotice(code, language = "en") {
+  if (code === "captcha") {
+    return language === "ko"
+      ? "캡차나 사람 확인 화면이 보여요."
+      : "the page is asking for CAPTCHA or human verification.";
+  }
+
+  if (code === "verification") {
+    return language === "ko"
+      ? "인증 코드나 2단계 인증이 필요해 보여요."
+      : "it looks like a verification code or two-factor check is required.";
+  }
+
+  if (code === "access_denied") {
+    return language === "ko"
+      ? "접근이 막혔거나 권한이 부족해 보여요."
+      : "access appears to be blocked or restricted.";
+  }
+
+  if (code === "login_required") {
+    return language === "ko"
+      ? "아직 로그인 완료가 필요해 보여요."
+      : "it still looks like the site wants a login.";
+  }
+
+  if (code === "not_found") {
+    return language === "ko"
+      ? "요청한 페이지를 찾지 못한 것 같아요."
+      : "the page looks like a not-found result.";
+  }
+
+  return "";
+}
+
+function appendBrowserNotices(reply = "", notices = [], language = "en") {
+  const localized = notices.map((code) => localizeBrowserNotice(code, language)).filter(Boolean);
+
+  if (!localized.length) {
+    return reply;
+  }
+
+  const prefix = language === "ko" ? "특이사항:" : "Heads up:";
+  const suffix = localized.join(language === "ko" ? " " : " ");
+
+  return [reply, `${prefix} ${suffix}`].filter(Boolean).join(" ").trim();
+}
+
 function buildLanguageName(languageCode) {
   return languageCode === "ko" ? "Korean" : "English";
 }
@@ -704,7 +845,6 @@ function isFastBrowserPlan(plan = {}) {
     "click_text",
     "click_search_result",
     "site_search",
-    "login_saved",
     "read_page"
   ]);
 
@@ -740,6 +880,10 @@ function shouldUseFallbackRouteDirectly(input, route = {}) {
     "app_list",
     "browser",
     "browser_login",
+    "code_project",
+    "game_install",
+    "game_list",
+    "game_update",
     "system_briefing",
     "spotify_play",
     "obs_connect",
@@ -1457,6 +1601,89 @@ function extractSceneName(input) {
   return match?.[1]?.trim() || "";
 }
 
+function detectGamePlatform(input = "") {
+  const normalized = normalizePlanText(input);
+  const mentionsSteam = /(steam|스팀)/i.test(normalized);
+  const mentionsEpic = /(epic|에픽)/i.test(normalized);
+
+  if (mentionsSteam && !mentionsEpic) {
+    return "steam";
+  }
+
+  if (mentionsEpic && !mentionsSteam) {
+    return "epic";
+  }
+
+  return "both";
+}
+
+function looksLikeInstalledGameListRequest(input = "") {
+  return /(?:설치된\s*게임|게임\s*목록|보유\s*게임|installed games|game list|steam games|epic games)/i.test(
+    normalizePlanText(input)
+  );
+}
+
+function extractGameName(input = "") {
+  const normalized = normalizePlanText(input);
+
+  if (!normalized || looksLikeInstalledGameListRequest(normalized)) {
+    return "";
+  }
+
+  const patterns = [
+    /(?:steam|스팀|epic|에픽(?:\s*게임즈)?)(?:에서)?\s+(.+?)\s*(?:게임\s*)?(?:설치해줘|설치|install(?: it)?|업데이트해줘|업데이트|update)$/i,
+    /(?:install|update)\s+(.+?)\s+(?:on|from)\s+(?:steam|epic)/i,
+    /(?:install|update)\s+(.+)$/i,
+    /(.+?)\s*(?:게임\s*)?(?:설치해줘|설치|업데이트해줘|업데이트)$/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+
+    if (match?.[1]) {
+      const cleaned = cleanupParsedText(
+        match[1]
+          .replace(/^(?:the|a|an)\s+/i, "")
+          .replace(/\s+(?:game|게임)\s*$/i, "")
+      );
+
+      if (cleaned && !/^(?:steam|스팀|epic|에픽|game|게임)$/i.test(cleaned)) {
+        return cleaned;
+      }
+    }
+  }
+
+  return "";
+}
+
+function looksLikeGameInstallRequest(input = "") {
+  const normalized = normalizePlanText(input);
+
+  return /(install|설치)/i.test(normalized) && /(steam|epic|스팀|에픽|game|게임)/i.test(normalized);
+}
+
+function looksLikeGameUpdateRequest(input = "") {
+  const normalized = normalizePlanText(input);
+
+  return /(update|업데이트|패치)/i.test(normalized) && /(steam|epic|스팀|에픽|game|게임)/i.test(normalized);
+}
+
+function looksLikeCodeProjectRequest(input = "") {
+  const normalized = normalizePlanText(input);
+  const hasCreationVerb = /(make|build|create|generate|scaffold|write|code|program|develop|만들어|생성|구현|코드\s*짜|코드\s*써)/i.test(
+    normalized
+  );
+  const hasProjectTarget = /(project|app|website|site|game|script|tool|prototype|snake|todo|프로젝트|앱|웹사이트|게임|스크립트|도구|스네이크|할 일)/i.test(
+    normalized
+  );
+
+  if (!hasCreationVerb || !hasProjectTarget) {
+    return false;
+  }
+
+  return !/(read file|open file|edit file|파일\s*(읽어|열어|수정)|directory|폴더\s*목록)/i.test(normalized);
+}
+
 function isSpotifyRequest(text = "") {
   return /(spotify|스포티파이)/i.test(normalizePlanText(text));
 }
@@ -2010,6 +2237,7 @@ function buildRouteFallback(input) {
   const writeParts = extractFileWriteParts(input);
   const readPath = extractFileReadPath(input);
   const workspaceApp = detectWorkspaceAppName(input);
+  const complexBrowserIntent = extractComplexBrowserIntent(input);
 
   if (looksLikeAppListRequest(input)) {
     return {
@@ -2021,6 +2249,39 @@ function buildRouteFallback(input) {
   if (looksLikeSystemBriefingRequest(input)) {
     return {
       route: "system_briefing",
+      language: detectReplyLanguage(input)
+    };
+  }
+
+  if (looksLikeInstalledGameListRequest(input)) {
+    return {
+      route: "game_list",
+      language: detectReplyLanguage(input),
+      platform: detectGamePlatform(input)
+    };
+  }
+
+  if (looksLikeGameInstallRequest(input)) {
+    return {
+      route: "game_install",
+      language: detectReplyLanguage(input),
+      platform: detectGamePlatform(input),
+      query: extractGameName(input)
+    };
+  }
+
+  if (looksLikeGameUpdateRequest(input)) {
+    return {
+      route: "game_update",
+      language: detectReplyLanguage(input),
+      platform: detectGamePlatform(input),
+      query: extractGameName(input)
+    };
+  }
+
+  if (looksLikeCodeProjectRequest(input)) {
+    return {
+      route: "code_project",
       language: detectReplyLanguage(input)
     };
   }
@@ -2038,6 +2299,13 @@ function buildRouteFallback(input) {
   if (hasAny(lowered, ["screen", "화면", "ocr", "스크린", "summarize screen"])) {
     return {
       route: "screen_summary",
+      language: detectReplyLanguage(input)
+    };
+  }
+
+  if (complexBrowserIntent && (complexBrowserIntent.query || complexBrowserIntent.wantsRead)) {
+    return {
+      route: "browser",
       language: detectReplyLanguage(input)
     };
   }
@@ -2149,7 +2417,7 @@ function buildRouteFallback(input) {
   }
 
   if (
-    extractComplexBrowserIntent(input) ||
+    complexBrowserIntent ||
     hasAny(lowered, ["browser", "search", "open website", "go to", "브라우저", "검색"]) ||
     Boolean(extractUrl(input))
   ) {
@@ -2188,18 +2456,50 @@ function buildRouteFallback(input) {
 }
 
 class AssistantService {
-  constructor({ automation, browser, credentials, files, obs, screen, tts }) {
+  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, screen, tts }) {
     this.automation = automation;
     this.browser = browser;
+    this.codeProjects = codeProjects || null;
     this.credentials = credentials;
+    this.extensions = extensions || null;
     this.files = files;
+    this.games = games || null;
+    this.memory = memory || null;
     this.obs = obs;
     this.screen = screen;
     this.tts = tts;
     this.history = [];
     this.lastActiveApp = "";
+    this.lastMemoryFingerprint = "";
     this.pendingWorkspaceMessage = null;
     this.pendingClarification = null;
+    this.pendingBrowserContinuation = null;
+  }
+
+  normalizeRequestedAppName(appName = "") {
+    const cleanName = String(appName || "").trim();
+
+    if (!cleanName) {
+      return "";
+    }
+
+    return this.extensions?.resolveConnectorAppName?.(cleanName) || cleanName;
+  }
+
+  getExtensionPlanningHints(appName = "") {
+    return this.extensions?.getAppPlanningHints?.(appName) || [];
+  }
+
+  async maybeHandleExtensionWebhook(input) {
+    if (!this.extensions?.maybeHandleWebhook) {
+      return null;
+    }
+
+    return this.extensions.maybeHandleWebhook(input, {
+      language: detectReplyLanguage(input),
+      history: this.getRecentHistory(8),
+      lastActiveApp: this.lastActiveApp
+    });
   }
 
   makeAction(type, target, status = "executed", extra = {}) {
@@ -2350,6 +2650,212 @@ class AssistantService {
     }
 
     return this.executeRoute(pending.originalInput || input, mergedRoute);
+  }
+
+  async openBrowserTargetForUser(targetUrl) {
+    if (!targetUrl) {
+      throw new Error("A browser target is required.");
+    }
+
+    try {
+      await this.automation.execute({
+        type: "open_url",
+        target: targetUrl
+      });
+
+      return {
+        url: targetUrl,
+        title: "",
+        openMode: "external-browser"
+      };
+    } catch (_error) {
+      const page = await this.browser.open(targetUrl);
+
+      return {
+        ...page,
+        openMode: "assistant-browser"
+      };
+    }
+  }
+
+  async beginPendingBrowserContinuation(input, plan) {
+    const language = detectReplyLanguage(input);
+    const site = cleanupParsedText(plan?.login?.site || guessSiteName(input) || "");
+    const fallbackTarget = buildExternalBrowserTarget(plan?.steps?.[0] || {});
+    const targetUrl = buildDirectSiteUrl(site) || fallbackTarget || normalizeBrowserOpenUrl(site || input);
+    const opened = await this.openBrowserTargetForUser(targetUrl);
+    const siteLabel =
+      inferFriendlyBrowserLabel(site || opened.title || targetUrl, language) ||
+      (language === "ko" ? "사이트" : "the site");
+
+    this.pendingBrowserContinuation = {
+      originalInput: input,
+      language,
+      site: siteLabel,
+      targetUrl: opened.url || targetUrl,
+      steps: Array.isArray(plan?.steps) ? plan.steps : []
+    };
+
+    return {
+      reply:
+        language === "ko"
+          ? `${siteLabel} 로그인 화면을 열어뒀어요. 거기서 로그인만 마치고 "계속"이라고 말해 주세요. 이어서 제가 나머지 작업을 처리할게요.`
+          : `I opened ${siteLabel} so you can finish the login there. Once you're in, say "continue" and I will handle the rest.`,
+      actions: [this.makeAction("open_url", opened.url || targetUrl)],
+      provider: opened.openMode,
+      details: {
+        title: opened.title || "",
+        url: opened.url || targetUrl,
+        openMode: opened.openMode,
+        pendingBrowserContinuation: true,
+        site: siteLabel
+      }
+    };
+  }
+
+  async completeBrowserPlan(input, data) {
+    const language = detectReplyLanguage(input);
+    const finalPage = data.final || {};
+    const actions = data.steps.map((step) =>
+      this.makeAction(
+        `browser_${step.action}`,
+        step.target || step.text || step.query || `result-${step.index || 1}`
+      )
+    );
+    const actionNames = data.steps.map((step) => step.action).join(" -> ");
+    const notices = detectBrowserSpecialCases(finalPage);
+    const details = {
+      title: finalPage.title || "",
+      url: finalPage.url || "",
+      text: finalPage.text || "",
+      executedSteps: data.steps.map((step) => ({
+        action: step.action,
+        target: step.target || step.text || step.query || step.index || "",
+        url: step.result?.url || ""
+      })),
+      actionNames,
+      notices
+    };
+    const fallback = appendBrowserNotices(
+      buildCompactBrowserReply(input, data.steps, finalPage),
+      notices,
+      language
+    );
+    const needsContentAnswer = browserWorkflowNeedsContentAnswer(input, data.steps, finalPage);
+
+    if (needsContentAnswer) {
+      try {
+        const reply = await this.replyWithModel(
+          input,
+          [
+            "The user asked you to interpret the result of a browser workflow.",
+            `Reply only in ${buildLanguageName(language)}.`,
+            "Summarize the most relevant result from the final page.",
+            "If login or search steps happened, mention them briefly and focus on the outcome.",
+            `Browser workflow:\n${JSON.stringify(details.executedSteps, null, 2)}`,
+            `Final page title: ${details.title || "(untitled)"}`,
+            `Final page URL: ${details.url || "(unknown)"}`,
+            `Visible page text:\n${details.text.slice(0, 12000) || "(No readable page text was captured.)"}`
+          ].join("\n\n"),
+          {
+            tier: "complex",
+            includeHistory: false
+          }
+        );
+
+        return {
+          reply: appendBrowserNotices(reply, notices, language),
+          actions,
+          provider: getTierProviderLabel("complex"),
+          details
+        };
+      } catch (_error) {
+        return {
+          reply: fallback,
+          actions,
+          provider: "local",
+          details
+        };
+      }
+    }
+
+    return {
+      reply: await this.polishCommandReply(
+        input,
+        {
+          actions,
+          details
+        },
+        fallback
+      ),
+      actions,
+      provider: "local",
+      details
+    };
+  }
+
+  async continuePendingBrowserContinuation(input) {
+    if (!this.pendingBrowserContinuation) {
+      return null;
+    }
+
+    const pending = this.pendingBrowserContinuation;
+    const language = pending.language || detectReplyLanguage(input);
+
+    if (this.isCancelResponse(input)) {
+      this.pendingBrowserContinuation = null;
+
+      return {
+        reply:
+          language === "ko"
+            ? "알겠습니다. 로그인 대기 중이던 브라우저 작업은 취소할게요."
+            : "Understood. I will cancel the pending browser workflow.",
+        actions: [],
+        provider: "local"
+      };
+    }
+
+    if (!looksLikeBrowserContinuationResponse(input)) {
+      return null;
+    }
+
+    this.pendingBrowserContinuation = null;
+
+    if (!pending.steps?.length) {
+      return {
+        reply:
+          language === "ko"
+            ? "좋아요. 로그인은 그 창에서 계속 유지될 거예요."
+            : "Sounds good. The login should stay available in that browser session.",
+        actions: [],
+        provider: "local"
+      };
+    }
+
+    try {
+      const data = await this.browser.executePlan(pending.steps);
+      const result = await this.completeBrowserPlan(pending.originalInput || input, data);
+      result.details = {
+        ...(result.details || {}),
+        resumedBrowserContinuation: true
+      };
+      return result;
+    } catch (error) {
+      this.pendingBrowserContinuation = pending;
+
+      return {
+        reply:
+          language === "ko"
+            ? `아직 로그인이나 페이지 준비가 덜 된 것 같아요. ${error.message} 로그인 완료 후 다시 "계속"이라고 말씀해 주세요.`
+            : `It looks like the login or page is not ready yet. ${error.message} Finish the login, then say "continue" again.`,
+        actions: [],
+        provider: "local",
+        details: {
+          pendingBrowserContinuation: true,
+          error: error.message
+        }
+      };
+    }
   }
 
   async findAppCandidates(query = "", limit = 4) {
@@ -2587,6 +3093,12 @@ class AssistantService {
         return this.handleBrowserLogin(cleanInput, route);
       case "browser":
         return this.handleBrowser(cleanInput, route);
+      case "code_project":
+        return this.handleCodeProject(cleanInput, route);
+      case "game_install":
+      case "game_list":
+      case "game_update":
+        return this.handleGameRoute(cleanInput, route);
       case "obs_connect":
       case "obs_status":
       case "obs_start":
@@ -2652,6 +3164,58 @@ class AssistantService {
     }
 
     this.lastActiveApp = appName;
+  }
+
+  buildLongTermMemorySnippet() {
+    if (!this.memory || typeof this.memory.formatForPrompt !== "function") {
+      return "";
+    }
+
+    return String(this.memory.formatForPrompt() || "").trim();
+  }
+
+  async rememberLongTermMemory(userText = "", assistantText = "") {
+    if (!this.memory || typeof this.memory.merge !== "function") {
+      return;
+    }
+
+    const cleanUser = normalizeWhitespace(userText);
+    const cleanAssistant = normalizeWhitespace(assistantText);
+
+    if (!looksPotentiallyMemorableConversation(cleanUser, cleanAssistant)) {
+      return;
+    }
+
+    const fingerprint = `${cleanUser}\n${cleanAssistant}`.slice(0, 800);
+
+    if (!fingerprint || fingerprint === this.lastMemoryFingerprint) {
+      return;
+    }
+
+    this.lastMemoryFingerprint = fingerprint;
+
+    try {
+      const raw = await chat({
+        systemPrompt: LONG_TERM_MEMORY_SYSTEM_PROMPT,
+        tier: "fast",
+        model: FAST_PLANNER_MODEL,
+        history: [],
+        userPrompt: [
+          "Conversation to analyze for long-term memory:",
+          `User: ${cleanUser}`,
+          `Assistant: ${cleanAssistant || "(none)"}`
+        ].join("\n")
+      });
+      const parsed = safeJsonParse(raw);
+
+      if (!hasLongTermMemoryContent(parsed)) {
+        return;
+      }
+
+      await this.memory.merge(parsed);
+    } catch (_error) {
+      // Ignore memory extraction failures so the main request is never blocked.
+    }
   }
 
   buildWorkspacePrompt(language, pending = {}) {
@@ -2796,14 +3360,22 @@ class AssistantService {
   async resolveAppContext(input, route = {}, options = {}) {
     const allowDirect = options.allowDirect !== false;
     const candidates = [
-      route.appName,
+      this.normalizeRequestedAppName(route.appName),
       detectWorkspaceAppName(input),
       refersToCurrentAppContext(input) && options.allowLastActive !== false ? this.lastActiveApp : "",
       extractAppActionTarget(input),
       extractAppName(input),
       options.allowLastActive === false ? "" : this.lastActiveApp
     ].filter(Boolean);
-    const uniqueCandidates = [...new Set(candidates.map((item) => item.trim()).filter(Boolean))];
+    const uniqueCandidates = [...new Set(
+      candidates
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+        .flatMap((item) => {
+          const normalized = this.normalizeRequestedAppName(item);
+          return normalized && normalized !== item ? [item, normalized] : [item];
+        })
+    )];
 
     for (const candidate of uniqueCandidates) {
       const resolved = await this.automation.resolveAppTarget(candidate, {
@@ -3291,10 +3863,11 @@ class AssistantService {
   }
 
   async handleAppAction(input, route) {
-    const requestedApp =
+    const requestedApp = this.normalizeRequestedAppName(
       route.appName ||
       extractAppActionTarget(input) ||
-      (refersToCurrentAppContext(input) ? this.lastActiveApp : "");
+      (refersToCurrentAppContext(input) ? this.lastActiveApp : "")
+    );
     const clarification = await this.maybeClarifyAppTarget(
       input,
       {
@@ -3415,13 +3988,27 @@ class AssistantService {
 
   async replyWithModel(userPrompt, extraContext = "", options = {}) {
     const includeHistory = options.includeHistory !== false;
+    const memorySnippet = options.includeMemory === false ? "" : this.buildLongTermMemorySnippet();
+    const contextBlocks = [];
+
+    if (memorySnippet) {
+      contextBlocks.push(`Known long-term user context:\n${memorySnippet}`);
+    }
+
+    if (extraContext) {
+      contextBlocks.push(extraContext);
+    }
+
+    const finalUserPrompt = contextBlocks.length
+      ? `${contextBlocks.join("\n\n")}\n\nUser request:\n${userPrompt}`
+      : userPrompt;
 
     return chat({
       systemPrompt: options.systemPrompt || buildBasePrompt(),
       tier: options.tier || "complex",
       model: options.model,
       history: includeHistory ? this.getRecentHistory() : [],
-      userPrompt: extraContext ? `${extraContext}\n\nUser request:\n${userPrompt}` : userPrompt
+      userPrompt: finalUserPrompt
     });
   }
 
@@ -3433,12 +4020,14 @@ class AssistantService {
     const routerPrompt = [
       "You are the intent router for a bilingual desktop assistant.",
       "Respond with valid JSON only.",
-      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|system_briefing|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|spotify_play","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","reason":"","confidence":0,"missing":[]}',
+      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|system_briefing|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|spotify_play|game_install|game_update|game_list|code_project","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","platform":"steam|epic|both","reason":"","confidence":0,"missing":[]}',
       "Use chat for general conversation, recommendations, ideas, opinions, follow-up discussion, or questions that do not clearly require a desktop action.",
       "Use app_open for opening a local desktop app like Chrome, Finder, Terminal, Slack, Spotify, Notion, Steam, OBS, or VS Code.",
       "Use app_action when the user wants to do something inside a desktop app, such as typing, sending a message in Slack or Discord, pressing a key, running a shortcut, searching, opening a folder or tab, creating a new item, using a menu, or performing a multi-step workflow inside that app.",
       "Use app_list when the user asks to list installed or available desktop apps.",
       "Use spotify_play when the user wants Spotify to play, pause, resume, skip, search, or open a playlist, song, or music request inside Spotify.",
+      "Use game_install, game_update, and game_list for Steam or Epic game management requests.",
+      "Use code_project when the user asks you to create a coding project, generate an app, scaffold a prototype, or build something like a snake game or todo app.",
       "Use browser for website navigation, URLs, searches, web logins, reading web pages, or multi-step site workflows like open site, log in, search, and show activity.",
       "Use browser_login only for explicit login requests.",
       "When the user names a specific app or website, prioritize that named target over generic nouns like music, song, video, message, or search.",
@@ -3489,6 +4078,10 @@ class AssistantService {
   async planBrowserTask(input) {
     const heuristic = buildHeuristicBrowserPlan(input);
 
+    if (heuristic.login?.required) {
+      return heuristic;
+    }
+
     if (!looksComplexChainedRequest(input) && isFastBrowserPlan(heuristic)) {
       return heuristic;
     }
@@ -3498,9 +4091,9 @@ class AssistantService {
         "You convert desktop browser requests into a short JSON execution plan.",
         "Respond with valid JSON only.",
         'Schema: {"reply":"short summary","steps":[{"action":"open_url","target":"https://example.com"}]}',
-        "Allowed actions: open_url, search_google, search_youtube, click_text, click_search_result, site_search, login_saved, read_page.",
+        "Allowed actions: open_url, search_google, search_youtube, click_text, click_search_result, site_search, read_page.",
         "For navigation requests like 'search then open', create multiple steps in order.",
-        "For site-specific workflows, you may open the site, use login_saved, then site_search, then read_page.",
+        "If a site requires login, prefer opening the site and letting the user complete the login manually before continuing the workflow.",
         "For known site names like YouTube, GitHub, and Google, prefer click_text or open_url rather than raw search-result URLs."
       ].join(" ");
 
@@ -3534,6 +4127,7 @@ class AssistantService {
 
   async planAppTask(input, appName) {
     const fallback = buildFallbackAppPlan(input, appName);
+    const extensionHints = this.getExtensionPlanningHints(appName);
 
     if (!looksComplexChainedRequest(input) && isFastAppPlan(fallback)) {
       return fallback;
@@ -3551,7 +4145,10 @@ class AssistantService {
         "app_menu_click fields: target, menuPath as an array of menu labels.",
         "Always start with open_app unless the request is impossible.",
         "Keep plans safe and realistic for desktop UI automation.",
-        "Prefer command+n for new notes/documents/tabs/windows, command+f for in-app search, and enter to confirm searches when needed."
+        "Prefer command+n for new notes/documents/tabs/windows, command+f for in-app search, and enter to confirm searches when needed.",
+        extensionHints.length
+          ? `Connector and skill hints for this app: ${extensionHints.join(" | ")}`
+          : ""
       ].join(" ");
 
       const raw = await chat({
@@ -3685,6 +4282,10 @@ class AssistantService {
   async handleBrowser(input) {
     const plan = await this.planBrowserTask(input);
 
+    if (plan.login?.required) {
+      return this.beginPendingBrowserContinuation(input, plan);
+    }
+
     if (isSimpleExternalBrowserPlan(plan)) {
       const step = plan.steps[0] || {};
       const targetUrl = buildExternalBrowserTarget(step);
@@ -3734,77 +4335,7 @@ class AssistantService {
     }
 
     const data = await this.browser.executePlan(plan.steps);
-    const finalPage = data.final || {};
-    const actions = data.steps.map((step) =>
-      this.makeAction(
-        `browser_${step.action}`,
-        step.target || step.text || step.query || `result-${step.index || 1}`
-      )
-    );
-    const actionNames = data.steps.map((step) => step.action).join(" -> ");
-    const details = {
-      title: finalPage.title || "",
-      url: finalPage.url || "",
-      text: finalPage.text || "",
-      executedSteps: data.steps.map((step) => ({
-        action: step.action,
-        target: step.target || step.text || step.query || step.index || "",
-        url: step.result?.url || ""
-      })),
-      actionNames
-    };
-    const fallback = buildCompactBrowserReply(input, data.steps, finalPage);
-    const needsContentAnswer = browserWorkflowNeedsContentAnswer(input, data.steps, finalPage);
-
-    if (needsContentAnswer) {
-      try {
-        const reply = await this.replyWithModel(
-          input,
-          [
-            "The user asked you to interpret the result of a browser workflow.",
-            `Reply only in ${buildLanguageName(detectReplyLanguage(input))}.`,
-            "Summarize the most relevant result from the final page.",
-            "If login or search steps happened, mention them briefly and focus on the outcome.",
-            `Browser workflow:\n${JSON.stringify(details.executedSteps, null, 2)}`,
-            `Final page title: ${details.title || "(untitled)"}`,
-            `Final page URL: ${details.url || "(unknown)"}`,
-            `Visible page text:\n${details.text.slice(0, 12000) || "(No readable page text was captured.)"}`
-          ].join("\n\n"),
-          {
-            tier: "complex",
-            includeHistory: false
-          }
-        );
-
-        return {
-          reply,
-          actions,
-          provider: getTierProviderLabel("complex"),
-          details
-        };
-      } catch (_error) {
-        return {
-          reply: fallback,
-          actions,
-          provider: "local",
-          details
-        };
-      }
-    }
-
-    return {
-      reply: await this.polishCommandReply(
-        input,
-        {
-          actions,
-          details
-        },
-        fallback
-      ),
-      actions,
-      provider: "local",
-      details
-    };
+    return this.completeBrowserPlan(input, data);
   }
 
   async handleBrowserLogin(input, route) {
@@ -3824,6 +4355,44 @@ class AssistantService {
           language
         }
       );
+    }
+
+    if (!wantsSavedBrowserLogin(input)) {
+      const targetUrl = buildDirectSiteUrl(siteOrUrl) || normalizeBrowserOpenUrl(siteOrUrl);
+      const opened = await this.openBrowserTargetForUser(targetUrl);
+      const siteLabel =
+        inferFriendlyBrowserLabel(siteOrUrl || opened.title || targetUrl, language) ||
+        (language === "ko" ? "사이트" : "the site");
+      const fallback =
+        language === "ko"
+          ? `${siteLabel} 로그인 화면을 열어뒀어요. 여기서 직접 로그인하시면 돼요.`
+          : `I opened the ${siteLabel} login page so you can sign in there yourself.`;
+
+      return {
+        reply: await this.polishCommandReply(
+          input,
+          {
+            actions: [this.makeAction("browser_login", siteLabel)],
+            details: {
+              title: opened.title || "",
+              url: opened.url || targetUrl,
+              openMode: opened.openMode,
+              loginMode: "manual",
+              site: siteLabel
+            }
+          },
+          fallback
+        ),
+        actions: [this.makeAction("browser_login", siteLabel)],
+        provider: opened.openMode,
+        details: {
+          title: opened.title || "",
+          url: opened.url || targetUrl,
+          openMode: opened.openMode,
+          loginMode: "manual",
+          site: siteLabel
+        }
+      };
     }
 
     const data = await this.browser.loginWithStoredCredential(siteOrUrl);
@@ -3947,7 +4516,10 @@ class AssistantService {
         reply,
         actions: [this.makeAction("file_read", data.path)],
         provider: getTierProviderLabel("complex"),
-        details: data
+        details: {
+          ...data,
+          showInlinePreview: true
+        }
       };
     }
 
@@ -3967,6 +4539,161 @@ class AssistantService {
       ),
       actions: [this.makeAction("file_list", data.path)],
       provider: "local",
+      details: data
+    };
+  }
+
+  async handleGameRoute(input, route) {
+    if (!this.games || typeof this.games.listInstalledGames !== "function") {
+      throw new Error("Game management is not available in this build.");
+    }
+
+    const language = detectReplyLanguage(input);
+    const platform = route.platform || detectGamePlatform(input);
+    const query = cleanupParsedText(route.query || extractGameName(input));
+
+    if ((route.route === "game_install" || route.route === "game_update") && !query) {
+      return this.beginClarification(
+        input,
+        {
+          ...route,
+          platform
+        },
+        language === "ko"
+          ? route.route === "game_install"
+            ? "어떤 게임을 설치할까요?"
+            : "어떤 게임을 업데이트할까요?"
+          : route.route === "game_install"
+            ? "Which game should I install?"
+            : "Which game should I update?",
+        {
+          field: "query",
+          kind: route.route,
+          language
+        }
+      );
+    }
+
+    let data;
+    let fallback;
+    const actions = [];
+
+    if (route.route === "game_list") {
+      data = await this.games.listInstalledGames({
+        platform
+      });
+
+      const preview = [
+        ...(data.steamGames || []).slice(0, 3).map((game) => game.name),
+        ...(data.epicGames || []).slice(0, 3).map((game) => game.name)
+      ].filter(Boolean).join(", ");
+
+      actions.push(this.makeAction("game_list", platform));
+      fallback =
+        language === "ko"
+          ? preview
+            ? `설치된 게임을 ${data.totalCount}개 찾았어요. 예를 들면 ${preview} 같은 항목이 있어요.`
+            : "지금 확인된 설치 게임이 없어요."
+          : preview
+            ? `I found ${data.totalCount} installed games, including ${preview}.`
+            : "I could not find any installed games right now.";
+    } else if (route.route === "game_install") {
+      data = await this.games.installGame({
+        gameName: query,
+        platform
+      });
+
+      if (data.launcherOpened) {
+        actions.push(this.makeAction("open_app", data.platform === "epic" ? "Epic Games Launcher" : "Steam"));
+      }
+
+      actions.push(this.makeAction("game_install", `${data.platform}:${data.gameName || query}`));
+      fallback =
+        language === "ko"
+          ? data.platform === "steam"
+            ? `Steam에서 ${data.gameName || query} 설치 흐름을 열어뒀어요.`
+            : `Epic 쪽에서 ${data.gameName || query} 설치 페이지를 열어뒀어요.`
+          : data.platform === "steam"
+            ? `I opened the Steam install flow for ${data.gameName || query}.`
+            : `I opened the Epic install page for ${data.gameName || query}.`;
+    } else {
+      data = await this.games.updateGame({
+        gameName: query,
+        platform
+      });
+
+      if (data.launcherOpened) {
+        actions.push(this.makeAction("open_app", data.platform === "epic" ? "Epic Games Launcher" : "Steam"));
+      }
+
+      actions.push(this.makeAction("game_update", `${data.platform}:${data.gameName || query || "all"}`));
+      fallback =
+        language === "ko"
+          ? data.platform === "steam"
+            ? query
+              ? `Steam에서 ${data.gameName || query} 업데이트 흐름을 열어뒀어요.`
+              : "Steam 다운로드와 업데이트 화면을 열어뒀어요."
+            : query
+              ? `Epic 쪽에서 ${data.gameName || query} 업데이트 확인 흐름을 열어뒀어요.`
+              : "Epic 업데이트 확인 흐름을 열어뒀어요."
+          : data.platform === "steam"
+            ? query
+              ? `I opened the Steam update flow for ${data.gameName || query}.`
+              : "I opened the Steam downloads and updates view."
+            : query
+              ? `I opened the Epic update flow for ${data.gameName || query}.`
+              : "I opened the Epic update flow.";
+    }
+
+    return {
+      reply: await this.polishCommandReply(
+        input,
+        {
+          actions,
+          details: data
+        },
+        fallback
+      ),
+      actions,
+      provider: "local",
+      details: data
+    };
+  }
+
+  async handleCodeProject(input) {
+    if (!this.codeProjects || typeof this.codeProjects.createProject !== "function") {
+      throw new Error("Project generation is not available in this build.");
+    }
+
+    const data = await this.codeProjects.createProject(input);
+    const language = detectReplyLanguage(input);
+    const actions = [this.makeAction("code_project", data.projectName)];
+
+    if (data.openedInVsCode) {
+      actions.push(this.makeAction("open_app", "Visual Studio Code"));
+      this.rememberAppContext("Visual Studio Code");
+    }
+
+    const fallback =
+      language === "ko"
+        ? data.openedInVsCode
+          ? `${data.projectName} 프로젝트를 만들고 VS Code에서 열어뒀어요.`
+          : `${data.projectName} 프로젝트를 만들어뒀어요.`
+        : data.openedInVsCode
+          ? `I created ${data.projectName} and opened it in VS Code.`
+          : `I created ${data.projectName}.`;
+
+    return {
+      reply: await this.polishCommandReply(
+        input,
+        {
+          actions,
+          details: data
+        },
+        fallback
+      ),
+      actions,
+      provider: data.provider || "local",
       details: data
     };
   }
@@ -4030,10 +4757,11 @@ class AssistantService {
   }
 
   async handleAppOpen(input, route) {
-    const requestedApp =
+    const requestedApp = this.normalizeRequestedAppName(
       route.appName ||
       extractAppName(input) ||
-      (refersToCurrentAppContext(input) ? this.lastActiveApp : "");
+      (refersToCurrentAppContext(input) ? this.lastActiveApp : "")
+    );
 
     const clarification = await this.maybeClarifyAppTarget(
       input,
@@ -4137,6 +4865,15 @@ class AssistantService {
       return pendingClarificationResult;
     }
 
+    const pendingBrowserResult = await this.continuePendingBrowserContinuation(cleanInput);
+
+    if (pendingBrowserResult) {
+      pendingBrowserResult.language = detectReplyLanguage(cleanInput);
+      this.rememberTurn("user", cleanInput);
+      this.rememberTurn("assistant", pendingBrowserResult.reply);
+      return pendingBrowserResult;
+    }
+
     if (this.pendingWorkspaceMessage && looksLikeFreshWorkspaceCommand(cleanInput)) {
       this.pendingWorkspaceMessage = null;
     }
@@ -4148,6 +4885,15 @@ class AssistantService {
       this.rememberTurn("user", cleanInput);
       this.rememberTurn("assistant", pendingWorkspaceResult.reply);
       return pendingWorkspaceResult;
+    }
+
+    const extensionWebhookResult = await this.maybeHandleExtensionWebhook(cleanInput);
+
+    if (extensionWebhookResult) {
+      extensionWebhookResult.language = detectReplyLanguage(cleanInput);
+      this.rememberTurn("user", cleanInput);
+      this.rememberTurn("assistant", extensionWebhookResult.reply);
+      return extensionWebhookResult;
     }
 
     let route = await this.routeInput(cleanInput);
@@ -4182,6 +4928,7 @@ class AssistantService {
     result.language = route.language || detectReplyLanguage(cleanInput);
     this.rememberTurn("user", cleanInput);
     this.rememberTurn("assistant", result.reply);
+    void this.rememberLongTermMemory(cleanInput, result.reply);
     return result;
   }
 }
