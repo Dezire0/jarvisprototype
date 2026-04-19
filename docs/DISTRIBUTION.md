@@ -104,7 +104,7 @@ Public site environment variables:
 ```bash
 NEXT_PUBLIC_JARVIS_SITE_MODE=download
 NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL=
-NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL=https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.0/Jarvis-Desktop-0.1.0-mac-arm64.dmg
+NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL=https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.3/Jarvis-Desktop-0.1.3-mac-arm64.dmg
 NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL=
 NEXT_PUBLIC_JARVIS_RELEASE_NOTES_URL=https://github.com/Dezire0/jarvisprototype/releases
 ```

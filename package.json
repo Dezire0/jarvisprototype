@@ -19,6 +19,7 @@
     "build:desktop-ui": "node scripts/build-desktop-ui.cjs",
     "doctor:mac-signing": "node scripts/doctor-macos-signing.cjs",
     "fix:mac-launch": "node scripts/fix-macos-launch.cjs",
+    "install:mac-app": "node scripts/install-macos-app.cjs",
     "open:app": "node scripts/open-desktop-app.cjs",
     "package:dir": "npm run build:icons && npm run build:desktop-ui && node scripts/run-electron-builder.cjs --dir --config electron-builder.config.cjs",
     "dist:mac": "npm run build:icons && npm run build:desktop-ui && node scripts/run-electron-builder.cjs --mac dmg zip --config electron-builder.config.cjs",
