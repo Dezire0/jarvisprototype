@@ -146,6 +146,15 @@ module.exports = {
     icon: path.join(__dirname, "resources", "icons", "icon.ico"),
     target: ["nsis"]
   },
+  nsis: {
+    oneClick: false,
+    perMachine: false,
+    allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: true,
+    createStartMenuShortcut: true,
+    shortcutName: "Jarvis Desktop",
+    uninstallDisplayName: "Jarvis Desktop"
+  },
   linux: {
     icon: path.join(__dirname, "resources", "icons", "icon.png"),
     category: "Utility",

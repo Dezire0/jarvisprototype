@@ -106,7 +106,7 @@
         nextTitle: "설치 후 바로 확인할 항목",
         step1Title: "앱 실행",
         step1Body:
-          "다운로드한 설치 파일을 실행하고 운영체제 안내에 따라 기본 설치를 마칩니다.",
+          "다운로드한 설치 파일은 설치 프로그램입니다. 특히 Windows에서는 설치가 끝난 뒤 다운로드한 .exe를 다시 여는 대신 시작 메뉴나 바탕화면의 Jarvis Desktop 바로가기로 앱을 실행하세요.",
         step2Title: "권한 확인",
         step2Body:
           "마이크, 접근성, 자동화 권한은 사용자가 직접 허용해야 하며 일부 기능은 권한 상태에 따라 달라집니다.",
@@ -234,7 +234,7 @@
         nextTitle: "What to check right after installation",
         step1Title: "Run the installer",
         step1Body:
-          "Open the downloaded installer and complete the default setup flow for your operating system.",
+          "The downloaded file is the installer, not the app itself. On Windows, finish setup first, then launch Jarvis Desktop from the Start menu or desktop shortcut instead of reopening the downloaded .exe.",
         step2Title: "Review permissions",
         step2Body:
           "Microphone, accessibility, and automation permissions must be granted by the user, and some features depend on them.",

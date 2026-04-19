@@ -263,11 +263,20 @@ async function fetchGithubReleases({ owner, repo }) {
 
 function findGithubReleaseAsset({ releases, preferredVersion, patterns }) {
   const matchers = compileAssetPatterns(patterns);
-  const matches = (name) => matchers.some((regex) => regex.test(String(name || "")));
-  const findInRelease = (release) =>
-    Array.isArray(release?.assets)
-      ? release.assets.find((asset) => asset && asset.state === "uploaded" && matches(asset.name))
-      : null;
+  const findInRelease = (release) => {
+    const assets = Array.isArray(release?.assets)
+      ? release.assets.filter((asset) => asset && asset.state === "uploaded")
+      : [];
+
+    for (const matcher of matchers) {
+      const match = assets.find((asset) => matcher.test(String(asset.name || "")));
+      if (match) {
+        return match;
+      }
+    }
+
+    return null;
+  };
 
   const normalizedPreferredVersion = normalizeReleaseVersion(preferredVersion);
 
@@ -469,8 +478,8 @@ async function main() {
       platform: "Windows",
       label: "Windows Installer",
       format: ".exe",
-      patterns: ["win-arm64\\.exe", "win-x64\\.exe"],
-      architecture: "ARM64",
+      patterns: ["win-x64\\.exe", "win-arm64\\.exe"],
+      architecture: "x64",
       hint: "Windows 설치 마법사입니다.",
       recommended: true,
       envUrl: envWindowsDownloadUrl,
@@ -489,8 +498,8 @@ async function main() {
       platform: "Linux",
       label: "Linux AppImage",
       format: ".AppImage",
-      patterns: ["linux-arm64\\.AppImage", "linux-x64\\.AppImage"],
-      architecture: "ARM64",
+      patterns: ["linux-x64\\.AppImage", "linux-arm64\\.AppImage"],
+      architecture: "x64",
       hint: "바로 실행 가능한 포터블 Linux 패키지입니다.",
       recommended: true,
       envUrl: envLinuxDownloadUrl,
@@ -499,8 +508,8 @@ async function main() {
       platform: "Linux",
       label: "Linux DEB",
       format: ".deb",
-      patterns: ["linux-arm64\\.deb", "linux-x64\\.deb"],
-      architecture: "ARM64",
+      patterns: ["linux-x64\\.deb", "linux-arm64\\.deb"],
+      architecture: "x64",
       hint: "Debian/Ubuntu 계열에서 설치할 수 있는 Linux 패키지입니다.",
       recommended: false,
       envUrl: "",
