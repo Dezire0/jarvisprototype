@@ -30,13 +30,13 @@ window.JARVIS_INSTALL_CONFIG = {
     },
     {
       "platform": "Windows",
-      "status": "pending",
-      "message": "Windows 버전은 준비 중입니다. 공개되면 이 페이지에서 바로 시작할 수 있습니다."
+      "status": "coming_soon",
+      "message": "Windows 버전은 곧 공개됩니다. 공개되면 이 페이지에서 바로 시작할 수 있습니다."
     },
     {
       "platform": "Linux",
-      "status": "pending",
-      "message": "Linux 버전은 준비 중입니다. 공개되면 이 페이지에서 바로 시작할 수 있습니다."
+      "status": "coming_soon",
+      "message": "Linux 버전은 곧 공개됩니다. 공개되면 이 페이지에서 바로 시작할 수 있습니다."
     }
   ]
 };

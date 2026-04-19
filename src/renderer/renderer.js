@@ -553,8 +553,11 @@ function syncWakeButton() {
     return;
   }
 
-  wakeToggle.textContent = state.wakeEnabled ? "Wake Word On" : "Wake Word";
+  const isListening = state.wakeEnabled && state.recognitionRunning;
+  wakeToggle.textContent = isListening ? "Listening..." : state.wakeEnabled ? "Wake Word On" : "Wake Word";
   wakeToggle.classList.toggle("active", state.wakeEnabled);
+  wakeToggle.classList.toggle("listening", isListening);
+  wakeToggle.setAttribute("aria-pressed", state.wakeEnabled ? "true" : "false");
 }
 
 function syncMuteButton() {
@@ -1328,12 +1331,15 @@ wakeToggle.addEventListener("click", () => {
     stopWakeRecognition();
   } else {
     try {
+      wakeToggle.classList.add("active");
+      updateVoiceStatus("웨이크워드를 듣는 중이에요.");
       if (state.callModeEnabled) {
         applyCallModeState(false);
       }
 
       requestRecognitionStart("wake");
     } catch (error) {
+      wakeToggle.classList.remove("active");
       addMessage("assistant", error.message);
     }
   }

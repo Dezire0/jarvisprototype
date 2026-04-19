@@ -9,69 +9,83 @@
   <body>
     <main class="aui-shell">
       <aside class="aui-sidebar">
-        <section class="sidebar-panel sidebar-brand">
-          <div class="sidebar-brand-row">
-            <div class="orb" id="orb" aria-hidden="true"></div>
-            <div>
-              <p class="eyebrow">desktop command center</p>
-              <h1>Jarvis Desktop</h1>
+        <div class="sidebar-frame">
+          <section class="sidebar-panel sidebar-brand">
+            <div class="sidebar-brand-row">
+              <div class="orb" id="orb" aria-hidden="true"></div>
+              <div class="sidebar-brand-copy">
+                <p class="eyebrow">desktop assistant</p>
+                <h1>Jarvis Desktop</h1>
+              </div>
             </div>
-          </div>
-          <p class="sidebar-description">
-            원래 로컬 Jarvis 화면입니다. 음성, 브라우저, 앱 자동화, 파일, OBS를 한곳에서 다룹니다.
-          </p>
-          <p class="sidebar-hint" id="shortcutHint"></p>
-        </section>
+            <p class="sidebar-description">
+              로컬 음성, 브라우저, 앱 자동화, 파일, OBS를 한 흐름으로 다루는 데스크톱 워크스페이스
+            </p>
+            <div class="sidebar-meta-row">
+              <span class="sidebar-badge">v0.1.5</span>
+              <span class="sidebar-badge">Windows · Linux</span>
+            </div>
+            <p class="sidebar-hint" id="shortcutHint"></p>
+          </section>
 
-        <section class="sidebar-panel sidebar-threads">
-          <div class="section-head">
-            <h2>Threads</h2>
-            <p>대화를 주제별로 분리해 이어갈 수 있어요.</p>
-          </div>
-          <button type="button" id="newThreadButton" class="thread-new-button">New Thread</button>
-          <div class="thread-list" id="threadList"></div>
-        </section>
+          <section class="sidebar-panel sidebar-compose">
+            <button type="button" id="newThreadButton" class="thread-new-button">+ New chat</button>
+            <div class="sidebar-mini-note">
+              최근 작업 흐름을 스레드별로 유지하고 이어서 진행할 수 있어요.
+            </div>
+          </section>
 
-        <section class="sidebar-panel sidebar-runtime">
-          <div class="section-head">
-            <h2>Quick Controls</h2>
-            <p id="voiceStatus">웨이크워드는 꺼져 있어요.</p>
-          </div>
-          <div class="controls-row">
-            <button type="button" class="secondary" id="voiceOnceButton">Voice Once</button>
-          </div>
-          <div class="controls-row">
-            <button type="button" class="secondary" id="voiceCallToggle">Call Mode</button>
-          </div>
-          <div class="controls-row">
-            <button type="button" id="wakeToggle">Wake Word</button>
-            <button type="button" class="secondary" id="muteToggle">Jarvis Voice</button>
-          </div>
-          <div class="controls-row">
-            <button type="button" class="secondary" id="previewVoiceButton">Preview</button>
-          </div>
-          <p class="sidebar-hint" id="callModeHint">
-            통화 모드를 켜면 응답 후 자동으로 다시 듣고, 중간에 바로 다시 말할 수도 있어요.
-          </p>
-          <div class="stack compact-stack">
-            <label class="field-group">
-              <span>입력 언어</span>
-              <select id="speechLanguage">
-                <option value="ko-KR">한국어</option>
-                <option value="en-US">영어</option>
-              </select>
-            </label>
-            <label class="field-group">
-              <span>시스템 음성</span>
-              <select id="voiceSelect"></select>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" id="speakReplies" checked />
-              <span>응답 읽어주기</span>
-            </label>
-          </div>
-          <div class="status-grid" id="statusGrid"></div>
-        </section>
+          <section class="sidebar-panel sidebar-threads">
+            <div class="section-head sidebar-section-head">
+              <div>
+                <h2>Chats</h2>
+                <p>최근 대화와 작업 히스토리</p>
+              </div>
+            </div>
+            <div class="thread-list" id="threadList"></div>
+          </section>
+
+          <section class="sidebar-panel sidebar-runtime">
+            <div class="section-head sidebar-section-head">
+              <div>
+                <h2>Quick controls</h2>
+                <p id="voiceStatus">웨이크워드는 꺼져 있어요.</p>
+              </div>
+            </div>
+
+            <div class="sidebar-control-grid">
+              <button type="button" class="secondary" id="voiceOnceButton">Voice Once</button>
+              <button type="button" class="secondary" id="voiceCallToggle">Call Mode</button>
+              <button type="button" id="wakeToggle">Wake Word</button>
+              <button type="button" class="secondary" id="muteToggle">Jarvis Voice</button>
+              <button type="button" class="secondary sidebar-span-full" id="previewVoiceButton">Preview Voice</button>
+            </div>
+
+            <p class="sidebar-hint" id="callModeHint">
+              통화 모드를 켜면 응답 후 자동으로 다시 듣고, 중간에 바로 다시 말할 수도 있어요.
+            </p>
+
+            <div class="stack compact-stack">
+              <label class="field-group">
+                <span>입력 언어</span>
+                <select id="speechLanguage">
+                  <option value="ko-KR">한국어</option>
+                  <option value="en-US">영어</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span>시스템 음성</span>
+                <select id="voiceSelect"></select>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" id="speakReplies" checked />
+                <span>응답 읽어주기</span>
+              </label>
+            </div>
+
+            <div class="status-grid" id="statusGrid"></div>
+          </section>
+        </div>
       </aside>
 
       <section class="aui-main">

@@ -97,6 +97,7 @@ export function JarvisVoiceProvider({
 }: PropsWithChildren) {
   const aui = useAui();
   const isThreadRunning = useAuiState((state) => state.thread.isRunning);
+  const [supported, setSupported] = useState(false);
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState("");
@@ -105,11 +106,16 @@ export function JarvisVoiceProvider({
   const statusRef = useRef<VoiceStatus>("idle");
   const shouldResumeRef = useRef(false);
   const isMountedRef = useRef(true);
-  const supported = Boolean(getRecognitionConstructor());
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    const available = Boolean(getRecognitionConstructor());
+    setSupported(available);
+    setStatus(available ? "idle" : "unsupported");
+  }, []);
 
   useEffect(() => {
     return () => {

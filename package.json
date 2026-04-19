@@ -2,7 +2,10 @@
   "name": "jarvis-prototype",
   "version": "0.1.5",
   "description": "Jarvis Desktop assistant with local automation, packaged UI, and auto-update support.",
-  "author": "JYH",
+  "author": {
+    "name": "JYH",
+    "email": "a01044622139@gmail.com"
+  },
   "private": true,
   "homepage": "https://github.com/Dezire0/jarvisprototype/releases",
   "repository": {
