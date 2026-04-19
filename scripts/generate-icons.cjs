@@ -28,7 +28,8 @@ function run(command, args, options = {}) {
 }
 
 function commandExists(command) {
-  const result = spawnSync("which", [command], {
+  const lookupCommand = process.platform === "win32" ? "where" : "which";
+  const result = spawnSync(lookupCommand, [command], {
     stdio: "pipe",
     encoding: "utf8"
   });
@@ -95,6 +96,10 @@ async function makeBasePng(tempDir) {
 }
 
 async function buildIconset(basePng, tempDir) {
+  if (!commandExists("sips")) {
+    return null;
+  }
+
   const iconsetDir = path.join(tempDir, "jarvis.iconset");
   await fsp.mkdir(iconsetDir, {
     recursive: true
@@ -158,24 +163,35 @@ async function main() {
     await fsp.copyFile(basePng, pngPath);
 
     const iconsetDir = await buildIconset(basePng, tempDir);
-    try {
-      run("iconutil", ["-c", "icns", iconsetDir, "-o", icnsPath]);
-    } catch (error) {
-      if (commandExists("tiff2icns") && commandExists("magick")) {
-        buildIcnsWithTiff2Icns(basePng, tempDir);
-      } else if (!fs.existsSync(icnsPath)) {
-        throw error;
-      } else {
-        console.warn(
-          [
-            "iconutil failed, preserving the existing macOS .icns icon.",
-            String(error.message || error)
-          ].join("\n")
-        );
+    if (iconsetDir && commandExists("iconutil")) {
+      try {
+        run("iconutil", ["-c", "icns", iconsetDir, "-o", icnsPath]);
+      } catch (error) {
+        if (commandExists("tiff2icns") && commandExists("magick")) {
+          buildIcnsWithTiff2Icns(basePng, tempDir);
+        } else if (!fs.existsSync(icnsPath)) {
+          throw error;
+        } else {
+          console.warn(
+            [
+              "iconutil failed, preserving the existing macOS .icns icon.",
+              String(error.message || error)
+            ].join("\n")
+          );
+        }
       }
+    } else if (!fs.existsSync(icnsPath)) {
+      throw new Error("No macOS icon tools are available and no existing .icns file could be preserved.");
     }
 
-    if (commandExists("ffmpeg")) {
+    if (commandExists("magick")) {
+      run("magick", [
+        basePng,
+        "-define",
+        "icon:auto-resize=16,24,32,48,64,128,256",
+        icoPath
+      ]);
+    } else if (commandExists("ffmpeg")) {
       run("ffmpeg", [
         "-y",
         "-i",
@@ -184,7 +200,7 @@ async function main() {
         "scale=256:256",
         icoPath
       ]);
-    } else {
+    } else if (!fs.existsSync(icoPath)) {
       await fsp.copyFile(basePng, icoPath);
     }
 

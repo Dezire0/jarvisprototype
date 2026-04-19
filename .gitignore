@@ -21,6 +21,8 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+!Jarvis Ui/templates/cloud/lib/
+!Jarvis Ui/templates/cloud/lib/utils.ts
 
 # Virtual environments
 .venv
