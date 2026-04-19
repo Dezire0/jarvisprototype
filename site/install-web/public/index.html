@@ -9,7 +9,7 @@
     <title>Jarvis Desktop</title>
     <meta
       name="description"
-      content="Jarvis Desktop 소개와 무료 다운로드 안내."
+      content="Jarvis Desktop 소개와 무료 설치 안내."
     />
     <meta name="theme-color" content="#f5f5f7" id="theme-color-meta" />
     <link rel="icon" href="./assets/jarvis-logo-badge.png" />
@@ -41,7 +41,7 @@
   <body data-page="overview">
     <header class="topbar">
       <div class="shell topbar-inner">
-        <a class="brand" href="#overview" aria-label="홈으로 이동">
+        <a class="brand" href="./index.html" aria-label="홈으로 이동">
           <img
             src="./assets/jarvis-logo-badge.png"
             alt=""
@@ -56,26 +56,39 @@
         </a>
 
         <nav class="topnav" aria-label="페이지 섹션">
-          <a href="#overview">Overview</a>
-          <a href="#capabilities">Capabilities</a>
-          <a href="#platforms">Platforms</a>
-          <a href="./downloads.html">Downloads</a>
+          <a href="#overview" data-i18n="common.overview">Overview</a>
+          <a href="#capabilities" data-i18n="common.capabilities">Capabilities</a>
+          <a href="#platforms" data-i18n="common.platforms">Platforms</a>
+          <a href="./downloads.html" data-i18n="common.install">Install</a>
         </nav>
 
         <div class="topbar-actions">
           <button
             type="button"
+            class="language-toggle"
+            id="language-toggle"
+            aria-label="언어 변경"
+            title="언어 변경"
+          >
+            <span class="language-toggle-icon" aria-hidden="true">🌐</span>
+            <span class="language-toggle-label" id="language-toggle-label">KO</span>
+          </button>
+
+          <button
+            type="button"
             class="theme-toggle"
             id="theme-toggle"
             aria-label="테마 전환"
+            title="테마 전환"
           >
             <span class="theme-toggle-track">
-              <span class="theme-toggle-label">밝게</span>
-              <span class="theme-toggle-label">어둡게</span>
+              <span class="theme-toggle-label" data-i18n="common.light">밝게</span>
+              <span class="theme-toggle-label" data-i18n="common.dark">어둡게</span>
             </span>
           </button>
-          <a href="./downloads.html" class="cta cta-primary" id="hero-primary-download">
-            무료 다운로드하기
+
+          <a href="./downloads.html" class="cta cta-primary">
+            <span data-i18n="common.freeInstall">무료 설치하기</span>
           </a>
         </div>
       </div>
@@ -85,108 +98,138 @@
       <section class="hero hero-home hero-animate" id="overview">
         <div class="hero-orb hero-orb-a" aria-hidden="true"></div>
         <div class="hero-orb hero-orb-b" aria-hidden="true"></div>
+
         <div class="shell hero-grid">
           <div class="hero-copy">
-            <p class="hero-kicker">DESKTOP AI FOR VOICE, BROWSER, AND COMPUTER CONTROL</p>
-            <h1 class="hero-title headline-balance">
+            <p class="hero-kicker" data-i18n="overview.heroKicker">
+              DESKTOP AI FOR VOICE, BROWSER, AND COMPUTER CONTROL
+            </p>
+
+            <h1 class="hero-title headline-balance" data-i18n-html="overview.heroTitleHtml">
               Jarvis Desktop,<br />
               the AI layer<br />
               for your computer.
             </h1>
-            <p class="hero-body body-balance">
-              Jarvis Desktop은 대화로 끝나지 않습니다. 말하거나 입력한 요청을
-              브라우저, 앱, 파일, 데스크톱 작업으로 자연스럽게 이어 주는
-              데스크톱용 AI 인터페이스입니다.
+
+            <p class="hero-body body-balance" data-i18n="overview.heroBody">
+              Jarvis Desktop은 단순한 채팅 앱이 아니라, 말하거나 입력한 요청을
+              브라우저·앱·파일·데스크톱 작업으로 자연스럽게 이어 주는 실행형 AI
+              인터페이스입니다.
             </p>
 
             <div class="hero-meta" id="hero-meta"></div>
 
             <div class="hero-actions">
-              <a
-                href="./downloads.html"
-                class="cta cta-primary"
-                id="overview-download-cta"
-              >
-                무료 다운로드하기
+              <a href="./downloads.html" class="cta cta-primary">
+                <span data-i18n="common.freeInstall">무료 설치하기</span>
               </a>
-              <a href="#capabilities" class="cta cta-secondary">기능 둘러보기</a>
+              <a href="#capabilities" class="cta cta-secondary">
+                <span data-i18n="common.exploreFeatures">기능 둘러보기</span>
+              </a>
               <a
                 href="#"
                 class="cta cta-secondary"
                 id="release-notes-link"
                 hidden
               >
-                변경 사항
+                <span data-i18n="common.releaseNotes">변경 사항</span>
               </a>
             </div>
 
             <div class="stat-grid">
               <article class="surface-card stat-card">
-                <p class="surface-label">Supported</p>
+                <p class="surface-label" data-i18n="overview.statsSupportedLabel">
+                  Supported
+                </p>
                 <h2 id="supported-platform-count">0</h2>
-                <p class="stat-desc">
-                  현재 공개 준비가 끝난 플랫폼 수를 표시합니다.
+                <p class="stat-desc" data-i18n="overview.statsSupportedDesc">
+                  현재 실제 설치 가능한 플랫폼 수를 표시합니다.
                 </p>
               </article>
+
               <article class="surface-card stat-card">
-                <p class="surface-label">Conversation</p>
-                <h2>Voice + Browser</h2>
-                <p class="stat-desc">
-                  음성 대화와 웹 작업, 앱 제어를 같은 흐름으로 이어갑니다.
+                <p class="surface-label" data-i18n="overview.statsConversationLabel">
+                  Conversation
+                </p>
+                <h2 data-i18n="overview.statsConversationTitle">Voice + Browser</h2>
+                <p class="stat-desc" data-i18n="overview.statsConversationDesc">
+                  음성 대화, 브라우저 작업, 앱 제어를 같은 흐름으로 이어갑니다.
                 </p>
               </article>
+
               <article class="surface-card stat-card">
-                <p class="surface-label">Release</p>
+                <p class="surface-label" data-i18n="overview.statsReleaseLabel">
+                  Release
+                </p>
                 <h2 id="hero-version">Latest</h2>
-                <p class="stat-desc">
-                  설치 전 안내와 다운로드 경험이 함께 정리된 현재 공개 버전입니다.
+                <p class="stat-desc" data-i18n="overview.statsReleaseDesc">
+                  설치전 웹사이트와 실제 설치 흐름이 맞춰진 현재 공개 버전입니다.
                 </p>
               </article>
             </div>
           </div>
 
           <div class="hero-stage">
-            <div class="device-frame">
+            <div class="device-frame chat-preview-frame">
               <div class="device-topline">
                 <span class="device-dot"></span>
                 <span class="device-dot"></span>
                 <span class="device-dot"></span>
               </div>
-              <div class="device-screen">
-                <p class="device-kicker">Jarvis Workflow</p>
-                <h2 class="device-title headline-balance">
-                  Ask naturally.<br />
-                  Watch it move.
-                </h2>
-                <p class="device-body body-balance">
-                  음악 재생, 브라우저 이동, 앱 실행, 간단한 정리부터 복합 작업
-                  흐름까지 한 화면에서 이어지는 데스크톱 경험을 목표로 합니다.
-                </p>
-                <div class="device-pill-row">
-                  <span class="device-pill">Voice</span>
-                  <span class="device-pill">Browser</span>
-                  <span class="device-pill">Desktop</span>
-                  <span class="device-pill">Memory</span>
+
+              <div class="device-screen chat-preview-screen">
+                <div class="chat-preview-head">
+                  <p class="device-kicker" data-i18n="overview.chatKicker">Live Preview</p>
+                  <h2 class="device-title headline-balance" data-i18n-html="overview.chatTitleHtml">
+                    실제로 대화하고,<br />
+                    바로 실행합니다.
+                  </h2>
+                  <p class="device-body body-balance" data-i18n="overview.chatIntro">
+                    설명용 문구 대신, 사용자가 요청하고 Jarvis가 바로 실행하는 흐름을 카드 안에서 보여줍니다.
+                  </p>
+                </div>
+
+                <div class="chat-thread">
+                  <div class="chat-bubble chat-bubble-user">
+                    <p class="chat-bubble-label">You</p>
+                    <p class="chat-bubble-text" data-i18n="overview.chatUser">
+                      유튜브에서 lofi 틀고 오늘 회의 링크 찾아줘.
+                    </p>
+                  </div>
+
+                  <div class="chat-bubble chat-bubble-assistant">
+                    <p class="chat-bubble-label">Jarvis</p>
+                    <p class="chat-bubble-text" data-i18n="overview.chatAssistant">
+                      브라우저를 열고 음악을 재생한 뒤, 최근 대화와 캘린더 기준으로 회의 링크를 찾고 있어요.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="chat-activity-list">
+                  <div class="chat-activity-item">
+                    <span class="chat-activity-dot"></span>
+                    <span data-i18n="overview.chatActionVoice">Voice captured</span>
+                  </div>
+                  <div class="chat-activity-item">
+                    <span class="chat-activity-dot"></span>
+                    <span data-i18n="overview.chatActionBrowser">Browser opened</span>
+                  </div>
+                  <div class="chat-activity-item">
+                    <span class="chat-activity-dot"></span>
+                    <span data-i18n="overview.chatActionTask">Meeting link detected</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div class="floating-card floating-card-top float-soft">
-              <p class="floating-label">Recommended</p>
-              <h3 id="featured-platform">macOS</h3>
-              <p id="featured-platform-hint">
-                현재 가장 먼저 공개된 플랫폼이 여기에 표시됩니다.
+            <a href="./downloads.html" class="install-entry-card float-soft float-delay">
+              <p class="floating-label" data-i18n="overview.installCardLabel">Install</p>
+              <h3 data-i18n="overview.installCardTitle">무료 설치하기</h3>
+              <p data-i18n="overview.installCardBody">
+                운영체제를 고른 뒤 설치 페이지에서 바로 다운로드를 시작할 수 있습니다.
               </p>
-            </div>
-
-            <div class="floating-card floating-card-bottom float-soft float-delay">
-              <p class="floating-label">Start Here</p>
-              <h3>무료 다운로드</h3>
-              <p>
-                홍보 페이지에서 기능을 보고, 전용 다운로드 페이지에서 바로
-                설치를 시작할 수 있습니다.
-              </p>
-            </div>
+              <span class="install-entry-link" data-i18n="common.continueInstall">설치 계속하기</span>
+            </a>
           </div>
         </div>
       </section>
@@ -194,33 +237,32 @@
       <section class="showcase-band reveal" id="capabilities">
         <div class="shell showcase-grid">
           <article class="showcase-card showcase-card-light">
-            <p class="surface-label">Natural Intent</p>
-            <h2 class="feature-title headline-balance">
+            <p class="surface-label" data-i18n="overview.showcase1Label">Natural Intent</p>
+            <h2 class="feature-title headline-balance" data-i18n="overview.showcase1Title">
               말한 목적을 먼저 이해하고 실행 흐름으로 잇습니다.
             </h2>
-            <p class="body-balance">
-              앱 이름과 사이트 이름, 작업 의도를 먼저 파악하는 방향으로 UX를
-              설계했습니다. 답변보다 실행이 앞서는 데스크톱 경험을 목표로 합니다.
+            <p class="body-balance" data-i18n="overview.showcase1Body">
+              사이트 이름, 앱 이름, 작업 의도를 우선 파악해 답변보다 실행이 앞서는 데스크톱 경험을 목표로 합니다.
             </p>
           </article>
+
           <article class="showcase-card showcase-card-dark">
-            <p class="surface-label">Local Control</p>
-            <h2 class="feature-title headline-balance">
+            <p class="surface-label" data-i18n="overview.showcase2Label">Local Control</p>
+            <h2 class="feature-title headline-balance" data-i18n="overview.showcase2Title">
               브라우저와 컴퓨터를 직접 다루는 데스크톱 AI.
             </h2>
-            <p class="body-balance">
-              음성 입력, 앱 실행, 브라우저 제어, 파일 작업까지 한 스레드 안에서
-              이어지는 구조를 지향합니다.
+            <p class="body-balance" data-i18n="overview.showcase2Body">
+              음성 입력, 앱 실행, 브라우저 제어, 파일 작업까지 하나의 흐름 안에서 연결되는 구조를 지향합니다.
             </p>
           </article>
+
           <article class="showcase-card showcase-card-light">
-            <p class="surface-label">Guided Install</p>
-            <h2 class="feature-title headline-balance">
-              설치 전에도 제품의 성격과 권한 흐름을 분명하게 보여 줍니다.
+            <p class="surface-label" data-i18n="overview.showcase3Label">Install Flow</p>
+            <h2 class="feature-title headline-balance" data-i18n="overview.showcase3Title">
+              설치 전 소개와 실제 설치 흐름을 분리해 더 명확하게.
             </h2>
-            <p class="body-balance">
-              홍보는 더 매력적으로, 다운로드는 더 간결하게, 동의 과정은 더
-              명확하게 분리해 사용자가 헷갈리지 않도록 정리했습니다.
+            <p class="body-balance" data-i18n="overview.showcase3Body">
+              랜딩 페이지에서는 제품을 보여주고, 별도 설치 페이지에서는 플랫폼 선택과 다운로드만 빠르게 진행합니다.
             </p>
           </article>
         </div>
@@ -230,24 +272,57 @@
         <div class="shell">
           <div class="section-heading">
             <div class="section-heading-text">
-              <p class="surface-label">Platforms</p>
-              <h2 class="section-title headline-balance">
-                운영체제를 고른 뒤, 바로 다운로드 페이지로 이어집니다.
+              <p class="surface-label" data-i18n="overview.platformsLabel">Platforms</p>
+              <h2 class="section-title headline-balance" data-i18n="overview.platformsTitle">
+                운영체제를 고른 뒤, 별도 설치 페이지에서 바로 시작합니다.
               </h2>
             </div>
-            <p class="section-copy body-balance">
-              메인 페이지에서는 제품을 소개하고, 다운로드 페이지에서는
-              macOS·Windows·Linux 가운데 원하는 환경을 골라 약관 확인 후
-              설치를 시작합니다.
+            <p class="section-copy body-balance" data-i18n="overview.platformsCopy">
+              메인 페이지에서는 제품을 소개하고, 설치 페이지에서는 macOS·Windows·Linux 가운데 원하는 환경을 골라 실제 다운로드를 진행합니다.
             </p>
           </div>
 
-          <div class="platform-preview-grid" id="platform-preview-grid"></div>
+          <div class="platform-preview-grid">
+            <article class="platform-preview-card">
+              <div class="platform-preview-topline">
+                <p class="surface-label">macOS</p>
+                <span class="status-pill available">Download Ready</span>
+              </div>
+              <h3 class="platform-preview-title">macOS</h3>
+              <p class="platform-preview-copy">Apple Silicon용 기본 설치 파일로 바로 이동합니다.</p>
+              <a href="./downloads.html" class="cta cta-secondary">
+                <span data-i18n="common.freeInstall">무료 설치하기</span>
+              </a>
+            </article>
+
+            <article class="platform-preview-card">
+              <div class="platform-preview-topline">
+                <p class="surface-label">Windows</p>
+                <span class="status-pill available">Download Ready</span>
+              </div>
+              <h3 class="platform-preview-title">Windows</h3>
+              <p class="platform-preview-copy">Windows 설치 파일 다운로드와 설치 진입을 바로 시작할 수 있습니다.</p>
+              <a href="./downloads.html" class="cta cta-secondary">
+                <span data-i18n="common.freeInstall">무료 설치하기</span>
+              </a>
+            </article>
+
+            <article class="platform-preview-card">
+              <div class="platform-preview-topline">
+                <p class="surface-label">Linux</p>
+                <span class="status-pill available">Download Ready</span>
+              </div>
+              <h3 class="platform-preview-title">Linux</h3>
+              <p class="platform-preview-copy">Linux AppImage 다운로드와 설치 진입을 바로 시작할 수 있습니다.</p>
+              <a href="./downloads.html" class="cta cta-secondary">
+                <span data-i18n="common.freeInstall">무료 설치하기</span>
+              </a>
+            </article>
+          </div>
 
           <div class="platform-preview-actions">
-            <a href="./downloads.html" class="cta cta-primary">무료 다운로드하기</a>
-            <a href="./downloads.html#agreement-panel" class="cta cta-secondary">
-              설치 전 동의 보기
+            <a href="./downloads.html" class="cta cta-primary">
+              <span data-i18n="common.freeInstall">무료 설치하기</span>
             </a>
           </div>
         </div>
@@ -256,14 +331,13 @@
 
     <footer class="footer">
       <div class="shell footer-inner">
-        <p class="footer-copy">
-          Jarvis Desktop은 음성, 브라우저, 데스크톱 제어를 하나의 인터페이스로
-          묶는 데스크톱 AI 제품입니다.
+        <p class="footer-copy" data-i18n="overview.footerCopy">
+          Jarvis Desktop은 음성, 브라우저, 데스크톱 제어를 하나의 실행 흐름으로 연결하는 데스크톱 AI 제품입니다.
         </p>
         <div class="footer-links">
-          <a href="#overview">Overview</a>
-          <a href="#capabilities">Capabilities</a>
-          <a href="./downloads.html">Downloads</a>
+          <a href="#overview" data-i18n="common.overview">Overview</a>
+          <a href="#capabilities" data-i18n="common.capabilities">Capabilities</a>
+          <a href="./downloads.html" data-i18n="common.install">Install</a>
         </div>
       </div>
     </footer>

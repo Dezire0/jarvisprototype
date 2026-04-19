@@ -2,103 +2,309 @@
   const rawConfig = window.JARVIS_INSTALL_CONFIG || {};
   const knownPlatforms = ["macOS", "Windows", "Linux"];
   const themeStorageKey = "jarvis-install-theme-v1";
-  const consentStorageKey = "jarvis-install-consent-v3";
+  const languageStorageKey = "jarvis-install-language-v1";
   const mediaQuery =
     typeof window.matchMedia === "function"
       ? window.matchMedia("(prefers-color-scheme: dark)")
       : null;
 
-  const platformCopy = {
-    macOS: {
-      availableLabel: "지금 바로 기본 설치 파일을 받을 수 있습니다.",
-      pendingLabel: "macOS 빌드는 곧 공개됩니다.",
-      preview:
-        "Apple Silicon 기준으로 가장 먼저 준비된 데스크톱 설치 경험입니다.",
-      checklist: [
-        "다운로드한 파일을 열고 Jarvis를 Applications로 옮깁니다.",
-        "처음 실행 후 마이크, 접근성, 자동화 권한을 확인합니다.",
-        "평소 사용하는 로그인된 브라우저 프로필을 그대로 유지하면 더 자연스럽게 동작합니다.",
-      ],
-      installFlow: [
-        "다운로드한 .dmg를 열고 Jarvis Desktop을 Applications 폴더로 이동합니다.",
-        "처음 실행 시 마이크, 접근성, 자동화 권한 요청을 차례대로 허용합니다.",
-        "설치가 끝나면 앱이 시작 시 새 버전을 자동 확인하고, 필요하면 재시작 설치를 안내합니다.",
-      ],
-      updateNote:
-        "자동 업데이트는 단순 커밋이 아니라 새 GitHub Release에 게시된 패키지 기준으로 동작합니다.",
+  const translations = {
+    ko: {
+      common: {
+        overview: "Overview",
+        capabilities: "Capabilities",
+        platforms: "Platforms",
+        downloads: "Downloads",
+        install: "Install",
+        freeInstall: "무료 설치하기",
+        freeDownload: "무료 다운로드하기",
+        exploreFeatures: "기능 둘러보기",
+        releaseNotes: "변경 사항",
+        goHome: "홈으로 돌아가기",
+        backToInstall: "설치 페이지로 돌아가기",
+        ready: "Download Ready",
+        soon: "Coming Soon",
+        light: "밝게",
+        dark: "어둡게",
+        languageToggle: "언어 변경",
+        themeToggle: "테마 전환",
+        directInstall: "바로 설치",
+        continueInstall: "설치 계속하기"
+      },
+      overview: {
+        heroKicker: "DESKTOP AI FOR VOICE, BROWSER, AND COMPUTER CONTROL",
+        heroTitleHtml:
+          "Jarvis Desktop,<br />the AI layer<br />for your computer.",
+        heroBody:
+          "Jarvis Desktop은 단순한 채팅 앱이 아니라, 말하거나 입력한 요청을 브라우저·앱·파일·데스크톱 작업으로 자연스럽게 이어 주는 실행형 AI 인터페이스입니다.",
+        statsSupportedLabel: "Supported",
+        statsSupportedDesc: "현재 실제 설치 가능한 플랫폼 수를 표시합니다.",
+        statsConversationLabel: "Conversation",
+        statsConversationTitle: "Voice + Browser",
+        statsConversationDesc:
+          "음성 대화, 브라우저 작업, 앱 제어를 같은 흐름으로 이어갑니다.",
+        statsReleaseLabel: "Release",
+        statsReleaseDesc:
+          "설치전 웹사이트와 실제 설치 흐름이 맞춰진 현재 공개 버전입니다.",
+        heroPills: ["Voice First", "Browser Control"],
+        heroPlatformsReady: "{count} Platforms Ready",
+        chatKicker: "Live Preview",
+        chatTitleHtml: "실제로 대화하고,<br />바로 실행합니다.",
+        chatIntro:
+          "설명용 문구 대신, 사용자가 요청하고 Jarvis가 바로 실행하는 흐름을 카드 안에서 보여줍니다.",
+        chatUser: "유튜브에서 lofi 틀고 오늘 회의 링크 찾아줘.",
+        chatAssistant:
+          "브라우저를 열고 음악을 재생한 뒤, 최근 대화와 캘린더 기준으로 회의 링크를 찾고 있어요.",
+        chatActionVoice: "Voice captured",
+        chatActionBrowser: "Browser opened",
+        chatActionTask: "Meeting link detected",
+        installCardLabel: "Install",
+        installCardTitle: "무료 설치하기",
+        installCardBody:
+          "운영체제를 고른 뒤 설치 페이지에서 바로 다운로드를 시작할 수 있습니다.",
+        showcase1Label: "Natural Intent",
+        showcase1Title: "말한 목적을 먼저 이해하고 실행 흐름으로 잇습니다.",
+        showcase1Body:
+          "사이트 이름, 앱 이름, 작업 의도를 우선 파악해 답변보다 실행이 앞서는 데스크톱 경험을 목표로 합니다.",
+        showcase2Label: "Local Control",
+        showcase2Title: "브라우저와 컴퓨터를 직접 다루는 데스크톱 AI.",
+        showcase2Body:
+          "음성 입력, 앱 실행, 브라우저 제어, 파일 작업까지 하나의 흐름 안에서 연결되는 구조를 지향합니다.",
+        showcase3Label: "Install Flow",
+        showcase3Title: "설치 전 소개와 실제 설치 흐름을 분리해 더 명확하게.",
+        showcase3Body:
+          "랜딩 페이지에서는 제품을 보여주고, 별도 설치 페이지에서는 플랫폼 선택과 다운로드만 빠르게 진행합니다.",
+        platformsLabel: "Platforms",
+        platformsTitle: "운영체제를 고른 뒤, 별도 설치 페이지에서 바로 시작합니다.",
+        platformsCopy:
+          "메인 페이지에서는 제품을 소개하고, 설치 페이지에서는 macOS·Windows·Linux 가운데 원하는 환경을 골라 실제 다운로드를 진행합니다.",
+        footerCopy:
+          "Jarvis Desktop은 음성, 브라우저, 데스크톱 제어를 하나의 실행 흐름으로 연결하는 데스크톱 AI 제품입니다."
+      },
+      downloads: {
+        heroKicker: "FREE INSTALL",
+        heroTitleHtml:
+          "운영체제를 고르고,<br />바로 설치를 시작하세요.",
+        heroBody:
+          "이 페이지는 실제 설치에만 집중합니다. 원하는 플랫폼을 고르면 즉시 다운로드를 시작하고, 이어서 감사 안내 페이지로 이동합니다.",
+        selectorLabel: "Install",
+        selectorTitle: "원하는 플랫폼을 골라 설치하세요.",
+        selectorCopy:
+          "버튼을 누르면 설치 파일 다운로드를 시작하고, 현재 플랫폼에 맞는 안내 페이지로 이어집니다.",
+        pagePills: ["macOS", "Windows", "Linux", "Direct Install"],
+        helperNote:
+          "다운로드 버튼을 누르면 파일을 받기 시작하고 감사 페이지로 이동합니다."
+      },
+      thanks: {
+        heroKicker: "THANK YOU",
+        heroTitleHtml: "설치해주셔서<br />감사합니다.",
+        heroBody:
+          "다운로드가 시작되었습니다. 첫 실행 전에 아래 단계와 권한 안내를 확인하면 더 빠르게 사용할 수 있습니다.",
+        nextLabel: "Next Steps",
+        nextTitle: "설치 후 바로 확인할 항목",
+        step1Title: "앱 실행",
+        step1Body:
+          "다운로드한 설치 파일을 실행하고 운영체제 안내에 따라 기본 설치를 마칩니다.",
+        step2Title: "권한 확인",
+        step2Body:
+          "마이크, 접근성, 자동화 권한은 사용자가 직접 허용해야 하며 일부 기능은 권한 상태에 따라 달라집니다.",
+        step3Title: "업데이트 확인",
+        step3Body:
+          "설치된 앱은 새 GitHub Release가 게시되면 내부에서 새 버전을 감지하고 업데이트를 안내합니다.",
+        currentPlatformLabel: "Selected Platform",
+        currentPlatformFallback: "선택한 플랫폼 기준으로 다운로드를 진행했습니다."
+      },
+      platformCopy: {
+        macOS: {
+          cardTitle: "macOS 다운로드",
+          readyMessage: "Apple Silicon 기준 기본 설치 파일로 바로 이어집니다.",
+          pendingMessage: "macOS 빌드는 준비 중입니다.",
+          hint: "기본 형식 .dmg"
+        },
+        Windows: {
+          cardTitle: "Windows 다운로드",
+          readyMessage: "Windows 설치 파일로 바로 이어집니다.",
+          pendingMessage: "Windows 빌드는 준비 중입니다.",
+          hint: "기본 형식 .exe"
+        },
+        Linux: {
+          cardTitle: "Linux 다운로드",
+          readyMessage: "Linux AppImage 설치 파일로 바로 이어집니다.",
+          pendingMessage: "Linux 빌드는 준비 중입니다.",
+          hint: "기본 형식 .AppImage"
+        }
+      }
     },
-    Windows: {
-      availableLabel: "Windows 기본 설치 파일로 바로 이어집니다.",
-      pendingLabel: "Windows 빌드는 준비 중입니다.",
-      preview:
-        "Windows용 런처와 설치 흐름이 준비되는 대로 바로 연결됩니다.",
-      checklist: [
-        "설치 마법사를 실행하고 안내에 따라 설치를 마칩니다.",
-        "마이크와 브라우저 관련 권한 요청이 나타나면 허용합니다.",
-        "Chrome 또는 Edge 로그인 상태를 유지하면 웹 작업 품질이 올라갑니다.",
-      ],
-      installFlow: [
-        "다운로드한 설치 파일을 실행하고 기본 설치 마법사를 끝까지 진행합니다.",
-        "처음 실행 후 마이크와 브라우저 연동 권한을 확인합니다.",
-        "이후 새 릴리스가 게시되면 앱 내부에서 자동 다운로드 후 재시작 설치가 가능합니다.",
-      ],
-      updateNote:
-        "Windows 자동 업데이트도 새 버전 릴리스가 GitHub Releases에 올라와야 감지됩니다.",
-    },
-    Linux: {
-      availableLabel: "Linux 기본 배포 파일로 바로 이어집니다.",
-      pendingLabel: "Linux 빌드는 준비 중입니다.",
-      preview:
-        "휴대용 배포본 또는 패키지형 배포본이 준비되면 이곳에서 시작할 수 있습니다.",
-      checklist: [
-        "다운로드한 파일에 실행 권한을 부여합니다.",
-        "오디오 장치와 브라우저 경로를 확인합니다.",
-        "배포판에 따라 필요한 추가 설정이 있다면 릴리즈 노트를 먼저 확인합니다.",
-      ],
-      installFlow: [
-        "다운로드한 AppImage 또는 패키지 파일에 실행 권한을 부여합니다.",
-        "오디오 장치, 브라우저 실행 경로, 권한 정책을 배포판 환경에 맞게 확인합니다.",
-        "Linux는 배포 전략에 따라 자동 업데이트 범위가 다를 수 있어 릴리스 노트를 함께 확인하는 것이 가장 안전합니다.",
-      ],
-      updateNote:
-        "Linux는 패키지 형식에 따라 자동 업데이트 방식이 달라질 수 있습니다.",
-    },
+    en: {
+      common: {
+        overview: "Overview",
+        capabilities: "Capabilities",
+        platforms: "Platforms",
+        downloads: "Downloads",
+        install: "Install",
+        freeInstall: "Free Install",
+        freeDownload: "Free Download",
+        exploreFeatures: "Explore Features",
+        releaseNotes: "Release Notes",
+        goHome: "Back to Home",
+        backToInstall: "Back to Install",
+        ready: "Download Ready",
+        soon: "Coming Soon",
+        light: "Light",
+        dark: "Dark",
+        languageToggle: "Switch language",
+        themeToggle: "Toggle theme",
+        directInstall: "Direct Install",
+        continueInstall: "Continue Install"
+      },
+      overview: {
+        heroKicker: "DESKTOP AI FOR VOICE, BROWSER, AND COMPUTER CONTROL",
+        heroTitleHtml:
+          "Jarvis Desktop,<br />the AI layer<br />for your computer.",
+        heroBody:
+          "Jarvis Desktop is not just a chat app. It turns what you say or type into browser actions, app launches, file work, and desktop automation in one continuous flow.",
+        statsSupportedLabel: "Supported",
+        statsSupportedDesc: "Shows how many platforms are currently install-ready.",
+        statsConversationLabel: "Conversation",
+        statsConversationTitle: "Voice + Browser",
+        statsConversationDesc:
+          "Voice conversations, browser tasks, and app control stay in one flow.",
+        statsReleaseLabel: "Release",
+        statsReleaseDesc:
+          "The current public version aligned with the install website and real download flow.",
+        heroPills: ["Voice First", "Browser Control"],
+        heroPlatformsReady: "{count} Platforms Ready",
+        chatKicker: "Live Preview",
+        chatTitleHtml: "Chat naturally,<br />then watch it move.",
+        chatIntro:
+          "Instead of marketing copy, this panel shows a realistic preview of a user talking to Jarvis and Jarvis taking action.",
+        chatUser: "Play lofi on YouTube and find today’s meeting link.",
+        chatAssistant:
+          "Opening the browser, starting playback, and checking recent conversations plus calendar context for the meeting link.",
+        chatActionVoice: "Voice captured",
+        chatActionBrowser: "Browser opened",
+        chatActionTask: "Meeting link detected",
+        installCardLabel: "Install",
+        installCardTitle: "Free Install",
+        installCardBody:
+          "Choose your platform and start downloading right away from the install page.",
+        showcase1Label: "Natural Intent",
+        showcase1Title: "Understand the goal first, then move into execution.",
+        showcase1Body:
+          "The experience is designed to understand app names, websites, and intent before turning replies into actual actions.",
+        showcase2Label: "Local Control",
+        showcase2Title:
+          "A desktop AI that can directly handle browser and computer tasks.",
+        showcase2Body:
+          "Voice input, app launching, browser control, and file operations are designed to stay inside one task flow.",
+        showcase3Label: "Install Flow",
+        showcase3Title: "Separate product storytelling from the actual install flow.",
+        showcase3Body:
+          "The landing page introduces the product, while the install page focuses only on platform choice and direct downloads.",
+        platformsLabel: "Platforms",
+        platformsTitle: "Choose your OS, then continue on a dedicated install page.",
+        platformsCopy:
+          "The main page introduces the product. The install page is where users choose macOS, Windows, or Linux and start the real download flow.",
+        footerCopy:
+          "Jarvis Desktop is a desktop AI product that connects voice, browser, and computer control into one execution flow."
+      },
+      downloads: {
+        heroKicker: "FREE INSTALL",
+        heroTitleHtml: "Choose your platform,<br />then start installing.",
+        heroBody:
+          "This page focuses only on installation. Pick a platform to start the download immediately, then continue to the thank-you screen.",
+        selectorLabel: "Install",
+        selectorTitle: "Pick the platform you want to install.",
+        selectorCopy:
+          "Click a button to start downloading the installer and continue to a thank-you page with next steps.",
+        pagePills: ["macOS", "Windows", "Linux", "Direct Install"],
+        helperNote:
+          "When you click a download button, the file starts downloading and the thank-you page opens next."
+      },
+      thanks: {
+        heroKicker: "THANK YOU",
+        heroTitleHtml: "Thanks for<br />installing Jarvis.",
+        heroBody:
+          "Your download has started. Review the steps below before first launch to get set up faster.",
+        nextLabel: "Next Steps",
+        nextTitle: "What to check right after installation",
+        step1Title: "Run the installer",
+        step1Body:
+          "Open the downloaded installer and complete the default setup flow for your operating system.",
+        step2Title: "Review permissions",
+        step2Body:
+          "Microphone, accessibility, and automation permissions must be granted by the user, and some features depend on them.",
+        step3Title: "Check updates",
+        step3Body:
+          "Installed apps detect new versions when a new GitHub Release is published and can then guide the update flow.",
+        currentPlatformLabel: "Selected Platform",
+        currentPlatformFallback: "The download was started for your selected platform."
+      },
+      platformCopy: {
+        macOS: {
+          cardTitle: "macOS Download",
+          readyMessage: "Continue directly to the default Apple Silicon installer.",
+          pendingMessage: "The macOS build is coming soon.",
+          hint: "Default format .dmg"
+        },
+        Windows: {
+          cardTitle: "Windows Download",
+          readyMessage: "Continue directly to the Windows installer.",
+          pendingMessage: "The Windows build is coming soon.",
+          hint: "Default format .exe"
+        },
+        Linux: {
+          cardTitle: "Linux Download",
+          readyMessage: "Continue directly to the Linux AppImage build.",
+          pendingMessage: "The Linux build is coming soon.",
+          hint: "Default format .AppImage"
+        }
+      }
+    }
   };
 
   const elements = {
     themeToggle: document.getElementById("theme-toggle"),
+    languageToggle: document.getElementById("language-toggle"),
+    languageToggleLabel: document.getElementById("language-toggle-label"),
     themeColorMeta: document.getElementById("theme-color-meta"),
     heroMeta: document.getElementById("hero-meta"),
     heroVersion: document.getElementById("hero-version"),
-    releaseNotesLink: document.getElementById("release-notes-link"),
     supportedPlatformCount: document.getElementById("supported-platform-count"),
-    featuredPlatform: document.getElementById("featured-platform"),
-    featuredPlatformHint: document.getElementById("featured-platform-hint"),
-    platformPreviewGrid: document.getElementById("platform-preview-grid"),
+    releaseNotesLink: document.getElementById("release-notes-link"),
     downloadPageMeta: document.getElementById("download-page-meta"),
     downloadPlatformGrid: document.getElementById("download-platform-grid"),
-    agreementPanel: document.getElementById("agreement-panel"),
+    thanksPlatformName: document.getElementById("thanks-platform-name"),
+    thanksPlatformCopy: document.getElementById("thanks-platform-copy"),
+    thanksReleaseNotesLink: document.getElementById("thanks-release-notes-link")
   };
 
   const state = {
     theme: "light",
     hasStoredTheme: false,
-    selectedPlatform: "",
-    panelOpen: false,
-    agreements: {
-      terms: false,
-      privacy: false,
-      permissions: false,
-    },
+    language: "ko"
   };
 
   function escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
+    const span = document.createElement("span");
+    span.textContent = String(value ?? "");
+    return span.innerHTML;
+  }
+
+  function getMessage(path) {
+    const source = translations[state.language];
+    return String(path || "")
+      .split(".")
+      .reduce(
+        (accumulator, key) =>
+          accumulator && key in accumulator ? accumulator[key] : undefined,
+        source
+      );
+  }
+
+  function t(path, fallback = "") {
+    const value = getMessage(path);
+    return value ?? fallback;
   }
 
   function inferFormatFromHref(href) {
@@ -118,23 +324,23 @@
         platform: "Windows",
         href: String(config.windowsDownloadUrl || "").trim(),
         format: ".exe",
-        architecture: "x64",
-        recommended: true,
+        architecture: "ARM64",
+        recommended: true
       },
       {
         platform: "macOS",
         href: String(config.macDownloadUrl || "").trim(),
         format: ".dmg",
         architecture: "Apple Silicon",
-        recommended: true,
+        recommended: true
       },
       {
         platform: "Linux",
         href: String(config.linuxDownloadUrl || "").trim(),
         format: ".AppImage",
-        architecture: "x64",
-        recommended: true,
-      },
+        architecture: "ARM64",
+        recommended: true
+      }
     ].filter((item) => item.href);
 
     const source =
@@ -158,23 +364,20 @@
           href,
           format: String(item?.format || "").trim() || inferFormatFromHref(href),
           architecture: String(item?.architecture || "").trim(),
-          recommended: Boolean(item?.recommended),
+          recommended: Boolean(item?.recommended)
         };
       })
       .filter(Boolean);
   }
 
-  function buildPlatforms(downloads) {
-    return knownPlatforms.map((platform) => {
-      const primary = getPrimaryDownload(platform, downloads);
-      const copy = platformCopy[platform];
-      return {
-        platform,
-        available: Boolean(primary?.href),
-        message: primary?.href ? copy.availableLabel : copy.pendingLabel,
-      };
-    });
-  }
+  const config = {
+    brandName: String(rawConfig.brandName || "DexProject").trim() || "DexProject",
+    productName:
+      String(rawConfig.productName || "Jarvis Desktop").trim() || "Jarvis Desktop",
+    version: String(rawConfig.version || "0.1.0").trim() || "0.1.0",
+    releaseNotesUrl: String(rawConfig.releaseNotesUrl || "").trim(),
+    downloads: normalizeDownloads(rawConfig)
+  };
 
   function getPrimaryDownload(platform, downloads = config.downloads) {
     const platformDownloads = downloads.filter((item) => item.platform === platform);
@@ -185,6 +388,18 @@
     );
   }
 
+  function buildPlatforms(downloads) {
+    return knownPlatforms.map((platform) => {
+      const primary = getPrimaryDownload(platform, downloads);
+      return {
+        platform,
+        available: Boolean(primary?.href)
+      };
+    });
+  }
+
+  config.platforms = buildPlatforms(config.downloads);
+
   function getStoredTheme() {
     try {
       const stored = window.localStorage.getItem(themeStorageKey);
@@ -192,9 +407,20 @@
         return stored;
       }
     } catch (_error) {
-      // Ignore storage failures and use system theme.
+      // ignore
     }
+    return "";
+  }
 
+  function getStoredLanguage() {
+    try {
+      const stored = window.localStorage.getItem(languageStorageKey);
+      if (stored === "ko" || stored === "en") {
+        return stored;
+      }
+    } catch (_error) {
+      // ignore
+    }
     return "";
   }
 
@@ -209,14 +435,7 @@
     if (elements.themeColorMeta) {
       elements.themeColorMeta.setAttribute(
         "content",
-        state.theme === "dark" ? "#050507" : "#f5f5f7",
-      );
-    }
-
-    if (elements.themeToggle) {
-      elements.themeToggle.setAttribute(
-        "aria-label",
-        state.theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
+        state.theme === "dark" ? "#050507" : "#f5f5f7"
       );
     }
   }
@@ -235,105 +454,101 @@
     try {
       window.localStorage.setItem(themeStorageKey, nextTheme);
     } catch (_error) {
-      // Ignore storage failures.
+      // ignore
     }
   }
 
-  function detectPlatform() {
-    const source = `${navigator.userAgent} ${navigator.platform}`.toLowerCase();
-    if (source.includes("mac")) {
-      return "macOS";
-    }
-    if (source.includes("win")) {
-      return "Windows";
-    }
-    if (source.includes("linux")) {
-      return "Linux";
-    }
-    return "";
+  function initializeLanguage() {
+    state.language = getStoredLanguage() || "ko";
+    document.documentElement.lang = state.language;
   }
 
-  function saveAgreements() {
-    try {
-      window.localStorage.setItem(
-        consentStorageKey,
-        JSON.stringify(state.agreements),
-      );
-    } catch (_error) {
-      // Ignore storage failures.
+  function updateLanguageButton() {
+    if (!elements.languageToggle || !elements.languageToggleLabel) {
+      return;
     }
+
+    elements.languageToggleLabel.textContent = state.language === "ko" ? "KO" : "EN";
+    elements.languageToggle.setAttribute("aria-label", t("common.languageToggle"));
+    elements.languageToggle.setAttribute("title", t("common.languageToggle"));
   }
 
-  function restoreAgreements() {
-    try {
-      const raw = window.localStorage.getItem(consentStorageKey);
-      if (!raw) {
-        return;
+  function applyTranslations() {
+    document.querySelectorAll("[data-i18n]").forEach((element) => {
+      const key = element.getAttribute("data-i18n");
+      const value = t(key, "");
+      if (value) {
+        element.textContent = value;
       }
+    });
 
-      const parsed = JSON.parse(raw);
-      state.agreements.terms = Boolean(parsed.terms);
-      state.agreements.privacy = Boolean(parsed.privacy);
-      state.agreements.permissions = Boolean(parsed.permissions);
+    document.querySelectorAll("[data-i18n-html]").forEach((element) => {
+      const key = element.getAttribute("data-i18n-html");
+      const value = t(key, "");
+      if (value) {
+        element.innerHTML = value;
+      }
+    });
+
+    document.querySelectorAll("[data-i18n-aria]").forEach((element) => {
+      const key = element.getAttribute("data-i18n-aria");
+      const value = t(key, "");
+      if (value) {
+        element.setAttribute("aria-label", value);
+      }
+    });
+
+    if (elements.themeToggle) {
+      elements.themeToggle.setAttribute("aria-label", t("common.themeToggle"));
+      elements.themeToggle.setAttribute("title", t("common.themeToggle"));
+    }
+  }
+
+  function toggleLanguage() {
+    state.language = state.language === "ko" ? "en" : "ko";
+    document.documentElement.lang = state.language;
+
+    try {
+      window.localStorage.setItem(languageStorageKey, state.language);
     } catch (_error) {
-      // Ignore invalid storage values.
-    }
-  }
-
-  function allConsentsAccepted() {
-    return (
-      state.agreements.terms &&
-      state.agreements.privacy &&
-      state.agreements.permissions
-    );
-  }
-
-  function getPlatformSummary(platform) {
-    return config.platforms.find((item) => item.platform === platform) || null;
-  }
-
-  function getFirstAvailablePlatform() {
-    return (
-      config.platforms.find((item) => item.available)?.platform ||
-      knownPlatforms[0]
-    );
-  }
-
-  function getPlatformRoute(platform) {
-    if (!platform) {
-      return "./downloads.html";
+      // ignore
     }
 
-    return `./downloads.html?platform=${encodeURIComponent(platform)}#agreement-panel`;
-  }
-
-  function getRequestedPlatform() {
-    const url = new URL(window.location.href);
-    const rawPlatform = url.searchParams.get("platform") || "";
-    return knownPlatforms.find((item) => item === rawPlatform) || "";
+    applyTranslations();
+    renderReleaseNotesLink();
+    renderOverviewPage();
+    renderDownloadPageMeta();
+    renderDownloadPlatformGrid();
+    renderThanksPage();
+    updateLanguageButton();
   }
 
   function renderReleaseNotesLink() {
-    if (!elements.releaseNotesLink) {
-      return;
+    if (elements.releaseNotesLink) {
+      if (!config.releaseNotesUrl) {
+        elements.releaseNotesLink.hidden = true;
+      } else {
+        elements.releaseNotesLink.hidden = false;
+        elements.releaseNotesLink.href = config.releaseNotesUrl;
+      }
     }
 
-    if (!config.releaseNotesUrl) {
-      elements.releaseNotesLink.hidden = true;
-      return;
+    if (elements.thanksReleaseNotesLink) {
+      if (!config.releaseNotesUrl) {
+        elements.thanksReleaseNotesLink.hidden = true;
+      } else {
+        elements.thanksReleaseNotesLink.hidden = false;
+        elements.thanksReleaseNotesLink.href = config.releaseNotesUrl;
+      }
     }
-
-    elements.releaseNotesLink.hidden = false;
-    elements.releaseNotesLink.href = config.releaseNotesUrl;
   }
 
   function renderOverviewPage() {
+    if (document.body.dataset.page !== "overview") {
+      return;
+    }
+
     const availablePlatforms = config.platforms.filter((item) => item.available);
-    const detectedPlatform = detectPlatform();
-    const featuredPlatform =
-      (detectedPlatform && getPrimaryDownload(detectedPlatform) && detectedPlatform) ||
-      getFirstAvailablePlatform();
-    const featuredSummary = getPlatformSummary(featuredPlatform);
 
     if (elements.supportedPlatformCount) {
       elements.supportedPlatformCount.textContent = String(availablePlatforms.length);
@@ -343,376 +558,152 @@
       elements.heroVersion.textContent = `v${config.version}`;
     }
 
-    if (elements.featuredPlatform) {
-      elements.featuredPlatform.textContent = featuredPlatform;
-    }
-
-    if (elements.featuredPlatformHint) {
-      elements.featuredPlatformHint.textContent =
-        featuredSummary?.message || "가장 먼저 준비된 플랫폼이 여기에 표시됩니다.";
-    }
-
     if (elements.heroMeta) {
+      const heroPills = Array.isArray(t("overview.heroPills", []))
+        ? t("overview.heroPills", [])
+        : [];
       const pills = [
-        "Voice First",
-        "Browser Control",
-        `${availablePlatforms.length} Platforms Ready`,
+        ...heroPills,
+        t("overview.heroPlatformsReady", "").replace(
+          "{count}",
+          String(availablePlatforms.length)
+        )
       ];
+
       elements.heroMeta.innerHTML = pills
         .map((pill) => `<span class="meta-pill">${escapeHtml(pill)}</span>`)
-        .join("");
-    }
-
-    if (elements.platformPreviewGrid) {
-      elements.platformPreviewGrid.innerHTML = config.platforms
-        .map((summary) => {
-          const copy = platformCopy[summary.platform];
-          return `
-            <article class="platform-preview-card ${summary.available ? "is-available" : "is-pending"}">
-              <div class="platform-preview-topline">
-                <p class="surface-label">${escapeHtml(summary.platform)}</p>
-                <span class="status-pill ${summary.available ? "available" : "pending"}">
-                  ${summary.available ? "Download Ready" : "Coming Soon"}
-                </span>
-              </div>
-              <h3 class="platform-preview-title">${escapeHtml(summary.platform)} 다운로드</h3>
-              <p class="platform-preview-copy">${escapeHtml(
-                summary.available ? copy.preview : copy.pendingLabel,
-              )}</p>
-              <a
-                class="cta ${summary.available ? "cta-primary" : "cta-secondary"}"
-                href="${escapeHtml(getPlatformRoute(summary.platform))}"
-              >
-                ${summary.available ? "무료 다운로드하기" : "준비 상태 보기"}
-              </a>
-            </article>
-          `;
-        })
         .join("");
     }
   }
 
   function renderDownloadPageMeta() {
-    if (!elements.downloadPageMeta) {
+    if (document.body.dataset.page !== "downloads" || !elements.downloadPageMeta) {
       return;
     }
 
-    const pills = [
-      "macOS",
-      "Windows",
-      "Linux",
-      `Public v${config.version}`,
-    ];
+    const pills = Array.isArray(t("downloads.pagePills", []))
+      ? t("downloads.pagePills", [])
+      : [];
 
     elements.downloadPageMeta.innerHTML = pills
       .map((pill) => `<span class="meta-pill">${escapeHtml(pill)}</span>`)
       .join("");
   }
 
+  function getPlatformCopy(platform) {
+    return t(`platformCopy.${platform}`, {});
+  }
+
   function renderDownloadPlatformGrid() {
-    if (!elements.downloadPlatformGrid) {
+    if (document.body.dataset.page !== "downloads" || !elements.downloadPlatformGrid) {
       return;
     }
 
     elements.downloadPlatformGrid.innerHTML = config.platforms
       .map((summary) => {
-        const selectedClass =
-          state.selectedPlatform === summary.platform ? "is-selected" : "";
-        const availabilityClass = summary.available ? "is-available" : "is-pending";
+        const download = getPrimaryDownload(summary.platform);
+        const copy = getPlatformCopy(summary.platform);
+        const statusLabel = summary.available ? t("common.ready") : t("common.soon");
+        const message = summary.available
+          ? copy.readyMessage
+          : copy.pendingMessage;
+        const hintParts = [copy.hint, download?.architecture || "", download?.format || ""]
+          .filter(Boolean)
+          .join(" · ");
 
         return `
-          <button
-            type="button"
-            class="download-platform-card ${selectedClass} ${availabilityClass}"
-            data-platform="${escapeHtml(summary.platform)}"
-          >
+          <article class="download-platform-card ${summary.available ? "is-available" : "is-pending"}">
             <div class="download-platform-card-top">
               <p class="surface-label">${escapeHtml(summary.platform)}</p>
               <span class="status-pill ${summary.available ? "available" : "pending"}">
-                ${summary.available ? "Ready" : "Soon"}
+                ${escapeHtml(statusLabel)}
               </span>
             </div>
-            <h3 class="download-platform-title">${escapeHtml(summary.platform)} 다운로드하기</h3>
-            <p class="download-platform-copy">${escapeHtml(summary.message)}</p>
-          </button>
+            <h3 class="download-platform-title">${escapeHtml(copy.cardTitle || summary.platform)}</h3>
+            <p class="download-platform-copy">${escapeHtml(message || "")}</p>
+            <div class="download-platform-meta">${escapeHtml(hintParts)}</div>
+            ${
+              summary.available && download?.href
+                ? `<button type="button" class="cta cta-primary download-launch-button" data-download-href="${escapeHtml(
+                    download.href
+                  )}" data-platform="${escapeHtml(summary.platform)}">${escapeHtml(
+                    t("common.freeInstall")
+                  )}</button>`
+                : `<button type="button" class="cta cta-secondary" disabled>${escapeHtml(
+                    t("common.soon")
+                  )}</button>`
+            }
+          </article>
         `;
       })
       .join("");
   }
 
-  function buildChecklistMarkup(platform) {
-    const items = platformCopy[platform]?.checklist || [];
-    return items
-      .map(
-        (item, index) => `
-          <li class="checklist-item">
-            <span class="checklist-index">${index + 1}</span>
-            <span>${escapeHtml(item)}</span>
-          </li>
-        `,
-      )
-      .join("");
+  function getRequestedPlatform() {
+    const url = new URL(window.location.href);
+    const rawPlatform = url.searchParams.get("platform") || "";
+    return knownPlatforms.find((item) => item === rawPlatform) || "";
   }
 
-  function buildInstallFlowMarkup(platform) {
-    const items = platformCopy[platform]?.installFlow || [];
-    return items
-      .map(
-        (item, index) => `
-          <li class="wizard-guide-item">
-            <span class="wizard-guide-index">${index + 1}</span>
-            <span>${escapeHtml(item)}</span>
-          </li>
-        `,
-      )
-      .join("");
-  }
-
-  function buildWizardStepMarkup(step, title, description, tone) {
-    return `
-      <article class="wizard-step wizard-step-${escapeHtml(tone)}">
-        <span class="wizard-step-number">${escapeHtml(step)}</span>
-        <div>
-          <h3>${escapeHtml(title)}</h3>
-          <p>${escapeHtml(description)}</p>
-        </div>
-      </article>
-    `;
-  }
-
-  function buildAgreementPanelMarkup() {
-    if (!state.selectedPlatform) {
-      return `
-        <div class="agreement-panel-shell">
-          <div class="agreement-placeholder">
-            <p class="surface-label">Install</p>
-            <h2 class="section-title">플랫폼을 선택하면 설치 확인 패널이 열립니다.</h2>
-            <p class="body-balance">
-              macOS, Windows, Linux 가운데 하나를 누르면 아래로 이어지는 동의 창이
-              나타납니다.
-            </p>
-          </div>
-        </div>
-      `;
-    }
-
-    const summary = getPlatformSummary(state.selectedPlatform);
-    const primaryDownload = getPrimaryDownload(state.selectedPlatform);
-    const available = Boolean(primaryDownload?.href);
-    const consentReady = allConsentsAccepted();
-    const formatLabel = primaryDownload?.format
-      ? `기본 파일 형식 ${primaryDownload.format}`
-      : "기본 설치 파일";
-    const downloadLabel = `${state.selectedPlatform} 다운로드하기`;
-    const downloadButton = available
-      ? consentReady
-        ? `<a class="cta cta-primary" href="${escapeHtml(primaryDownload.href)}">${escapeHtml(downloadLabel)}</a>`
-        : `<button class="cta cta-primary" type="button" disabled>동의 후 다운로드</button>`
-      : `<button class="cta cta-primary" type="button" disabled>곧 공개됩니다</button>`;
-
-    const wizardSteps = [
-      buildWizardStepMarkup(
-        "1",
-        "플랫폼 선택",
-        `${state.selectedPlatform}을(를) 설치 대상으로 선택했습니다.`,
-        "done",
-      ),
-      buildWizardStepMarkup(
-        "2",
-        "약관 및 권한 동의",
-        consentReady
-          ? "설치 전 확인 항목을 모두 완료했습니다."
-          : "이용 안내, 데이터 처리, 시스템 권한 항목을 먼저 확인합니다.",
-        consentReady ? "done" : "active",
-      ),
-      buildWizardStepMarkup(
-        "3",
-        "설치 파일 다운로드",
-        available
-          ? `${formatLabel}로 기본 다운로드를 시작합니다.`
-          : "이 플랫폼의 공개 파일이 준비되면 여기서 바로 이어집니다.",
-        consentReady && available ? "active" : available ? "pending" : "pending",
-      ),
-      buildWizardStepMarkup(
-        "4",
-        "첫 실행 및 권한 설정",
-        "설치 후 마이크, 접근성, 자동화 권한을 확인합니다.",
-        consentReady && available ? "pending" : "pending",
-      ),
-      buildWizardStepMarkup(
-        "5",
-        "자동 업데이트",
-        "이후에는 새 릴리스가 올라오면 앱이 자동으로 감지합니다.",
-        consentReady && available ? "pending" : "pending",
-      ),
-    ].join("");
-
-    return `
-      <div class="agreement-panel-shell ${state.panelOpen ? "is-open" : ""}">
-        <div class="agreement-panel-head">
-          <div>
-            <p class="surface-label">Install</p>
-            <h2 class="section-title headline-balance">${escapeHtml(state.selectedPlatform)} 설치 전 확인</h2>
-            <p class="agreement-head-copy body-balance">
-              설치 마법사 흐름으로 정리했습니다. 플랫폼을 고른 뒤 동의를 마치면 기본 설치 파일로 바로 이어지고,
-              설치 후에는 새 릴리스를 기준으로 자동 업데이트를 받을 수 있습니다.
-            </p>
-          </div>
-          <span class="version-chip">v${escapeHtml(config.version)}</span>
-        </div>
-
-        <section class="wizard-stepper" aria-label="설치 마법사 단계">
-          ${wizardSteps}
-        </section>
-
-        <div class="agreement-layout">
-          <aside class="agreement-summary-card">
-            <p class="surface-label">Selected Platform</p>
-            <h3 class="agreement-platform-name">${escapeHtml(state.selectedPlatform)}</h3>
-            <p class="agreement-platform-copy">${escapeHtml(summary?.message || "")}</p>
-            <ul class="checklist-stack">
-              ${buildChecklistMarkup(state.selectedPlatform)}
-            </ul>
-          </aside>
-
-          <div class="agreement-consent-stack">
-            <article class="panel-card agreement-intro-card">
-              <h3>설치 전에 알아둘 점</h3>
-              <p>
-                Jarvis Desktop은 음성, 브라우저 제어, 앱 실행, 파일 작업처럼 실제
-                데스크톱 동작과 연결될 수 있습니다. 그래서 설치 전에 권한 흐름과
-                데이터 처리 방식을 먼저 확인합니다.
-              </p>
-            </article>
-
-            <article class="panel-card wizard-guide-card">
-              <h3>설치 후 진행되는 흐름</h3>
-              <ol class="wizard-guide-list">
-                ${buildInstallFlowMarkup(state.selectedPlatform)}
-              </ol>
-            </article>
-
-            <label class="consent-card">
-              <input type="checkbox" data-agreement="terms" ${
-                state.agreements.terms ? "checked" : ""
-              } />
-              <span>
-                <h3>이용 안내를 확인했습니다.</h3>
-                <p>설치 후 권한 요청과 자동화 동작이 나타날 수 있음을 이해합니다.</p>
-              </span>
-            </label>
-
-            <label class="consent-card">
-              <input type="checkbox" data-agreement="privacy" ${
-                state.agreements.privacy ? "checked" : ""
-              } />
-              <span>
-                <h3>데이터 처리 방식을 이해했습니다.</h3>
-                <p>음성, 검색, 응답은 연결한 설정에 따라 로컬 또는 외부 서비스에서 처리될 수 있습니다.</p>
-              </span>
-            </label>
-
-            <label class="consent-card">
-              <input type="checkbox" data-agreement="permissions" ${
-                state.agreements.permissions ? "checked" : ""
-              } />
-              <span>
-                <h3>시스템 권한 안내를 확인했습니다.</h3>
-                <p>마이크, 접근성, 자동화 권한은 사용자가 직접 허용해야 하며 일부 기능은 권한 상태에 따라 달라질 수 있습니다.</p>
-              </span>
-            </label>
-
-            <article class="panel-card updater-card">
-              <h3>자동 업데이트가 실제로 동작하는 조건</h3>
-              <p>
-                이미 설치된 앱은 GitHub에 새 커밋이 올라갔다고 바로 바뀌지 않습니다.
-                새 버전 태그와 GitHub Release가 게시되고, 그 릴리스 안에 설치 파일과
-                업데이트 메타데이터가 같이 올라와야 자동 업데이트가 시작됩니다.
-              </p>
-              <p class="updater-note">${escapeHtml(
-                platformCopy[state.selectedPlatform]?.updateNote || "",
-              )}</p>
-            </article>
-
-            <div class="agreement-actions">
-              ${downloadButton}
-              ${
-                config.releaseNotesUrl
-                  ? `<a class="cta cta-secondary" href="${escapeHtml(config.releaseNotesUrl)}">변경 사항</a>`
-                  : ""
-              }
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderAgreementPanel() {
-    if (!elements.agreementPanel) {
+  function renderThanksPage() {
+    if (document.body.dataset.page !== "thanks") {
       return;
     }
 
-    elements.agreementPanel.innerHTML = buildAgreementPanelMarkup();
-    elements.agreementPanel.classList.toggle("is-open", state.panelOpen);
+    const selectedPlatform = getRequestedPlatform();
+    const copy = selectedPlatform ? getPlatformCopy(selectedPlatform) : null;
+
+    if (elements.thanksPlatformName) {
+      elements.thanksPlatformName.textContent = selectedPlatform || "Jarvis Desktop";
+    }
+
+    if (elements.thanksPlatformCopy) {
+      elements.thanksPlatformCopy.textContent =
+        copy?.readyMessage || t("thanks.currentPlatformFallback");
+    }
   }
 
-  function openAgreementPanel() {
-    if (!elements.agreementPanel) {
+  function isLocalDownload(href) {
+    return !/^https?:\/\//i.test(String(href || ""));
+  }
+
+  function launchDownload(href) {
+    if (isLocalDownload(href)) {
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = "";
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
       return;
     }
 
-    state.panelOpen = true;
-    renderAgreementPanel();
-
-    window.requestAnimationFrame(() => {
-      elements.agreementPanel.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
+    window.open(href, "_blank", "noopener,noreferrer");
   }
 
-  function handleDownloadPlatformClick(event) {
-    const button = event.target.closest("[data-platform]");
+  function handleDownloadClick(event) {
+    const button = event.target.closest("[data-download-href]");
     if (!button) {
       return;
     }
 
-    state.selectedPlatform = button.getAttribute("data-platform") || state.selectedPlatform;
-    renderDownloadPlatformGrid();
-    openAgreementPanel();
-  }
+    const href = button.getAttribute("data-download-href") || "";
+    const platform = button.getAttribute("data-platform") || "";
 
-  function handleAgreementChange(event) {
-    const input = event.target;
-    if (!(input instanceof HTMLInputElement)) {
+    if (!href) {
       return;
     }
 
-    const agreement = input.getAttribute("data-agreement");
-    if (!agreement || !(agreement in state.agreements)) {
-      return;
-    }
+    launchDownload(href);
 
-    state.agreements[agreement] = input.checked;
-    saveAgreements();
-    renderAgreementPanel();
-  }
-
-  function initializeDownloadPageState() {
-    const requestedPlatform = getRequestedPlatform();
-    const detectedPlatform = detectPlatform();
-
-    state.selectedPlatform =
-      requestedPlatform ||
-      (detectedPlatform && knownPlatforms.includes(detectedPlatform)
-        ? detectedPlatform
-        : getFirstAvailablePlatform());
-
-    if (requestedPlatform || window.location.hash === "#agreement-panel") {
-      state.panelOpen = true;
-    }
+    window.setTimeout(() => {
+      const nextUrl = new URL("./thanks.html", window.location.href);
+      if (platform) {
+        nextUrl.searchParams.set("platform", platform);
+      }
+      window.location.href = nextUrl.toString();
+    }, 360);
   }
 
   function initScrollReveal() {
@@ -739,29 +730,32 @@
           }
         });
       },
-      { root: null, rootMargin: "0px 0px -10% 0px", threshold: 0.08 },
+      { root: null, rootMargin: "0px 0px -10% 0px", threshold: 0.08 }
     );
 
     blocks.forEach((block) => observer.observe(block));
   }
 
-  const config = {
-    brandName: String(rawConfig.brandName || "DexProject").trim() || "DexProject",
-    productName:
-      String(rawConfig.productName || "Jarvis Desktop").trim() || "Jarvis Desktop",
-    version: String(rawConfig.version || "0.1.0").trim() || "0.1.0",
-    releaseNotesUrl: String(rawConfig.releaseNotesUrl || "").trim(),
-    downloads: normalizeDownloads(rawConfig),
-  };
-
-  config.platforms = buildPlatforms(config.downloads);
-
-  restoreAgreements();
   initializeTheme();
+  initializeLanguage();
+  applyTranslations();
+  updateLanguageButton();
   renderReleaseNotesLink();
+  renderOverviewPage();
+  renderDownloadPageMeta();
+  renderDownloadPlatformGrid();
+  renderThanksPage();
 
   if (elements.themeToggle) {
     elements.themeToggle.addEventListener("click", toggleTheme);
+  }
+
+  if (elements.languageToggle) {
+    elements.languageToggle.addEventListener("click", toggleLanguage);
+  }
+
+  if (elements.downloadPlatformGrid) {
+    elements.downloadPlatformGrid.addEventListener("click", handleDownloadClick);
   }
 
   if (mediaQuery) {
@@ -775,34 +769,6 @@
       mediaQuery.addEventListener("change", updateToSystemTheme);
     } else if (typeof mediaQuery.addListener === "function") {
       mediaQuery.addListener(updateToSystemTheme);
-    }
-  }
-
-  if (document.body.dataset.page === "overview") {
-    renderOverviewPage();
-  }
-
-  if (document.body.dataset.page === "downloads") {
-    initializeDownloadPageState();
-    renderDownloadPageMeta();
-    renderDownloadPlatformGrid();
-    renderAgreementPanel();
-
-    if (elements.downloadPlatformGrid) {
-      elements.downloadPlatformGrid.addEventListener(
-        "click",
-        handleDownloadPlatformClick,
-      );
-    }
-
-    if (elements.agreementPanel) {
-      elements.agreementPanel.addEventListener("change", handleAgreementChange);
-    }
-
-    if (state.panelOpen) {
-      window.requestAnimationFrame(() => {
-        openAgreementPanel();
-      });
     }
   }
 

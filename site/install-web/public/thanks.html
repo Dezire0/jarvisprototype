@@ -6,10 +6,10 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0"
     />
-    <title>Jarvis Desktop Install</title>
+    <title>Jarvis Desktop Thank You</title>
     <meta
       name="description"
-      content="Jarvis Desktop 무료 설치와 플랫폼별 다운로드."
+      content="Jarvis Desktop 설치를 시작해주셔서 감사합니다."
     />
     <meta name="theme-color" content="#f5f5f7" id="theme-color-meta" />
     <link rel="icon" href="./assets/jarvis-logo-badge.png" />
@@ -38,10 +38,10 @@
     <script src="./config.js"></script>
     <script src="./script.js" defer></script>
   </head>
-  <body data-page="downloads">
+  <body data-page="thanks">
     <header class="topbar">
       <div class="shell topbar-inner">
-        <a class="brand" href="./index.html" aria-label="소개 페이지로 이동">
+        <a class="brand" href="./index.html" aria-label="홈으로 이동">
           <img
             src="./assets/jarvis-logo-badge.png"
             alt=""
@@ -87,59 +87,93 @@
             </span>
           </button>
 
-          <a href="./index.html" class="cta cta-secondary">
-            <span data-i18n="common.goHome">홈으로 돌아가기</span>
+          <a href="./downloads.html" class="cta cta-secondary">
+            <span data-i18n="common.backToInstall">설치 페이지로 돌아가기</span>
           </a>
         </div>
       </div>
     </header>
 
     <main>
-      <section class="download-hero hero">
+      <section class="thanks-hero hero">
         <div class="hero-orb hero-orb-a" aria-hidden="true"></div>
         <div class="hero-orb hero-orb-b" aria-hidden="true"></div>
 
-        <div class="shell download-hero-inner">
-          <p class="hero-kicker" data-i18n="downloads.heroKicker">FREE INSTALL</p>
-          <h1 class="download-title headline-balance" data-i18n-html="downloads.heroTitleHtml">
-            운영체제를 고르고,<br />
-            바로 설치를 시작하세요.
-          </h1>
-          <p class="download-body body-balance" data-i18n="downloads.heroBody">
-            이 페이지는 실제 설치에만 집중합니다. 원하는 플랫폼을 고르면 즉시 다운로드를 시작하고, 이어서 감사 안내 페이지로 이동합니다.
-          </p>
-          <div class="hero-meta" id="download-page-meta"></div>
+        <div class="shell thanks-grid">
+          <div class="thanks-copy">
+            <p class="hero-kicker" data-i18n="thanks.heroKicker">THANK YOU</p>
+            <h1 class="download-title headline-balance" data-i18n-html="thanks.heroTitleHtml">
+              설치해주셔서<br />
+              감사합니다.
+            </h1>
+            <p class="download-body body-balance" data-i18n="thanks.heroBody">
+              다운로드가 시작되었습니다. 첫 실행 전에 아래 단계와 권한 안내를 확인하면 더 빠르게 사용할 수 있습니다.
+            </p>
+
+            <div class="hero-actions">
+              <a href="./index.html" class="cta cta-primary">
+                <span data-i18n="common.goHome">홈으로 돌아가기</span>
+              </a>
+              <a href="./downloads.html" class="cta cta-secondary">
+                <span data-i18n="common.backToInstall">설치 페이지로 돌아가기</span>
+              </a>
+              <a
+                href="#"
+                class="cta cta-secondary"
+                id="thanks-release-notes-link"
+                hidden
+              >
+                <span data-i18n="common.releaseNotes">변경 사항</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="thanks-summary surface-card">
+            <p class="surface-label" data-i18n="thanks.currentPlatformLabel">Selected Platform</p>
+            <h2 id="thanks-platform-name">Jarvis Desktop</h2>
+            <p class="thanks-summary-copy" id="thanks-platform-copy">
+              선택한 플랫폼 기준으로 다운로드를 진행했습니다.
+            </p>
+          </div>
         </div>
       </section>
 
-      <section class="download-selector reveal" id="downloads">
+      <section class="thanks-steps reveal">
         <div class="shell">
           <div class="section-heading">
             <div class="section-heading-text">
-              <p class="surface-label" data-i18n="downloads.selectorLabel">Install</p>
-              <h2 class="section-title headline-balance" data-i18n="downloads.selectorTitle">
-                원하는 플랫폼을 골라 설치하세요.
+              <p class="surface-label" data-i18n="thanks.nextLabel">Next Steps</p>
+              <h2 class="section-title headline-balance" data-i18n="thanks.nextTitle">
+                설치 후 바로 확인할 항목
               </h2>
             </div>
-            <p class="section-copy body-balance" data-i18n="downloads.selectorCopy">
-              버튼을 누르면 설치 파일 다운로드를 시작하고, 현재 플랫폼에 맞는 안내 페이지로 이어집니다.
-            </p>
           </div>
 
-          <div class="download-platform-grid" id="download-platform-grid"></div>
+          <div class="thanks-step-grid">
+            <article class="surface-card thanks-step-card">
+              <p class="surface-label">01</p>
+              <h3 data-i18n="thanks.step1Title">앱 실행</h3>
+              <p data-i18n="thanks.step1Body">
+                다운로드한 설치 파일을 실행하고 운영체제 안내에 따라 기본 설치를 마칩니다.
+              </p>
+            </article>
 
-          <section class="install-helper-card surface-card">
-            <p class="surface-label" data-i18n="common.directInstall">바로 설치</p>
-            <h3 class="install-helper-title">Jarvis Desktop</h3>
-            <p class="install-helper-copy" data-i18n="downloads.helperNote">
-              다운로드 버튼을 누르면 파일을 받기 시작하고 감사 페이지로 이동합니다.
-            </p>
-            <div class="install-helper-actions">
-              <a href="./index.html" class="cta cta-secondary">
-                <span data-i18n="common.goHome">홈으로 돌아가기</span>
-              </a>
-            </div>
-          </section>
+            <article class="surface-card thanks-step-card">
+              <p class="surface-label">02</p>
+              <h3 data-i18n="thanks.step2Title">권한 확인</h3>
+              <p data-i18n="thanks.step2Body">
+                마이크, 접근성, 자동화 권한은 사용자가 직접 허용해야 하며 일부 기능은 권한 상태에 따라 달라집니다.
+              </p>
+            </article>
+
+            <article class="surface-card thanks-step-card">
+              <p class="surface-label">03</p>
+              <h3 data-i18n="thanks.step3Title">업데이트 확인</h3>
+              <p data-i18n="thanks.step3Body">
+                설치된 앱은 새 GitHub Release가 게시되면 내부에서 새 버전을 감지하고 업데이트를 안내합니다.
+              </p>
+            </article>
+          </div>
         </div>
       </section>
     </main>
@@ -151,8 +185,8 @@
         </p>
         <div class="footer-links">
           <a href="./index.html#overview" data-i18n="common.overview">Overview</a>
-          <a href="./index.html#platforms" data-i18n="common.platforms">Platforms</a>
           <a href="./downloads.html" data-i18n="common.install">Install</a>
+          <a href="./index.html#capabilities" data-i18n="common.capabilities">Capabilities</a>
         </div>
       </div>
     </footer>
