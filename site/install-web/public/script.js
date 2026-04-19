@@ -92,6 +92,8 @@
         selectorCopy:
           "버튼을 누르면 설치 파일 다운로드를 시작합니다.",
         pagePills: ["macOS", "Windows", "Linux", "Direct Install"],
+        fallbackMessage:
+          "최신 {platform} 빌드는 아직 준비 중이지만 v{version} 설치 파일을 바로 받을 수 있습니다.",
         helperNote:
           "다운로드 버튼을 누르면 파일을 받기 시작합니다."
       },
@@ -218,6 +220,8 @@
         selectorCopy:
           "Click a button to start downloading the installer.",
         pagePills: ["macOS", "Windows", "Linux", "Direct Install"],
+        fallbackMessage:
+          "The latest {platform} build is not ready yet, but you can install v{version} right now.",
         helperNote:
           "When you click a download button, the file starts downloading."
       },
@@ -364,7 +368,10 @@
           href,
           format: String(item?.format || "").trim() || inferFormatFromHref(href),
           architecture: String(item?.architecture || "").trim(),
-          recommended: Boolean(item?.recommended)
+          recommended: Boolean(item?.recommended),
+          version: String(item?.version || "").trim(),
+          hint: String(item?.hint || "").trim(),
+          isFallback: Boolean(item?.isFallback)
         };
       })
       .filter(Boolean);
@@ -393,7 +400,9 @@
       const primary = getPrimaryDownload(platform, downloads);
       return {
         platform,
-        available: Boolean(primary?.href)
+        available: Boolean(primary?.href),
+        downloadVersion: String(primary?.version || "").trim(),
+        isFallback: Boolean(primary?.isFallback)
       };
     });
   }
@@ -605,9 +614,18 @@
         const copy = getPlatformCopy(summary.platform);
         const statusLabel = summary.available ? t("common.ready") : t("common.soon");
         const message = summary.available
-          ? copy.readyMessage
+          ? summary.isFallback && summary.downloadVersion
+            ? t("downloads.fallbackMessage", "")
+                .replace("{platform}", summary.platform)
+                .replace("{version}", summary.downloadVersion)
+            : copy.readyMessage
           : copy.pendingMessage;
-        const hintParts = [copy.hint, download?.architecture || "", download?.format || ""]
+        const hintParts = [
+          download?.hint || copy.hint,
+          download?.architecture || "",
+          download?.format || "",
+          download?.version ? `v${download.version}` : ""
+        ]
           .filter(Boolean)
           .join(" · ");
 
