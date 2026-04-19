@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   submitCommand(input) {
     return ipcRenderer.invoke("assistant:submit-command", input);
   },
+  transcribeAudio(payload = {}) {
+    return ipcRenderer.invoke("assistant:transcribe-audio", payload);
+  },
   showPopup(payload = {}) {
     return ipcRenderer.invoke("assistant:show-popup", payload);
   },

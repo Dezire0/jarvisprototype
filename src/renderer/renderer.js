@@ -97,6 +97,20 @@ const chipButtons = Array.from(document.querySelectorAll(".chip-button"));
 const state = {
   recognition: null,
   recognitionRunning: false,
+  recorderStream: null,
+  recorderMediaRecorder: null,
+  recorderChunks: [],
+  recorderSilenceInterval: null,
+  recorderSilenceTimeout: null,
+  recorderMaxTimeout: null,
+  recorderAudioContext: null,
+  recorderAnalyser: null,
+  recorderSource: null,
+  recorderFallbackActive: false,
+  recorderHeardSpeech: false,
+  recorderSilenceStartedAt: 0,
+  recorderResolve: null,
+  recorderReject: null,
   wakeEnabled: false,
   callModeEnabled: false,
   waitingForVoiceCommand: false,
@@ -505,6 +519,71 @@ function clearCommandTimeout() {
   }
 }
 
+function clearRecorderTimers() {
+  if (state.recorderSilenceInterval) {
+    clearInterval(state.recorderSilenceInterval);
+    state.recorderSilenceInterval = null;
+  }
+
+  if (state.recorderSilenceTimeout) {
+    clearTimeout(state.recorderSilenceTimeout);
+    state.recorderSilenceTimeout = null;
+  }
+
+  if (state.recorderMaxTimeout) {
+    clearTimeout(state.recorderMaxTimeout);
+    state.recorderMaxTimeout = null;
+  }
+}
+
+async function disposeRecorderResources() {
+  clearRecorderTimers();
+
+  if (state.recorderSource) {
+    try {
+      state.recorderSource.disconnect();
+    } catch (_error) {
+      // Ignore disconnect races while cleaning up.
+    }
+    state.recorderSource = null;
+  }
+
+  state.recorderAnalyser = null;
+
+  if (state.recorderAudioContext) {
+    try {
+      await state.recorderAudioContext.close();
+    } catch (_error) {
+      // Ignore close races while cleaning up.
+    }
+    state.recorderAudioContext = null;
+  }
+
+  if (state.recorderStream) {
+    state.recorderStream.getTracks().forEach((track) => track.stop());
+    state.recorderStream = null;
+  }
+
+  state.recorderMediaRecorder = null;
+  state.recorderChunks = [];
+  state.recorderFallbackActive = false;
+  state.recorderHeardSpeech = false;
+  state.recorderSilenceStartedAt = 0;
+}
+
+async function stopRecorderFallback() {
+  if (!state.recorderMediaRecorder || state.recorderMediaRecorder.state === "inactive") {
+    await disposeRecorderResources();
+    return;
+  }
+
+  await new Promise((resolve) => {
+    const mediaRecorder = state.recorderMediaRecorder;
+    mediaRecorder.addEventListener("stop", resolve, { once: true });
+    mediaRecorder.stop();
+  });
+}
+
 function resolveSpeechSession() {
   if (state.speechSession?.resolve) {
     state.speechSession.resolve();
@@ -636,7 +715,11 @@ function requestRecognitionStart(mode, options = {}) {
       return;
     }
 
-    startManualRecognition(reason || "single-turn");
+    try {
+      startManualRecognition(reason || "single-turn");
+    } catch (error) {
+      void runManualRecognitionFallback(reason || "single-turn");
+    }
   };
 
   if (delayMs > 0) {
@@ -645,6 +728,208 @@ function requestRecognitionStart(mode, options = {}) {
   }
 
   startRequestedMode();
+}
+
+function normalizeManualTranscript(result) {
+  return String(result?.text || "").trim();
+}
+
+async function transcribeRecorderChunks(language) {
+  const mediaRecorder = state.recorderMediaRecorder;
+  const chunks = state.recorderChunks.slice();
+  const mimeType = mediaRecorder?.mimeType || "audio/webm";
+
+  if (!chunks.length) {
+    throw new Error("No voice audio was captured.");
+  }
+
+  const blob = new Blob(chunks, {
+    type: mimeType
+  });
+  const arrayBuffer = await blob.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(arrayBuffer);
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+
+  return window.assistantAPI.transcribeAudio({
+    audioBase64: btoa(binary),
+    mimeType,
+    language
+  });
+}
+
+async function startRecorderFallback(reason = "single-turn") {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    throw new Error("이 환경에서는 녹음 기반 음성 입력을 사용할 수 없어요.");
+  }
+
+  await stopRecorderFallback();
+  clearPendingRecognitionTimer();
+  clearCommandTimeout();
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  });
+
+  const preferredMimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+    ? "audio/webm;codecs=opus"
+    : MediaRecorder.isTypeSupported("audio/webm")
+      ? "audio/webm"
+      : "";
+  const mediaRecorder = preferredMimeType
+    ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+    : new MediaRecorder(stream);
+  const audioContext = new AudioContext();
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 2048;
+  const source = audioContext.createMediaStreamSource(stream);
+  source.connect(analyser);
+
+  state.recorderStream = stream;
+  state.recorderMediaRecorder = mediaRecorder;
+  state.recorderChunks = [];
+  state.recorderAudioContext = audioContext;
+  state.recorderAnalyser = analyser;
+  state.recorderSource = source;
+  state.recorderFallbackActive = true;
+  state.recorderHeardSpeech = false;
+  state.recorderSilenceStartedAt = 0;
+  state.recognitionMode = "manual";
+  state.waitingForVoiceCommand = true;
+  state.manualRecognitionReason = reason;
+  setWakeState("listening");
+  syncVoiceOnceButton();
+  updateVoiceStatus(reason === "call-mode" ? "통화 모드로 듣는 중이에요..." : "한 번만 듣는 중이에요...");
+
+  const recordingDone = new Promise((resolve, reject) => {
+    state.recorderResolve = resolve;
+    state.recorderReject = reject;
+  });
+
+  mediaRecorder.addEventListener("dataavailable", (event) => {
+    if (event.data && event.data.size > 0) {
+      state.recorderChunks.push(event.data);
+    }
+  });
+
+  mediaRecorder.addEventListener("stop", () => {
+    const resolve = state.recorderResolve;
+    state.recorderResolve = null;
+    state.recorderReject = null;
+    if (resolve) {
+      resolve();
+    }
+  });
+
+  mediaRecorder.start(250);
+
+  const samples = new Uint8Array(analyser.fftSize);
+  const silenceThreshold = 18;
+
+  state.recorderMaxTimeout = setTimeout(() => {
+    void stopRecorderFallback();
+  }, 12000);
+
+  state.recorderSilenceTimeout = setTimeout(() => {
+    if (!state.recorderHeardSpeech) {
+      void stopRecorderFallback();
+    }
+  }, 5000);
+
+  state.recorderSilenceInterval = setInterval(() => {
+    analyser.getByteTimeDomainData(samples);
+
+    let sum = 0;
+    for (let index = 0; index < samples.length; index += 1) {
+      const centered = samples[index] - 128;
+      sum += centered * centered;
+    }
+
+    const rms = Math.sqrt(sum / samples.length);
+    const speakingNow = rms >= silenceThreshold;
+
+    if (speakingNow) {
+      state.recorderHeardSpeech = true;
+      state.recorderSilenceStartedAt = 0;
+      if (state.recorderSilenceTimeout) {
+        clearTimeout(state.recorderSilenceTimeout);
+        state.recorderSilenceTimeout = null;
+      }
+      return;
+    }
+
+    if (!state.recorderHeardSpeech) {
+      return;
+    }
+
+    if (!state.recorderSilenceStartedAt) {
+      state.recorderSilenceStartedAt = Date.now();
+      return;
+    }
+
+    if (Date.now() - state.recorderSilenceStartedAt >= 1200) {
+      void stopRecorderFallback();
+    }
+  }, 150);
+
+  await recordingDone;
+
+  try {
+    if (!state.recorderHeardSpeech) {
+      updateVoiceStatus(
+        state.callModeEnabled ? "아직 말씀이 없어서 다시 들을게요." : "말씀을 못 들었어요. 다시 시도해 주세요."
+      );
+      return "";
+    }
+
+    updateVoiceStatus("음성을 텍스트로 변환하고 있어요...");
+    const result = await transcribeRecorderChunks(speechLanguage.value);
+    return normalizeManualTranscript(result);
+  } finally {
+    await disposeRecorderResources();
+    state.recognitionRunning = false;
+    state.recognitionMode = "idle";
+    state.waitingForVoiceCommand = false;
+    syncVoiceOnceButton();
+    setWakeState("idle");
+  }
+}
+
+async function runManualRecognitionFallback(reason = "single-turn") {
+  try {
+    const transcript = await startRecorderFallback(reason);
+
+    if (!transcript) {
+      if (state.callModeEnabled && reason === "call-mode" && !state.submitInFlight) {
+        requestRecognitionStart("manual", {
+          reason: "call-mode",
+          delayMs: 380
+        });
+      }
+      return;
+    }
+
+    updateVoiceStatus("말씀하신 내용을 처리하고 있어요...");
+    await submitCommandText(transcript, {
+      source: "voice"
+    });
+  } catch (error) {
+    updateVoiceStatus(`음성 입력 오류: ${error.message}`);
+
+    if (state.callModeEnabled && reason === "call-mode" && !state.submitInFlight) {
+      requestRecognitionStart("manual", {
+        reason: "call-mode",
+        delayMs: 520
+      });
+    }
+  }
 }
 
 function buildProviderConfiguredLabel(name, configured) {
@@ -1152,6 +1437,33 @@ function buildRecognition() {
     updateVoiceStatus(`음성 인식 오류: ${event.error}`);
   };
 
+  const browserRecognitionOnError = recognition.onerror;
+  recognition.onerror = (event) => {
+    if (
+      state.recognitionMode === "manual" &&
+      ["network", "service-not-allowed", "audio-capture"].includes(event.error)
+    ) {
+      const fallbackReason = state.manualRecognitionReason || "single-turn";
+      state.pendingRecognitionStart = null;
+      state.waitingForVoiceCommand = false;
+      state.manualRecognitionReason = "fallback";
+
+      if (state.recognitionRunning) {
+        try {
+          state.recognition.abort();
+        } catch (_error) {
+          // Ignore abort races before recorder fallback.
+        }
+      }
+
+      updateVoiceStatus("브라우저 음성 서비스가 불안정해서 앱 내 STT로 전환할게요...");
+      void runManualRecognitionFallback(fallbackReason);
+      return;
+    }
+
+    browserRecognitionOnError(event);
+  };
+
   recognition.onend = () => {
     const previousMode = state.recognitionMode;
     const previousManualReason = state.manualRecognitionReason;
@@ -1240,6 +1552,10 @@ function stopWakeRecognition() {
 }
 
 function startManualRecognition(reason = "single-turn") {
+  if (state.recorderFallbackActive) {
+    return;
+  }
+
   const recognition = getRecognition();
   clearPendingRecognitionTimer();
   recognition.lang = speechLanguage.value;
@@ -1278,6 +1594,10 @@ async function refreshCredentialList() {
     addMessage("assistant", `저장된 로그인 정보를 불러오지 못했어요: ${error.message}`);
   }
 }
+
+window.addEventListener("beforeunload", () => {
+  void stopRecorderFallback();
+});
 
 window.assistantAPI.onWakeState((payload) => {
   setWakeState(payload.status);

@@ -20,6 +20,7 @@ const { ObsService } = require("./obs-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
 const { createAutomationAdapter } = require("./platform-adapters.cjs");
 const { SettingsStore } = require("./settings-store.cjs");
+const { SttService } = require("./stt-service.cjs");
 const { TtsService } = require("./tts-service.cjs");
 const { UpdaterService } = require("./updater-service.cjs");
 
@@ -110,6 +111,9 @@ async function createServices() {
   const tts = new TtsService({
     settingsStore: settings
   });
+  const stt = new SttService({
+    settingsStore: settings
+  });
 
   services = {
     automation,
@@ -123,6 +127,7 @@ async function createServices() {
     obs,
     screen: screenService,
     settings,
+    stt,
     tts
   };
 
@@ -968,6 +973,11 @@ ipcMain.handle("assistant:check-for-updates", async () => {
   return updaterService ? updaterService.checkForUpdates("manual") : null;
 });
 
+ipcMain.handle("assistant:transcribe-audio", async (_event, payload = {}) => {
+  const { services: liveServices } = ensureReadyServices();
+  return liveServices.stt.transcribe(payload);
+});
+
 ipcMain.handle("assistant:get-bootstrap", async () => {
   const { services: liveServices } = ensureReadyServices();
   const appCatalog = await liveServices.automation.listInstalledApps({
@@ -994,7 +1004,7 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
     providers: {
       llm: `${getTierProviderLabel("fast")} -> ${getTierProviderLabel("complex")}`,
       wakeWord: "speech-recognition wake phrase",
-      stt: "webkitSpeechRecognition",
+      stt: liveServices.stt.getStatus().label,
       tts: liveServices.tts.getProviderLabel(),
       browser: liveServices.browser.getProviderLabel()
     },
