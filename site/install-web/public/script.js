@@ -685,6 +685,16 @@
     return !/^https?:\/\//i.test(String(href || ""));
   }
 
+  function buildThanksUrl(platform) {
+    const url = new URL("./thanks.html", window.location.href);
+
+    if (platform) {
+      url.searchParams.set("platform", platform);
+    }
+
+    return url.toString();
+  }
+
   function launchDownload(href) {
     if (isLocalDownload(href)) {
       const link = document.createElement("a");
@@ -707,12 +717,14 @@
     }
 
     const href = button.getAttribute("data-download-href") || "";
+    const platform = button.getAttribute("data-platform") || "";
 
     if (!href) {
       return;
     }
 
     launchDownload(href);
+    window.location.assign(buildThanksUrl(platform));
   }
 
   function initScrollReveal() {
