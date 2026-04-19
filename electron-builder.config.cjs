@@ -1,7 +1,46 @@
 const path = require("node:path");
+const packageJson = require("./package.json");
 
 const publishProvider = String(process.env.JARVIS_UPDATER_PROVIDER || "").trim().toLowerCase();
 const publishChannel = String(process.env.JARVIS_UPDATE_CHANNEL || "latest").trim() || "latest";
+
+function parseGithubRepo(candidate) {
+  const normalized = String(candidate || "").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  let match = normalized.match(/github\.com[:/]([^/]+)\/([^/.]+)(?:\.git)?$/i);
+  if (match) {
+    return {
+      owner: match[1],
+      repo: match[2]
+    };
+  }
+
+  match = normalized.match(/^([^/]+)\/([^/.]+)$/);
+  if (match) {
+    return {
+      owner: match[1],
+      repo: match[2]
+    };
+  }
+
+  return null;
+}
+
+function getDefaultGithubRepo() {
+  const repository = packageJson.repository;
+  if (!repository) {
+    return null;
+  }
+
+  if (typeof repository === "string") {
+    return parseGithubRepo(repository);
+  }
+
+  return parseGithubRepo(repository.url);
+}
 
 function buildPublishConfig() {
   if (publishProvider === "generic") {
@@ -23,20 +62,36 @@ function buildPublishConfig() {
   if (publishProvider === "github") {
     const owner = String(process.env.JARVIS_GITHUB_OWNER || "").trim();
     const repo = String(process.env.JARVIS_GITHUB_REPO || "").trim();
+    const fallbackRepo = getDefaultGithubRepo();
 
-    if (!owner || !repo) {
+    if ((!owner || !repo) && !fallbackRepo) {
       return [];
     }
 
     return [
       {
         provider: "github",
-        owner,
-        repo,
+        owner: owner || fallbackRepo.owner,
+        repo: repo || fallbackRepo.repo,
         releaseType: String(process.env.JARVIS_GITHUB_RELEASE_TYPE || "release").trim() || "release",
         private: process.env.JARVIS_GITHUB_PRIVATE === "1"
       }
     ];
+  }
+
+  if (!publishProvider) {
+    const fallbackRepo = getDefaultGithubRepo();
+    if (fallbackRepo) {
+      return [
+        {
+          provider: "github",
+          owner: fallbackRepo.owner,
+          repo: fallbackRepo.repo,
+          releaseType: "release",
+          private: false
+        }
+      ];
+    }
   }
 
   return [];

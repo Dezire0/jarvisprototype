@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - "package.json"
       - "site/install-web/**"
       - "scripts/sync-install-site-config.cjs"
       - "scripts/deploy-install-site.cjs"

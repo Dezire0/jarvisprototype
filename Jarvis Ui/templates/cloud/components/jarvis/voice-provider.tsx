@@ -241,6 +241,14 @@ export function JarvisVoiceProvider({
         return;
       }
 
+      if (reason === "network") {
+        setStatus("error");
+        setError(
+          "음성 인식 서비스 연결이 끊겼어요. 현재 방식은 Chromium의 Web Speech에 의존해서 Electron 환경, 오프라인 상태, VPN/방화벽, 또는 브라우저 음성 서비스 차단 시 이 오류가 날 수 있어요.",
+        );
+        return;
+      }
+
       setStatus("error");
       setError(`음성 인식 오류: ${reason}`);
     };

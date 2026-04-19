@@ -222,9 +222,14 @@
 - 별도 정적 설치 사이트도 함께 포함됩니다.
   - 위치: `site/install-web`
   - 목적: Cloudflare Pages로 공개 배포하는 설치 전용 홍보 / 다운로드 사이트
-  - 특징: Apple 스타일 랜딩, 다크 / 라이트 모드, 설치 마법사, 이용 약관/권한 동의, 실제 릴리스 자산 기준 다운로드 분기
+  - 특징: Apple 스타일 랜딩, 다크 / 라이트 모드, 설치 마법사, 이용 약관/권한 동의, 자동 업데이트 조건 안내, 실제 릴리스 자산 기준 다운로드 분기
   - 명령: `npm run site:install:sync`, `npm run site:install:dev`, `npm run site:install:deploy`
 - `electron-updater` + `electron-builder` 기반 자동 업데이트 흐름을 지원합니다.
+- 중요한 점: GitHub에 커밋만 한다고 이미 설치된 앱이 바뀌지는 않습니다. 새 버전 태그와 실제 릴리스 파일이 배포되어야 앱이 업데이트를 감지합니다.
+- 기본 업데이트 피드가 없는 빌드이거나 mac 환경에서 네이티브 업데이트가 막히는 경우를 대비해, 앱이 GitHub 최신 릴리스를 직접 확인하고 설치 파일을 열어주는 fallback도 포함됩니다.
+- 자동 릴리스용 GitHub Actions 워크플로우도 포함됩니다.
+  - 파일: `.github/workflows/release-desktop.yml`
+  - 역할: `v*` 태그 기준으로 macOS / Windows / Linux 패키지를 빌드하고 GitHub Releases에 게시
 - 배포 / 릴리스 절차는 [DISTRIBUTION.md](docs/DISTRIBUTION.md) 에 정리되어 있습니다.
 
 ## FastMCP 표면

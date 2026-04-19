@@ -43,6 +43,13 @@ npm run release
 
 Artifacts are written to `release/`.
 
+Important update rule:
+
+- a GitHub commit by itself does not update apps that are already installed
+- the installed app only updates when a new packaged release is published to the configured update feed
+- in this repo that means a new version tag and a GitHub Release or generic HTTPS update host
+- if a packaged app was built without a native update feed, Jarvis now also has an installer-release fallback that checks the latest GitHub Release and opens the matching installer for the current platform
+
 ## Website-first download flow
 
 If you want users to visit a website, click `Download`, and install the desktop app directly, the current Electron setup already supports that path.
@@ -123,6 +130,7 @@ What it is for:
 - Apple-like light / dark theme toggle
 - pre-install agreement / consent flow
 - OS-specific install wizard
+- explicit explanation of when auto-updates do and do not happen
 - direct deployment to Cloudflare Pages with static assets
 - real GitHub Release assets only, with pending platforms shown honestly
 
@@ -233,16 +241,30 @@ JARVIS_GITHUB_PRIVATE=0
 GH_TOKEN=...
 ```
 
+This repo also includes a release workflow at `.github/workflows/release-desktop.yml`.
+
+What it does:
+
+- triggers on `v*` tags or manual dispatch
+- checks that the tag matches `package.json` version
+- builds macOS, Windows, and Linux artifacts
+- runs `npm run release` so Electron Builder publishes installer files and update metadata to GitHub Releases
+
 ## Recommended release flow
 
 1. Bump `version` in `package.json`.
-2. Export your updater environment variables.
-3. Run the platform build you need, or `npm run release`.
-4. Upload the generated installer files from `release/` to GitHub Releases or your HTTPS host.
-5. If you are using the public website flow, upload the actual installer assets to the matching GitHub Release and deploy the website build.
+2. Export your updater environment variables, or configure the matching GitHub Actions secrets.
+3. Create a release tag such as `v0.1.1` and push it, or run `.github/workflows/release-desktop.yml` manually.
+4. Let the workflow publish the generated installer files and update metadata to GitHub Releases, or run `npm run release` yourself if you are publishing locally.
+5. If you are using the public website flow, deploy the install site so its download buttons point at the same real release assets.
 6. Install the old version on another machine.
 7. Publish the new version metadata and installer files.
-8. In the installed app, use `Help -> Check for Updates...`.
+8. In the installed app, use `Help -> Check for Updates...`, or wait for the startup check.
+
+In short:
+
+- commit only: source code changes, no installed app update
+- tag + packaged release: installed app can detect and download the update
 
 ## Operational notes
 

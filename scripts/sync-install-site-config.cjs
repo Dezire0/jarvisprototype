@@ -38,6 +38,14 @@ function readPackageVersion() {
   }
 }
 
+function readPackageJson() {
+  try {
+    return JSON.parse(fs.readFileSync(packagePath, "utf8"));
+  } catch (_error) {
+    return {};
+  }
+}
+
 function parseGithubRemote(remoteUrl = "") {
   const normalized = String(remoteUrl).trim();
 
@@ -63,9 +71,22 @@ function parseGithubRemote(remoteUrl = "") {
 function readGithubRepo() {
   const owner = String(process.env.JARVIS_GITHUB_OWNER || "").trim();
   const repo = String(process.env.JARVIS_GITHUB_REPO || "").trim();
+  const pkg = readPackageJson();
 
   if (owner && repo) {
     return { owner, repo };
+  }
+
+  const packageRepository =
+    typeof pkg.repository === "string"
+      ? pkg.repository
+      : pkg.repository?.url;
+
+  if (packageRepository) {
+    const parsedRepository = parseGithubRemote(packageRepository);
+    if (parsedRepository) {
+      return parsedRepository;
+    }
   }
 
   if (!commandExists("git")) {
@@ -154,20 +175,63 @@ function buildPlatformSummary(downloads) {
   });
 }
 
+function buildGithubReleaseAssetUrl({ owner, repo, version, filename }) {
+  if (!owner || !repo || !version || !filename) {
+    return "";
+  }
+
+  return `https://github.com/${owner}/${repo}/releases/download/v${version}/${filename}`;
+}
+
 async function main() {
   const version = readPackageVersion();
   const githubRepo = readGithubRepo();
   const releaseNotesUrl = String(process.env.NEXT_PUBLIC_JARVIS_RELEASE_NOTES_URL || "").trim();
+  const envWindowsDownloadUrl = String(
+    process.env.NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL || "",
+  ).trim();
+  const envMacDownloadUrl = String(
+    process.env.NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL || "",
+  ).trim();
+  const envLinuxDownloadUrl = String(
+    process.env.NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL || "",
+  ).trim();
+  const owner = githubRepo?.owner || "";
+  const repo = githubRepo?.repo || "";
+  const normalizedMacDownloadUrl = envMacDownloadUrl
+    ? buildGithubReleaseAssetUrl({
+        owner,
+        repo,
+        version,
+        filename: `Jarvis-Desktop-${version}-mac-arm64.dmg`,
+      }) || envMacDownloadUrl
+    : "";
+  const normalizedWindowsDownloadUrl = envWindowsDownloadUrl
+    ? buildGithubReleaseAssetUrl({
+        owner,
+        repo,
+        version,
+        filename: `Jarvis-Desktop-${version}-win-x64.exe`,
+      }) || envWindowsDownloadUrl
+    : "";
+  const normalizedLinuxDownloadUrl = envLinuxDownloadUrl
+    ? buildGithubReleaseAssetUrl({
+        owner,
+        repo,
+        version,
+        filename: `Jarvis-Desktop-${version}-linux-x64.AppImage`,
+      }) || envLinuxDownloadUrl
+    : "";
   const config = {
     brandName: "DexProject",
     productName: "Jarvis Desktop",
     siteMode: process.env.NEXT_PUBLIC_JARVIS_SITE_MODE || "download",
     version,
-    githubOwner: githubRepo?.owner || "",
-    githubRepo: githubRepo?.repo || "",
-    windowsDownloadUrl: String(process.env.NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL || "").trim(),
-    macDownloadUrl: String(process.env.NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL || "").trim(),
-    linuxDownloadUrl: String(process.env.NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL || "").trim(),
+    githubOwner: owner,
+    githubRepo: repo,
+    windowsDownloadUrl: normalizedWindowsDownloadUrl,
+    macDownloadUrl: normalizedMacDownloadUrl,
+    linuxDownloadUrl: normalizedLinuxDownloadUrl,
     releaseNotesUrl,
     downloads: [],
     platforms: [],

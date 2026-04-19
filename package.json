@@ -1,9 +1,14 @@
 {
   "name": "jarvis-prototype",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Jarvis Desktop assistant with local automation, packaged UI, and auto-update support.",
   "author": "JYH",
   "private": true,
+  "homepage": "https://github.com/Dezire0/jarvisprototype/releases",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dezire0/jarvisprototype.git"
+  },
   "main": "src/main/main.cjs",
   "scripts": {
     "start": "node scripts/start-electron.cjs",

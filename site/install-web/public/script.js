@@ -19,6 +19,13 @@
         "처음 실행 후 마이크, 접근성, 자동화 권한을 확인합니다.",
         "평소 사용하는 로그인된 브라우저 프로필을 그대로 유지하면 더 자연스럽게 동작합니다.",
       ],
+      installFlow: [
+        "다운로드한 .dmg를 열고 Jarvis Desktop을 Applications 폴더로 이동합니다.",
+        "처음 실행 시 마이크, 접근성, 자동화 권한 요청을 차례대로 허용합니다.",
+        "설치가 끝나면 앱이 시작 시 새 버전을 자동 확인하고, 필요하면 재시작 설치를 안내합니다.",
+      ],
+      updateNote:
+        "자동 업데이트는 단순 커밋이 아니라 새 GitHub Release에 게시된 패키지 기준으로 동작합니다.",
     },
     Windows: {
       availableLabel: "Windows 기본 설치 파일로 바로 이어집니다.",
@@ -30,6 +37,13 @@
         "마이크와 브라우저 관련 권한 요청이 나타나면 허용합니다.",
         "Chrome 또는 Edge 로그인 상태를 유지하면 웹 작업 품질이 올라갑니다.",
       ],
+      installFlow: [
+        "다운로드한 설치 파일을 실행하고 기본 설치 마법사를 끝까지 진행합니다.",
+        "처음 실행 후 마이크와 브라우저 연동 권한을 확인합니다.",
+        "이후 새 릴리스가 게시되면 앱 내부에서 자동 다운로드 후 재시작 설치가 가능합니다.",
+      ],
+      updateNote:
+        "Windows 자동 업데이트도 새 버전 릴리스가 GitHub Releases에 올라와야 감지됩니다.",
     },
     Linux: {
       availableLabel: "Linux 기본 배포 파일로 바로 이어집니다.",
@@ -41,6 +55,13 @@
         "오디오 장치와 브라우저 경로를 확인합니다.",
         "배포판에 따라 필요한 추가 설정이 있다면 릴리즈 노트를 먼저 확인합니다.",
       ],
+      installFlow: [
+        "다운로드한 AppImage 또는 패키지 파일에 실행 권한을 부여합니다.",
+        "오디오 장치, 브라우저 실행 경로, 권한 정책을 배포판 환경에 맞게 확인합니다.",
+        "Linux는 배포 전략에 따라 자동 업데이트 범위가 다를 수 있어 릴리스 노트를 함께 확인하는 것이 가장 안전합니다.",
+      ],
+      updateNote:
+        "Linux는 패키지 형식에 따라 자동 업데이트 방식이 달라질 수 있습니다.",
     },
   };
 
@@ -433,6 +454,32 @@
       .join("");
   }
 
+  function buildInstallFlowMarkup(platform) {
+    const items = platformCopy[platform]?.installFlow || [];
+    return items
+      .map(
+        (item, index) => `
+          <li class="wizard-guide-item">
+            <span class="wizard-guide-index">${index + 1}</span>
+            <span>${escapeHtml(item)}</span>
+          </li>
+        `,
+      )
+      .join("");
+  }
+
+  function buildWizardStepMarkup(step, title, description, tone) {
+    return `
+      <article class="wizard-step wizard-step-${escapeHtml(tone)}">
+        <span class="wizard-step-number">${escapeHtml(step)}</span>
+        <div>
+          <h3>${escapeHtml(title)}</h3>
+          <p>${escapeHtml(description)}</p>
+        </div>
+      </article>
+    `;
+  }
+
   function buildAgreementPanelMarkup() {
     if (!state.selectedPlatform) {
       return `
@@ -452,12 +499,53 @@
     const summary = getPlatformSummary(state.selectedPlatform);
     const primaryDownload = getPrimaryDownload(state.selectedPlatform);
     const available = Boolean(primaryDownload?.href);
+    const consentReady = allConsentsAccepted();
+    const formatLabel = primaryDownload?.format
+      ? `기본 파일 형식 ${primaryDownload.format}`
+      : "기본 설치 파일";
     const downloadLabel = `${state.selectedPlatform} 다운로드하기`;
     const downloadButton = available
-      ? allConsentsAccepted()
+      ? consentReady
         ? `<a class="cta cta-primary" href="${escapeHtml(primaryDownload.href)}">${escapeHtml(downloadLabel)}</a>`
         : `<button class="cta cta-primary" type="button" disabled>동의 후 다운로드</button>`
       : `<button class="cta cta-primary" type="button" disabled>곧 공개됩니다</button>`;
+
+    const wizardSteps = [
+      buildWizardStepMarkup(
+        "1",
+        "플랫폼 선택",
+        `${state.selectedPlatform}을(를) 설치 대상으로 선택했습니다.`,
+        "done",
+      ),
+      buildWizardStepMarkup(
+        "2",
+        "약관 및 권한 동의",
+        consentReady
+          ? "설치 전 확인 항목을 모두 완료했습니다."
+          : "이용 안내, 데이터 처리, 시스템 권한 항목을 먼저 확인합니다.",
+        consentReady ? "done" : "active",
+      ),
+      buildWizardStepMarkup(
+        "3",
+        "설치 파일 다운로드",
+        available
+          ? `${formatLabel}로 기본 다운로드를 시작합니다.`
+          : "이 플랫폼의 공개 파일이 준비되면 여기서 바로 이어집니다.",
+        consentReady && available ? "active" : available ? "pending" : "pending",
+      ),
+      buildWizardStepMarkup(
+        "4",
+        "첫 실행 및 권한 설정",
+        "설치 후 마이크, 접근성, 자동화 권한을 확인합니다.",
+        consentReady && available ? "pending" : "pending",
+      ),
+      buildWizardStepMarkup(
+        "5",
+        "자동 업데이트",
+        "이후에는 새 릴리스가 올라오면 앱이 자동으로 감지합니다.",
+        consentReady && available ? "pending" : "pending",
+      ),
+    ].join("");
 
     return `
       <div class="agreement-panel-shell ${state.panelOpen ? "is-open" : ""}">
@@ -466,11 +554,16 @@
             <p class="surface-label">Install</p>
             <h2 class="section-title headline-balance">${escapeHtml(state.selectedPlatform)} 설치 전 확인</h2>
             <p class="agreement-head-copy body-balance">
-              플랫폼을 골랐습니다. 아래 동의 항목을 확인하면 기본 설치 파일로 바로 이어집니다.
+              설치 마법사 흐름으로 정리했습니다. 플랫폼을 고른 뒤 동의를 마치면 기본 설치 파일로 바로 이어지고,
+              설치 후에는 새 릴리스를 기준으로 자동 업데이트를 받을 수 있습니다.
             </p>
           </div>
           <span class="version-chip">v${escapeHtml(config.version)}</span>
         </div>
+
+        <section class="wizard-stepper" aria-label="설치 마법사 단계">
+          ${wizardSteps}
+        </section>
 
         <div class="agreement-layout">
           <aside class="agreement-summary-card">
@@ -490,6 +583,13 @@
                 데스크톱 동작과 연결될 수 있습니다. 그래서 설치 전에 권한 흐름과
                 데이터 처리 방식을 먼저 확인합니다.
               </p>
+            </article>
+
+            <article class="panel-card wizard-guide-card">
+              <h3>설치 후 진행되는 흐름</h3>
+              <ol class="wizard-guide-list">
+                ${buildInstallFlowMarkup(state.selectedPlatform)}
+              </ol>
             </article>
 
             <label class="consent-card">
@@ -521,6 +621,18 @@
                 <p>마이크, 접근성, 자동화 권한은 사용자가 직접 허용해야 하며 일부 기능은 권한 상태에 따라 달라질 수 있습니다.</p>
               </span>
             </label>
+
+            <article class="panel-card updater-card">
+              <h3>자동 업데이트가 실제로 동작하는 조건</h3>
+              <p>
+                이미 설치된 앱은 GitHub에 새 커밋이 올라갔다고 바로 바뀌지 않습니다.
+                새 버전 태그와 GitHub Release가 게시되고, 그 릴리스 안에 설치 파일과
+                업데이트 메타데이터가 같이 올라와야 자동 업데이트가 시작됩니다.
+              </p>
+              <p class="updater-note">${escapeHtml(
+                platformCopy[state.selectedPlatform]?.updateNote || "",
+              )}</p>
+            </article>
 
             <div class="agreement-actions">
               ${downloadButton}

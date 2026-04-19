@@ -855,7 +855,7 @@ html[data-theme="dark"] .status-pill.pending {
 
 .agreement-panel.is-open {
   margin-top: 28px;
-  max-height: 1800px;
+  max-height: 3200px;
   opacity: 1;
   transform: translate3d(0, 0, 0);
 }
@@ -873,6 +873,86 @@ html[data-theme="dark"] .status-pill.pending {
   margin-top: 24px;
   gap: 20px;
   grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.08fr);
+}
+
+.wizard-stepper {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 24px;
+}
+
+.wizard-step {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 86%, var(--bg) 14%);
+}
+
+.wizard-step h3 {
+  margin: 0;
+  font-size: 0.96rem;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.wizard-step p {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-soft);
+  text-wrap: pretty;
+}
+
+.wizard-step-number {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.wizard-step-done {
+  border-color: rgba(62, 199, 132, 0.26);
+  background: rgba(62, 199, 132, 0.1);
+  color: #197a52;
+}
+
+.wizard-step-done p {
+  color: color-mix(in srgb, currentColor 76%, transparent);
+}
+
+.wizard-step-active {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.wizard-step-active .wizard-step-number {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: transparent;
+}
+
+.wizard-step-pending {
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+}
+
+.wizard-step-pending .wizard-step-number {
+  background: color-mix(in srgb, var(--bg) 84%, var(--surface) 16%);
+  color: var(--text-soft);
+}
+
+html[data-theme="dark"] .wizard-step-done {
+  color: #9cf3ca;
+  background: rgba(62, 199, 132, 0.12);
 }
 
 .agreement-summary-card {
@@ -921,6 +1001,50 @@ html[data-theme="dark"] .status-pill.pending {
 .agreement-consent-stack {
   display: grid;
   gap: 14px;
+}
+
+.wizard-guide-card,
+.updater-card {
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg) 8%);
+}
+
+.wizard-guide-list {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wizard-guide-item {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 80%, var(--bg) 20%);
+  line-height: 1.7;
+  color: color-mix(in srgb, var(--text) 84%, transparent);
+}
+
+.wizard-guide-index {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.updater-note {
+  font-weight: 700;
+  color: color-mix(in srgb, var(--text) 82%, transparent);
 }
 
 .panel-card h3,
@@ -1029,6 +1153,10 @@ html[data-theme="dark"] .status-pill.pending {
     max-width: 100%;
     text-align: left;
   }
+
+  .wizard-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
@@ -1111,5 +1239,15 @@ html[data-theme="dark"] .status-pill.pending {
 
   .stat-card {
     min-height: auto;
+  }
+
+  .wizard-stepper {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-step,
+  .wizard-guide-item,
+  .checklist-item {
+    padding: 14px;
   }
 }
