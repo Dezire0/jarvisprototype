@@ -86,18 +86,18 @@
         heroTitleHtml:
           "운영체제를 고르고,<br />바로 설치를 시작하세요.",
         heroBody:
-          "이 페이지는 실제 설치에만 집중합니다. 원하는 플랫폼을 고르면 즉시 다운로드를 시작하고, 이어서 감사 안내 페이지로 이동합니다.",
+          "이 페이지는 실제 설치에만 집중합니다. 원하는 플랫폼을 고르면 즉시 다운로드를 시작합니다.",
         selectorLabel: "Install",
         selectorTitle: "원하는 플랫폼을 골라 설치하세요.",
         selectorCopy:
-          "버튼을 누르면 설치 파일 다운로드를 시작하고, 현재 플랫폼에 맞는 안내 페이지로 이어집니다.",
+          "버튼을 누르면 설치 파일 다운로드를 시작합니다.",
         pagePills: ["macOS", "Windows", "Linux", "Direct Install"],
         helperNote:
-          "다운로드 버튼을 누르면 파일을 받기 시작하고 감사 페이지로 이동합니다."
+          "다운로드 버튼을 누르면 파일을 받기 시작합니다."
       },
       thanks: {
-        heroKicker: "THANK YOU",
-        heroTitleHtml: "설치해주셔서<br />감사합니다.",
+        heroKicker: "INSTALL GUIDE",
+        heroTitleHtml: "설치 후<br />확인할 항목",
         heroBody:
           "다운로드가 시작되었습니다. 첫 실행 전에 아래 단계와 권한 안내를 확인하면 더 빠르게 사용할 수 있습니다.",
         nextLabel: "Next Steps",
@@ -212,18 +212,18 @@
         heroKicker: "FREE INSTALL",
         heroTitleHtml: "Choose your platform,<br />then start installing.",
         heroBody:
-          "This page focuses only on installation. Pick a platform to start the download immediately, then continue to the thank-you screen.",
+          "This page focuses only on installation. Pick a platform to start the download immediately.",
         selectorLabel: "Install",
         selectorTitle: "Pick the platform you want to install.",
         selectorCopy:
-          "Click a button to start downloading the installer and continue to a thank-you page with next steps.",
+          "Click a button to start downloading the installer.",
         pagePills: ["macOS", "Windows", "Linux", "Direct Install"],
         helperNote:
-          "When you click a download button, the file starts downloading and the thank-you page opens next."
+          "When you click a download button, the file starts downloading."
       },
       thanks: {
-        heroKicker: "THANK YOU",
-        heroTitleHtml: "Thanks for<br />installing Jarvis.",
+        heroKicker: "INSTALL GUIDE",
+        heroTitleHtml: "What to check<br />after install",
         heroBody:
           "Your download has started. Review the steps below before first launch to get set up faster.",
         nextLabel: "Next Steps",
@@ -689,21 +689,12 @@
     }
 
     const href = button.getAttribute("data-download-href") || "";
-    const platform = button.getAttribute("data-platform") || "";
 
     if (!href) {
       return;
     }
 
     launchDownload(href);
-
-    window.setTimeout(() => {
-      const nextUrl = new URL("./thanks.html", window.location.href);
-      if (platform) {
-        nextUrl.searchParams.set("platform", platform);
-      }
-      window.location.href = nextUrl.toString();
-    }, 360);
   }
 
   function initScrollReveal() {

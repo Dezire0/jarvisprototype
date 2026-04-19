@@ -1,6 +1,6 @@
 {
   "name": "jarvis-prototype",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Jarvis Desktop assistant with local automation, packaged UI, and auto-update support.",
   "author": "JYH",
   "private": true,
@@ -19,7 +19,6 @@
     "build:desktop-ui": "node scripts/build-desktop-ui.cjs",
     "doctor:mac-signing": "node scripts/doctor-macos-signing.cjs",
     "fix:mac-launch": "node scripts/fix-macos-launch.cjs",
-    "install:mac-app": "node scripts/install-macos-app.cjs",
     "open:app": "node scripts/open-desktop-app.cjs",
     "package:dir": "npm run build:icons && npm run build:desktop-ui && node scripts/run-electron-builder.cjs --dir --config electron-builder.config.cjs",
     "dist:mac": "npm run build:icons && npm run build:desktop-ui && node scripts/run-electron-builder.cjs --mac dmg zip --config electron-builder.config.cjs",
