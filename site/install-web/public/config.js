@@ -5,11 +5,22 @@ window.JARVIS_INSTALL_CONFIG = {
   "version": "0.1.3",
   "githubOwner": "Dezire0",
   "githubRepo": "jarvisprototype",
-  "windowsDownloadUrl": "./assets/downloads/Jarvis-Desktop-0.1.3-win-arm64.exe",
+  "windowsDownloadUrl": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.3/Jarvis-Desktop-0.1.3-win-arm64.exe",
   "macDownloadUrl": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.3/Jarvis-Desktop-0.1.3-mac-arm64.dmg",
-  "linuxDownloadUrl": "./assets/downloads/Jarvis-Desktop-0.1.3-linux-arm64.AppImage",
+  "linuxDownloadUrl": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.3/Jarvis-Desktop-0.1.3-linux-arm64.AppImage",
   "releaseNotesUrl": "https://github.com/Dezire0/jarvisprototype/releases",
   "downloads": [
+    {
+      "platform": "Windows",
+      "label": "Windows Installer",
+      "format": ".exe",
+      "href": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.3/Jarvis-Desktop-0.1.3-win-arm64.exe",
+      "channel": "installer",
+      "architecture": "x64",
+      "hint": "Windows용 설치 마법사입니다.",
+      "recommended": true,
+      "sizeBytes": 0
+    },
     {
       "platform": "macOS",
       "label": "macOS Installer",
@@ -22,24 +33,13 @@ window.JARVIS_INSTALL_CONFIG = {
       "sizeBytes": 0
     },
     {
-      "platform": "Windows",
-      "label": "Windows Installer",
-      "format": ".exe",
-      "href": "./assets/downloads/Jarvis-Desktop-0.1.3-win-arm64.exe",
-      "channel": "installer",
-      "architecture": "ARM64",
-      "hint": "Windows에서 바로 실행 가능한 NSIS 설치 파일입니다.",
-      "recommended": true,
-      "sizeBytes": 0
-    },
-    {
       "platform": "Linux",
       "label": "Linux AppImage",
       "format": ".AppImage",
-      "href": "./assets/downloads/Jarvis-Desktop-0.1.3-linux-arm64.AppImage",
+      "href": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.3/Jarvis-Desktop-0.1.3-linux-arm64.AppImage",
       "channel": "installer",
-      "architecture": "ARM64",
-      "hint": "Linux에서 실행 권한을 부여해 사용할 수 있는 AppImage 파일입니다.",
+      "architecture": "x64",
+      "hint": "바로 실행 가능한 포터블 Linux 패키지입니다.",
       "recommended": true,
       "sizeBytes": 0
     }

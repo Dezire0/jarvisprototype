@@ -6,6 +6,7 @@ const { loadProjectEnv } = require("../src/main/project-env.cjs");
 
 const repoRoot = path.join(__dirname, "..");
 const packagePath = path.join(repoRoot, "package.json");
+const releaseDir = path.join(repoRoot, "release");
 const targetPath = path.join(
   repoRoot,
   "site",
@@ -183,6 +184,38 @@ function buildGithubReleaseAssetUrl({ owner, repo, version, filename }) {
   return `https://github.com/${owner}/${repo}/releases/download/v${version}/${filename}`;
 }
 
+function findReleaseAssetFilename(version, patterns) {
+  if (!fs.existsSync(releaseDir)) {
+    return "";
+  }
+
+  const escapedVersion = String(version).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  try {
+    const entries = fs.readdirSync(releaseDir, {
+      withFileTypes: true,
+    });
+
+    for (const pattern of patterns) {
+      const regex = new RegExp(
+        `^Jarvis-Desktop-${escapedVersion}-${pattern}$`,
+        "i",
+      );
+      const match = entries.find(
+        (entry) => entry.isFile() && regex.test(entry.name),
+      );
+
+      if (match) {
+        return match.name;
+      }
+    }
+  } catch (_error) {
+    return "";
+  }
+
+  return "";
+}
+
 async function main() {
   const version = readPackageVersion();
   const githubRepo = readGithubRepo();
@@ -198,30 +231,37 @@ async function main() {
   ).trim();
   const owner = githubRepo?.owner || "";
   const repo = githubRepo?.repo || "";
-  const normalizedMacDownloadUrl = envMacDownloadUrl
-    ? buildGithubReleaseAssetUrl({
-        owner,
-        repo,
-        version,
-        filename: `Jarvis-Desktop-${version}-mac-arm64.dmg`,
-      }) || envMacDownloadUrl
-    : "";
-  const normalizedWindowsDownloadUrl = envWindowsDownloadUrl
-    ? buildGithubReleaseAssetUrl({
-        owner,
-        repo,
-        version,
-        filename: `Jarvis-Desktop-${version}-win-x64.exe`,
-      }) || envWindowsDownloadUrl
-    : "";
-  const normalizedLinuxDownloadUrl = envLinuxDownloadUrl
-    ? buildGithubReleaseAssetUrl({
-        owner,
-        repo,
-        version,
-        filename: `Jarvis-Desktop-${version}-linux-x64.AppImage`,
-      }) || envLinuxDownloadUrl
-    : "";
+  const macAssetFilename =
+    findReleaseAssetFilename(version, ["mac-arm64\\.dmg"]) ||
+    `Jarvis-Desktop-${version}-mac-arm64.dmg`;
+  const windowsAssetFilename =
+    findReleaseAssetFilename(version, ["win-arm64\\.exe", "win-x64\\.exe"]);
+  const linuxAssetFilename =
+    findReleaseAssetFilename(version, ["linux-arm64\\.AppImage", "linux-x64\\.AppImage"]);
+  const normalizedMacDownloadUrl =
+    envMacDownloadUrl ||
+    buildGithubReleaseAssetUrl({
+      owner,
+      repo,
+      version,
+      filename: macAssetFilename,
+    });
+  const normalizedWindowsDownloadUrl =
+    envWindowsDownloadUrl ||
+    buildGithubReleaseAssetUrl({
+      owner,
+      repo,
+      version,
+      filename: windowsAssetFilename,
+    });
+  const normalizedLinuxDownloadUrl =
+    envLinuxDownloadUrl ||
+    buildGithubReleaseAssetUrl({
+      owner,
+      repo,
+      version,
+      filename: linuxAssetFilename,
+    });
   const config = {
     brandName: "DexProject",
     productName: "Jarvis Desktop",
