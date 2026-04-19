@@ -16,8 +16,8 @@ window.JARVIS_INSTALL_CONFIG = {
       "format": ".exe",
       "href": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.3/Jarvis-Desktop-0.1.3-win-arm64.exe",
       "channel": "installer",
-      "architecture": "x64",
-      "hint": "Windows용 설치 마법사입니다.",
+      "architecture": "ARM64",
+      "hint": "Windows ARM64용 설치 마법사입니다.",
       "recommended": true,
       "sizeBytes": 0
     },
@@ -38,8 +38,8 @@ window.JARVIS_INSTALL_CONFIG = {
       "format": ".AppImage",
       "href": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.3/Jarvis-Desktop-0.1.3-linux-arm64.AppImage",
       "channel": "installer",
-      "architecture": "x64",
-      "hint": "바로 실행 가능한 포터블 Linux 패키지입니다.",
+      "architecture": "ARM64",
+      "hint": "바로 실행 가능한 포터블 Linux ARM64 패키지입니다.",
       "recommended": true,
       "sizeBytes": 0
     }

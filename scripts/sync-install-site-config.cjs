@@ -117,8 +117,8 @@ function buildLegacyDownloads(config) {
       format: ".exe",
       href: config.windowsDownloadUrl,
       channel: "installer",
-      architecture: "x64",
-      hint: "Windows용 설치 마법사입니다.",
+      architecture: "ARM64",
+      hint: "Windows ARM64용 설치 마법사입니다.",
       recommended: true,
       sizeBytes: 0,
     });
@@ -145,8 +145,8 @@ function buildLegacyDownloads(config) {
       format: ".AppImage",
       href: config.linuxDownloadUrl,
       channel: "installer",
-      architecture: "x64",
-      hint: "바로 실행 가능한 포터블 Linux 패키지입니다.",
+      architecture: "ARM64",
+      hint: "바로 실행 가능한 포터블 Linux ARM64 패키지입니다.",
       recommended: true,
       sizeBytes: 0,
     });
