@@ -5,12 +5,7 @@ const { execFileSync, spawnSync } = require("node:child_process");
 const repoRoot = path.resolve(__dirname, "..");
 const siteRoot = path.join(repoRoot, "site", "install-web");
 const syncScript = path.join(repoRoot, "scripts", "sync-install-site-config.cjs");
-const wranglerBin = path.join(
-  siteRoot,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "wrangler.cmd" : "wrangler",
-);
+const wranglerBin = path.join(siteRoot, "node_modules", "wrangler", "bin", "wrangler.js");
 const wranglerLogDir = path.join(siteRoot, ".wrangler", "logs");
 
 function run(command, args, options = {}) {
@@ -105,4 +100,4 @@ if (commitMessage) {
   args.push("--commit-message", commitMessage);
 }
 
-run(wranglerBin, args);
+run(process.execPath, [wranglerBin, ...args]);

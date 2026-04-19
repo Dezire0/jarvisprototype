@@ -2,13 +2,13 @@ window.JARVIS_INSTALL_CONFIG = {
   "brandName": "DexProject",
   "productName": "Jarvis Desktop",
   "siteMode": "download",
-  "version": "0.1.5",
+  "version": "0.1.5.1",
   "githubOwner": "Dezire0",
   "githubRepo": "jarvisprototype",
   "windowsDownloadUrl": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.5/Jarvis-Desktop-0.1.5-win-x64.exe",
   "macDownloadUrl": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.5/Jarvis-Desktop-0.1.5-mac-arm64.dmg",
   "linuxDownloadUrl": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.5/Jarvis-Desktop-0.1.5-linux-arm64.AppImage",
-  "releaseNotesUrl": "https://github.com/Dezire0/jarvisprototype/releases",
+  "releaseNotesUrl": "",
   "downloads": [
     {
       "platform": "Windows",
@@ -21,7 +21,7 @@ window.JARVIS_INSTALL_CONFIG = {
       "recommended": true,
       "sizeBytes": 0,
       "version": "0.1.5",
-      "isFallback": false
+      "isFallback": true
     },
     {
       "platform": "macOS",
@@ -34,7 +34,7 @@ window.JARVIS_INSTALL_CONFIG = {
       "recommended": true,
       "sizeBytes": 0,
       "version": "0.1.5",
-      "isFallback": false
+      "isFallback": true
     },
     {
       "platform": "Linux",
@@ -47,7 +47,7 @@ window.JARVIS_INSTALL_CONFIG = {
       "recommended": true,
       "sizeBytes": 0,
       "version": "0.1.5",
-      "isFallback": false
+      "isFallback": true
     },
     {
       "platform": "Linux",
@@ -60,7 +60,7 @@ window.JARVIS_INSTALL_CONFIG = {
       "recommended": false,
       "sizeBytes": 0,
       "version": "0.1.5",
-      "isFallback": false
+      "isFallback": true
     }
   ],
   "platforms": [
@@ -68,22 +68,22 @@ window.JARVIS_INSTALL_CONFIG = {
       "platform": "macOS",
       "status": "available",
       "version": "0.1.5",
-      "isFallback": false,
-      "message": "macOS용 기본 다운로드를 지금 바로 시작할 수 있습니다."
+      "isFallback": true,
+      "message": "macOS 최신 빌드는 아직 없지만 v0.1.5 설치 파일을 바로 받을 수 있습니다."
     },
     {
       "platform": "Windows",
       "status": "available",
       "version": "0.1.5",
-      "isFallback": false,
-      "message": "Windows용 기본 다운로드를 지금 바로 시작할 수 있습니다."
+      "isFallback": true,
+      "message": "Windows 최신 빌드는 아직 없지만 v0.1.5 설치 파일을 바로 받을 수 있습니다."
     },
     {
       "platform": "Linux",
       "status": "available",
       "version": "0.1.5",
-      "isFallback": false,
-      "message": "Linux용 기본 다운로드를 지금 바로 시작할 수 있습니다."
+      "isFallback": true,
+      "message": "Linux 최신 빌드는 아직 없지만 v0.1.5 설치 파일을 바로 받을 수 있습니다."
     }
   ]
 };
