@@ -58,30 +58,68 @@ async function copyIfPresent(sourcePath, targetPath) {
   });
 }
 
-async function materializeStandaloneNodeModules(outputNodeModulesRoot) {
-  const pnpmVirtualStoreRoot = path.join(outputNodeModulesRoot, ".pnpm", "node_modules");
-
-  if (!(await pathExists(pnpmVirtualStoreRoot))) {
+async function copyPackageTree(sourcePath, targetPath) {
+  if (await pathExists(targetPath)) {
     return;
   }
 
-  const entries = await fs.readdir(pnpmVirtualStoreRoot, {
+  await fs.mkdir(path.dirname(targetPath), {
+    recursive: true
+  });
+  await fs.cp(sourcePath, targetPath, {
+    recursive: true,
+    force: true,
+    dereference: true
+  });
+}
+
+async function materializeStandaloneNodeModules(sourceNodeModulesRoot, targetNodeModulesRoot) {
+  const pnpmStoreRoot = path.join(sourceNodeModulesRoot, ".pnpm");
+
+  if (!(await pathExists(pnpmStoreRoot))) {
+    return;
+  }
+
+  const storeEntries = await fs.readdir(pnpmStoreRoot, {
     withFileTypes: true
   });
 
-  for (const entry of entries) {
-    const sourcePath = path.join(pnpmVirtualStoreRoot, entry.name);
-    const targetPath = path.join(outputNodeModulesRoot, entry.name);
-
-    if (await pathExists(targetPath)) {
+  for (const storeEntry of storeEntries) {
+    if (!storeEntry.isDirectory()) {
       continue;
     }
 
-    await fs.cp(sourcePath, targetPath, {
-      recursive: true,
-      force: true,
-      dereference: true
+    const storeNodeModulesRoot = path.join(pnpmStoreRoot, storeEntry.name, "node_modules");
+    if (!(await pathExists(storeNodeModulesRoot))) {
+      continue;
+    }
+
+    const packageEntries = await fs.readdir(storeNodeModulesRoot, {
+      withFileTypes: true
     });
+
+    for (const packageEntry of packageEntries) {
+      const packageName = packageEntry.name;
+      const sourcePath = path.join(storeNodeModulesRoot, packageName);
+      const targetPath = path.join(targetNodeModulesRoot, packageName);
+
+      if (packageName.startsWith("@")) {
+        const scopedEntries = await fs.readdir(sourcePath, {
+          withFileTypes: true
+        });
+
+        for (const scopedEntry of scopedEntries) {
+          await copyPackageTree(
+            path.join(sourcePath, scopedEntry.name),
+            path.join(targetPath, scopedEntry.name)
+          );
+        }
+
+        continue;
+      }
+
+      await copyPackageTree(sourcePath, targetPath);
+    }
   }
 }
 
@@ -162,8 +200,9 @@ async function main() {
   const standaloneNodeModulesRoot = path.join(outputRoot, "node_modules");
   const packagedNodeModulesRoot = path.join(packagedAppRoot, "node_modules");
 
-  await materializeStandaloneNodeModules(standaloneNodeModulesRoot);
+  await materializeStandaloneNodeModules(standaloneNodeModulesRoot, standaloneNodeModulesRoot);
   await copyStandaloneRuntimeModules(standaloneNodeModulesRoot, packagedNodeModulesRoot);
+  await materializeStandaloneNodeModules(standaloneNodeModulesRoot, packagedNodeModulesRoot);
   await copyIfPresent(staticRoot, path.join(packagedAppRoot, ".next", "static"));
   await copyIfPresent(publicRoot, path.join(packagedAppRoot, "public"));
 }
