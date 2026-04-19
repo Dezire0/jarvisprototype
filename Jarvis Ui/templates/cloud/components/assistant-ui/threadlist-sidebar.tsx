@@ -54,6 +54,20 @@ type BootstrapPayload = {
   };
 };
 
+type UpdateStatus = {
+  state?: string;
+  message?: string;
+  mode?: string;
+  version?: string;
+  availableVersion?: string;
+  downloadedVersion?: string;
+  progressPercent?: number;
+};
+
+type AppStatePayload = {
+  updater?: UpdateStatus | null;
+};
+
 const SIDEBAR_STORAGE_KEY = "jarvis-sidebar-layout-v2";
 
 function slugifyProjectName(value: string) {
@@ -206,6 +220,7 @@ export function ThreadListSidebar({
   const [bootstrapPayload, setBootstrapPayload] = useState<BootstrapPayload | null>(
     null,
   );
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const previousThreadIdsRef = useRef<string[]>([]);
   const previousMessageCountRef = useRef(0);
@@ -237,6 +252,41 @@ export function ThreadListSidebar({
           setBootstrapPayload(null);
         });
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.assistantAPI?.getAppState) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void window.assistantAPI
+      .getAppState()
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+
+        const appState = (payload || {}) as AppStatePayload;
+        setUpdateStatus(appState.updater || null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUpdateStatus(null);
+        }
+      });
+
+    const unsubscribe = window.assistantAPI?.onUpdateStatus?.((payload) => {
+      setUpdateStatus((payload || null) as UpdateStatus | null);
+    });
+
+    return () => {
+      cancelled = true;
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -416,6 +466,26 @@ export function ThreadListSidebar({
   const selectedProjectName = selectedProjectId
     ? projectNameMap[selectedProjectId] || "선택한 프로젝트"
     : "전체 채팅";
+
+  const updateLabel =
+    updateStatus?.state === "downloaded"
+      ? "업데이트 준비 완료"
+      : updateStatus?.state === "available"
+        ? "업데이트 사용 가능"
+        : updateStatus?.state === "checking"
+          ? "업데이트 확인 중"
+          : updateStatus?.state === "downloading"
+            ? "업데이트 다운로드 중"
+            : updateStatus?.state === "error"
+              ? "업데이트 확인 실패"
+              : "업데이트 안내";
+
+  const updateDetail =
+    updateStatus?.message ||
+    (updateStatus?.mode === "installer"
+      ? "새 버전이 있으면 설치 페이지를 열어 확인할 수 있어요."
+      : "최신 버전 여부를 확인하려면 아래 버튼을 눌러 보세요.");
+  const hasUpdateNotice = Boolean(updateStatus && updateStatus.state !== "disabled");
 
   const voiceStatusLabel =
     voiceStatus === "listening"
@@ -812,6 +882,55 @@ export function ThreadListSidebar({
             {bootstrapPayload?.shortcut ||
               "Cmd/Ctrl + Shift + Space로 앱을 다시 열 수 있어요."}
           </div>
+
+          {hasUpdateNotice ? (
+            <div className="mt-3 rounded-[22px] border border-amber-500/30 bg-amber-500/10 px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-[0.22em] text-amber-500">
+                    {updateLabel}
+                  </p>
+                  <p className="mt-1 text-sm leading-5 text-foreground">
+                    {updateStatus?.state === "error"
+                      ? "업데이트 상태를 다시 확인해 보세요."
+                      : updateDetail}
+                  </p>
+                  {updateStatus?.version ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      현재 버전: {updateStatus.version}
+                      {updateStatus.availableVersion
+                        ? ` · 최신: ${updateStatus.availableVersion}`
+                        : ""}
+                    </p>
+                  ) : null}
+                </div>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 rounded-full border-amber-500/30 bg-background/80"
+                  onClick={() => {
+                    if (!window.assistantAPI?.checkForUpdates) {
+                      return;
+                    }
+
+                    void window.assistantAPI
+                      .checkForUpdates()
+                      .then((payload) => {
+                        const next = (payload || null) as AppStatePayload;
+                        setUpdateStatus(next.updater || null);
+                      })
+                      .catch(() => {
+                        setUpdateStatus((current) => current);
+                      });
+                  }}
+                >
+                  지금 확인
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </SidebarFooter>
       <SidebarRail />

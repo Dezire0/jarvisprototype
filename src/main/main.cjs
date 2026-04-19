@@ -973,6 +973,10 @@ ipcMain.handle("assistant:check-for-updates", async () => {
   return updaterService ? updaterService.checkForUpdates("manual") : null;
 });
 
+ipcMain.handle("assistant:install-update", async () => {
+  return updaterService ? updaterService.installUpdate() : null;
+});
+
 ipcMain.handle("assistant:transcribe-audio", async (_event, payload = {}) => {
   const { services: liveServices } = ensureReadyServices();
   return liveServices.stt.transcribe(payload);

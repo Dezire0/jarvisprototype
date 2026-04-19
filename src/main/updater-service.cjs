@@ -226,7 +226,21 @@ class UpdaterService {
   }
 
   async init() {
+    this.fallbackConfig = this.readFallbackConfig();
+    this.installerFallbackEnabled = Boolean(this.fallbackConfig);
+
     if (!this.app.isPackaged) {
+      if (this.installerFallbackEnabled) {
+        this.enabled = true;
+        this.updateStatus({
+          state: "idle",
+          message: "Ready to check for new installer releases.",
+          mode: "installer",
+          releasePageUrl: this.fallbackConfig.releaseNotesUrl
+        });
+        return;
+      }
+
       this.updateStatus({
         state: "disabled",
         message: "Auto updates are only enabled in packaged builds.",
@@ -234,9 +248,6 @@ class UpdaterService {
       });
       return;
     }
-
-    this.fallbackConfig = this.readFallbackConfig();
-    this.installerFallbackEnabled = Boolean(this.fallbackConfig);
 
     if (autoUpdater) {
       const updateConfigPath = path.join(process.resourcesPath, "app-update.yml");
@@ -343,7 +354,7 @@ class UpdaterService {
       });
     });
 
-    autoUpdater.on("update-downloaded", async (info) => {
+    autoUpdater.on("update-downloaded", (info) => {
       this.updateStatus({
         state: "downloaded",
         message: `Version ${info.version || ""} is ready to install.`,
@@ -351,20 +362,6 @@ class UpdaterService {
         progressPercent: 100,
         mode: "native"
       });
-
-      const result = await dialog.showMessageBox({
-        type: "info",
-        title: "Update Ready",
-        message: "A new version of Jarvis Desktop has been downloaded.",
-        detail: "Restart now to install the update, or choose Later to install it on the next quit.",
-        buttons: ["Restart Now", "Later"],
-        defaultId: 0,
-        cancelId: 1
-      }).catch(() => null);
-
-      if (result?.response === 0) {
-        autoUpdater.quitAndInstall();
-      }
     });
 
     autoUpdater.on("error", (error) => {
@@ -512,15 +509,6 @@ class UpdaterService {
         mode: "installer"
       });
 
-      if (trigger === "manual" || trigger === "startup") {
-        await this.openInstallerReleasePrompt({
-          version: latestVersion,
-          asset,
-          releasePageUrl,
-          nativeError
-        });
-      }
-
       return this.getStatus();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -543,6 +531,33 @@ class UpdaterService {
 
       return this.getStatus();
     }
+  }
+
+  async installUpdate() {
+    if (this.nativeUpdaterEnabled && autoUpdater && this.status.state === "downloaded") {
+      autoUpdater.quitAndInstall();
+      return {
+        ok: true,
+        mode: "native"
+      };
+    }
+
+    if (this.installerFallbackEnabled) {
+      const targetUrl = this.status.downloadUrl || this.status.releasePageUrl || this.fallbackConfig?.releaseNotesUrl || "";
+      if (targetUrl) {
+        await shell.openExternal(targetUrl).catch(() => {});
+        return {
+          ok: true,
+          mode: "installer",
+          targetUrl
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      message: "No downloaded update is available yet."
+    };
   }
 
   async checkForUpdates(trigger = "manual") {

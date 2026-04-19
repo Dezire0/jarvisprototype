@@ -23,6 +23,12 @@ const voiceStatus = document.getElementById("voiceStatus");
 const callModeHint = document.getElementById("callModeHint");
 const ttsProviderStatus = document.getElementById("ttsProviderStatus");
 const ttsProviderSummary = document.getElementById("ttsProviderSummary");
+const updateBanner = document.getElementById("updateBanner");
+const updateBannerBackdrop = document.getElementById("updateBannerBackdrop");
+const updateBannerMessage = document.getElementById("updateBannerMessage");
+const updateBannerDetail = document.getElementById("updateBannerDetail");
+const updateBannerPrimaryButton = document.getElementById("updateBannerPrimaryButton");
+const updateBannerLaterButton = document.getElementById("updateBannerLaterButton");
 const ttsProviderEn = document.getElementById("ttsProviderEn");
 const ttsProviderKo = document.getElementById("ttsProviderKo");
 const elevenlabsApiKey = document.getElementById("elevenlabsApiKey");
@@ -503,6 +509,134 @@ async function runPresetCommand(command) {
 
 function updateVoiceStatus(text) {
   voiceStatus.textContent = text;
+}
+
+function getUpdateBannerCopy(status = {}) {
+  const mode = status.mode || "disabled";
+  const state = status.state || "idle";
+
+  if (state === "downloaded" && mode === "native") {
+    return {
+      title: "업데이트 준비 완료",
+      message: `Jarvis Desktop ${status.downloadedVersion || status.availableVersion || status.version || ""}가 설치 준비를 마쳤어요.`,
+      detail: "지금 재시작하면 업데이트를 바로 적용할 수 있어요.",
+      primaryLabel: "지금 재시작",
+      secondaryLabel: "나중에",
+      primaryEnabled: true
+    };
+  }
+
+  if (state === "available") {
+    return {
+      title: "업데이트 사용 가능",
+      message: status.availableVersion
+        ? `Jarvis Desktop ${status.availableVersion}가 있습니다.`
+        : "새 버전의 Jarvis Desktop이 있습니다.",
+      detail: mode === "installer"
+        ? "업데이트 페이지를 열어 새 설치 파일을 내려받을 수 있어요."
+        : "업데이트를 다운로드하는 중이에요. 완료되면 바로 설치할 수 있어요.",
+      primaryLabel: mode === "installer" ? "업데이트 열기" : "설치 준비 확인",
+      secondaryLabel: "나중에",
+      primaryEnabled: true
+    };
+  }
+
+  if (state === "idle" && mode !== "disabled" && status.message) {
+    return {
+      title: "업데이트 확인",
+      message: status.message,
+      detail: mode === "installer"
+        ? "업데이트 페이지를 열어 새 버전을 확인할 수 있어요."
+        : "지금 확인을 누르면 최신 버전을 검사합니다.",
+      primaryLabel: "지금 확인",
+      secondaryLabel: "닫기",
+      primaryEnabled: true
+    };
+  }
+
+  return {
+    title: "업데이트",
+    message: "",
+    detail: "",
+    primaryLabel: "확인",
+    secondaryLabel: "닫기",
+    primaryEnabled: true
+  };
+}
+
+function closeUpdateBanner() {
+  if (!updateBanner) {
+    return;
+  }
+
+  updateBanner.hidden = true;
+  updateBanner.dataset.state = "";
+}
+
+async function handleUpdateBannerAction(status = {}) {
+  try {
+    if ((status.state || "idle") === "idle") {
+      const result = await window.assistantAPI.checkForUpdates();
+
+      if (result?.state) {
+        renderUpdateBanner(result);
+        return;
+      }
+
+      updateBannerMessage.textContent = "업데이트 확인을 시작했어요. 잠시만 기다려 주세요.";
+      updateBannerDetail.textContent = "";
+      return;
+    }
+
+    const result = await window.assistantAPI.installUpdate();
+
+    if (result?.ok) {
+      if (result.mode === "native") {
+        updateBannerMessage.textContent = "재시작을 기다리는 중이에요. 앱을 닫거나 다시 시작하면 업데이트가 적용됩니다.";
+        updateBannerDetail.textContent = "";
+        return;
+      }
+
+      if (result.targetUrl) {
+        updateBannerMessage.textContent = "업데이트 페이지를 열었어요. 새 버전을 내려받아 설치해 주세요.";
+        updateBannerDetail.textContent = result.targetUrl;
+        return;
+      }
+
+      closeUpdateBanner();
+      return;
+    }
+
+    const fallbackCopy = getUpdateBannerCopy(status);
+    updateBannerMessage.textContent = result?.message || fallbackCopy.message;
+    updateBannerDetail.textContent = fallbackCopy.detail;
+  } catch (error) {
+    updateBannerMessage.textContent = `업데이트 실행 중 문제가 있었어요: ${error.message}`;
+  }
+}
+
+function renderUpdateBanner(status = {}) {
+  if (!updateBanner) {
+    return;
+  }
+
+  const copy = getUpdateBannerCopy(status);
+  const shouldShow = status.mode !== "disabled" && ((status.state && status.state !== "disabled") || Boolean(copy.message));
+
+  if (!shouldShow) {
+    closeUpdateBanner();
+    return;
+  }
+
+  updateBanner.hidden = false;
+  updateBanner.dataset.state = status.state || "available";
+  updateBanner.dataset.mode = status.mode || "disabled";
+  updateBanner.querySelector("#updateBannerTitle").textContent = copy.title;
+  updateBannerMessage.textContent = copy.message;
+  updateBannerDetail.textContent = copy.detail;
+  updateBannerPrimaryButton.textContent = copy.primaryLabel;
+  updateBannerPrimaryButton.disabled = !copy.primaryEnabled;
+  updateBannerLaterButton.textContent = copy.secondaryLabel;
 }
 
 function clearPendingRecognitionTimer() {
@@ -1595,6 +1729,17 @@ async function refreshCredentialList() {
   }
 }
 
+updateBannerBackdrop?.addEventListener("click", closeUpdateBanner);
+updateBannerLaterButton?.addEventListener("click", closeUpdateBanner);
+updateBannerPrimaryButton?.addEventListener("click", () => {
+  const state = {
+    mode: updateBanner?.dataset.mode || "disabled",
+    state: updateBanner?.dataset.state || "idle"
+  };
+
+  void handleUpdateBannerAction(state);
+});
+
 window.addEventListener("beforeunload", () => {
   void stopRecorderFallback();
 });
@@ -2017,6 +2162,15 @@ async function bootstrap() {
   refreshCredentialList();
   refreshAppCatalog();
   loadTtsSettings();
+
+  window.assistantAPI.onUpdateStatus((payload) => {
+    renderUpdateBanner(payload || {});
+  });
+
+  const appState = await window.assistantAPI.getAppState().catch(() => null);
+  if (appState?.updater) {
+    renderUpdateBanner(appState.updater);
+  }
 
   if ("speechSynthesis" in window) {
     const loadVoices = () => {
