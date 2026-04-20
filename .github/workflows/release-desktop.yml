@@ -186,20 +186,28 @@ jobs:
 
           gh release upload "${TAG}" "${files[@]}" --clobber
 
-  trigger-install-site-rebuild:
+  deploy-install-site:
     needs: release
     if: success() && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
 
     steps:
-      - name: Trigger Cloudflare Pages build hook
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Deploy install site
         shell: bash
         env:
-          CLOUDFLARE_PAGES_BUILD_HOOK: ${{ secrets.CLOUDFLARE_PAGES_BUILD_HOOK }}
-        run: |
-          if [ -z "${CLOUDFLARE_PAGES_BUILD_HOOK}" ]; then
-            echo "Cloudflare build hook is not configured. Set CLOUDFLARE_PAGES_BUILD_HOOK in GitHub Actions secrets." >&2
-            exit 1
-          fi
-
-          curl --fail --show-error --silent -X POST "${CLOUDFLARE_PAGES_BUILD_HOOK}"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PAGES_PROJECT_NAME: dexproject
+        run: npm run site:install:deploy
