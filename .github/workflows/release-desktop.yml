@@ -169,7 +169,11 @@ jobs:
         run: |
           shopt -s nullglob
           TAG="${{ steps.release_tag.outputs.tag }}"
-          files=(release/*)
+          
+          files=()
+          for f in release/*; do
+            [ -f "$f" ] && files+=("$f")
+          done
 
           if [[ ${#files[@]} -eq 0 ]]; then
             echo "No release artifacts found in release/." >&2
