@@ -9,6 +9,10 @@ on:
       - "site/install-web/**"
       - "scripts/sync-install-site-config.cjs"
       - "scripts/deploy-install-site.cjs"
+  release:
+    types:
+      - published
+  workflow_dispatch:
 
 concurrency:
   group: install-site-${{ github.ref }}
@@ -23,6 +27,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -50,5 +56,5 @@ jobs:
           CF_PAGES_PROJECT_NAME: dexproject
           CF_PAGES_BRANCH: main
           CF_PAGES_COMMIT_HASH: ${{ github.sha }}
-          CF_PAGES_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          CF_PAGES_COMMIT_MESSAGE: ${{ github.event.head_commit.message || github.event.release.name || github.event.release.tag_name }}
           CF_PAGES_COMMIT_DIRTY: "false"
