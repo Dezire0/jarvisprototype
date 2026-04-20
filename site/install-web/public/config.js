@@ -2,7 +2,7 @@ window.JARVIS_INSTALL_CONFIG = {
   "brandName": "DexProject",
   "productName": "Jarvis Desktop",
   "siteMode": "download",
-  "version": "0.1.5.1",
+  "version": "0.1.5.3",
   "githubOwner": "Dezire0",
   "githubRepo": "jarvisprototype",
   "windowsDownloadUrl": "https://github.com/Dezire0/jarvisprototype/releases/download/v0.1.5/Jarvis-Desktop-0.1.5-win-x64.exe",

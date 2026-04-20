@@ -7,6 +7,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag to build and upload, for example v0.1.5.3
+        required: false
+        type: string
 
 concurrency:
   group: release-desktop-${{ github.ref }}
@@ -81,7 +86,7 @@ jobs:
 
   release:
     needs: prepare
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     strategy:
       fail-fast: false
       matrix:
@@ -95,7 +100,8 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.first }}
+      GITHUB_TOKEN: ${{ secrets.first }}
       JARVIS_UPDATER_PROVIDER: github
       JARVIS_GITHUB_OWNER: Dezire0
       JARVIS_GITHUB_REPO: jarvisprototype
@@ -114,13 +120,27 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
+
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}"
+          if [[ -z "${TAG}" ]]; then
+            echo "Release tag was not provided." >&2
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Validate tag matches package version
         shell: bash
         run: |
           VERSION="v${{ needs.prepare.outputs.version }}"
-          if [[ "${GITHUB_REF_NAME}" != "${VERSION}" ]]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}" >&2
+          if [[ "${{ steps.release_tag.outputs.tag }}" != "${VERSION}" ]]; then
+            echo "Tag ${{ steps.release_tag.outputs.tag }} does not match package.json version ${VERSION}" >&2
             exit 1
           fi
 
@@ -141,3 +161,60 @@ jobs:
 
       - name: Build and publish ${{ matrix.label }}
         run: npm run release
+
+      - name: Upload release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.first }}
+        run: |
+          shopt -s nullglob
+          TAG="${{ steps.release_tag.outputs.tag }}"
+          files=(release/*)
+
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No release artifacts found in release/." >&2
+            exit 1
+          fi
+
+          gh release upload "${TAG}" "${files[@]}" --clobber
+
+  deploy-install-site:
+    needs: release
+    if: always() && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.first }}
+      GITHUB_TOKEN: ${{ secrets.first }}
+      JARVIS_GITHUB_OWNER: Dezire0
+      JARVIS_GITHUB_REPO: jarvisprototype
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: site/install-web/package-lock.json
+
+      - name: Install install-site dependencies
+        run: npm ci
+        working-directory: site/install-web
+
+      - name: Deploy install site
+        shell: bash
+        working-directory: site/install-web
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ]; then
+            echo "Cloudflare deploy skipped because CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not configured."
+            exit 0
+          fi
+
+          node ../../scripts/deploy-install-site.cjs
