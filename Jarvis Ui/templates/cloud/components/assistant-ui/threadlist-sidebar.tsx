@@ -940,7 +940,7 @@ export function ThreadListSidebar({
                   </p>
                   <p className="mt-1 text-sm leading-5 text-foreground">
                     {updateStatus?.state === "error"
-                      ? "업데이트 상태를 다시 확인해 보세요."
+                      ? (updateStatus.message || "업데이트 상태를 다시 확인해 보세요.")
                       : updateDetail}
                   </p>
                   {updateStatus?.version ? (
