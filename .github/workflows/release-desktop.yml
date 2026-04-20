@@ -170,8 +170,12 @@ jobs:
           shopt -s nullglob
           TAG="${{ steps.release_tag.outputs.tag }}"
           
+          # 릴리스가 없으면 생성, 있으면 유지
+          gh release view "${TAG}" || gh release create "${TAG}" --title "${TAG}" --notes "Automated release for ${TAG}"
+
           files=()
-          for f in release/*; do
+          # 디렉토리를 제외하고 실제 배포용 파일 확장자만 명시적으로 선택
+          for f in release/*.{exe,dmg,zip,AppImage,deb,yml,blockmap}; do
             [ -f "$f" ] && files+=("$f")
           done
 
