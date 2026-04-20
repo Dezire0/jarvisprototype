@@ -68,6 +68,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # PAT를 사용해야 태그 푸시가 release 워크플로우를 재실행시킴
+          # GITHUB_TOKEN으로 푸시된 태그는 봇 보안 정책상 새 워크플로우를 트리거하지 않음
+          token: ${{ secrets.first }}
 
       - name: Create and push release tag
         shell: bash
@@ -75,7 +78,7 @@ jobs:
           VERSION="v${{ needs.prepare.outputs.version }}"
 
           if git ls-remote --tags origin "refs/tags/${VERSION}" | grep -q "${VERSION}"; then
-            echo "Tag ${VERSION} already exists. Skipping tag creation."
+            echo "태그 ${VERSION}이 이미 존재합니다. 건너뜁니다."
             exit 0
           fi
 
