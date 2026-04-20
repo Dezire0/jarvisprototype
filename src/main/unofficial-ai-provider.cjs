@@ -1,6 +1,8 @@
 const { BrowserWindow, session, net } = require("electron");
 const crypto = require("crypto");
-const { safeJsonParse } = require("./utils.cjs");
+const safeJsonParse = (str) => {
+  try { return JSON.parse(str); } catch (e) { return null; }
+};
 
 /**
  * UnofficialAIProvider는 로그인된 ChatGPT 웹 세션에서 세션 토큰을 추출하여
