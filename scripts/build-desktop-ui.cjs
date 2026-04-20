@@ -34,6 +34,23 @@ function runCommand(command, args, env) {
   });
 }
 
+function resolveCorepackCommand() {
+  const nodeBinDir = path.dirname(process.execPath);
+  const candidates = process.platform === "win32"
+    ? [
+        path.join(nodeBinDir, "corepack.cmd"),
+        path.join(nodeBinDir, "corepack.exe"),
+        "corepack.cmd",
+        "corepack"
+      ]
+    : [
+        path.join(nodeBinDir, "corepack"),
+        "corepack"
+      ];
+
+  return candidates[0];
+}
+
 async function pathExists(targetPath) {
   try {
     await fs.access(targetPath);
@@ -165,7 +182,7 @@ async function main() {
   };
 
   await runCommand(
-    "corepack",
+    resolveCorepackCommand(),
     [
       "pnpm",
       "--dir",
