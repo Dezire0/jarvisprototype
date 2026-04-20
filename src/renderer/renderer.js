@@ -511,55 +511,88 @@ function updateVoiceStatus(text) {
   voiceStatus.textContent = text;
 }
 
+function formatRemainingTime(seconds = 0) {
+  const totalSeconds = Math.max(0, Math.round(Number(seconds) || 0));
+
+  if (!totalSeconds) {
+    return "";
+  }
+
+  if (totalSeconds < 60) {
+    return `About ${totalSeconds}s left`;
+  }
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = totalSeconds % 60;
+
+  if (!remainder) {
+    return `About ${minutes}m left`;
+  }
+
+  return `About ${minutes}m ${remainder}s left`;
+}
+
 function getUpdateBannerCopy(status = {}) {
   const mode = status.mode || "disabled";
   const state = status.state || "idle";
+  const version = status.availableVersion || status.downloadedVersion || status.version || "";
+  const progressPercent = Math.max(0, Math.min(100, Number(status.progressPercent) || 0));
+  const remainingLabel = formatRemainingTime(status.remainingSeconds);
 
   if (state === "downloaded" && mode === "native") {
     return {
-      title: "업데이트 준비 완료",
-      message: `Jarvis Desktop ${status.downloadedVersion || status.availableVersion || status.version || ""}가 설치 준비를 마쳤어요.`,
-      detail: "지금 재시작하면 업데이트를 바로 적용할 수 있어요.",
-      primaryLabel: "지금 재시작",
-      secondaryLabel: "나중에",
+      title: "Update ready",
+      message: version ? `Jarvis Desktop ${version} is ready to install.` : "Your update is ready to install.",
+      detail: "Restart the app to finish installing the latest version.",
+      primaryLabel: "Restart now",
+      secondaryLabel: "Later",
       primaryEnabled: true
+    };
+  }
+
+  if (state === "downloading") {
+    return {
+      title: "New update is available",
+      message: "Downloading the latest update...",
+      detail: [progressPercent ? `${progressPercent}% complete` : "", remainingLabel].filter(Boolean).join(" · "),
+      primaryLabel: "Downloading...",
+      secondaryLabel: "Later",
+      primaryEnabled: false
     };
   }
 
   if (state === "available") {
     return {
-      title: "업데이트 사용 가능",
-      message: status.availableVersion
-        ? `Jarvis Desktop ${status.availableVersion}가 있습니다.`
-        : "새 버전의 Jarvis Desktop이 있습니다.",
+      title: "New update is available",
+      message: version ? `Jarvis Desktop ${version} is ready to download.` : "Jarvis Desktop has a new update ready to download.",
       detail: mode === "installer"
-        ? "업데이트 페이지를 열어 새 설치 파일을 내려받을 수 있어요."
-        : "업데이트를 다운로드하는 중이에요. 완료되면 바로 설치할 수 있어요.",
-      primaryLabel: mode === "installer" ? "업데이트 열기" : "설치 준비 확인",
-      secondaryLabel: "나중에",
+        ? "Click Download now to get the latest build."
+        : "The update is downloading now. You can install it as soon as it finishes.",
+      primaryLabel: "Download now",
+      secondaryLabel: "Later",
       primaryEnabled: true
     };
   }
 
   if (state === "idle" && mode !== "disabled" && status.message) {
     return {
-      title: "업데이트 확인",
+      title: "Check for updates",
       message: status.message,
       detail: mode === "installer"
-        ? "업데이트 페이지를 열어 새 버전을 확인할 수 있어요."
-        : "지금 확인을 누르면 최신 버전을 검사합니다.",
-      primaryLabel: "지금 확인",
-      secondaryLabel: "닫기",
+        ? "Click Download now to check the latest release."
+        : "Click Check now to look for the latest version.",
+      primaryLabel: "Check now",
+      secondaryLabel: "Close",
       primaryEnabled: true
     };
   }
 
   return {
-    title: "업데이트",
-    message: "",
+    title: "Update available",
+    message: "New update is available.",
     detail: "",
-    primaryLabel: "확인",
-    secondaryLabel: "닫기",
+    primaryLabel: "Download now",
+    secondaryLabel: "Later",
     primaryEnabled: true
   };
 }
@@ -583,7 +616,7 @@ async function handleUpdateBannerAction(status = {}) {
         return;
       }
 
-      updateBannerMessage.textContent = "업데이트 확인을 시작했어요. 잠시만 기다려 주세요.";
+      updateBannerMessage.textContent = "Checking for the latest update...";
       updateBannerDetail.textContent = "";
       return;
     }
@@ -592,14 +625,14 @@ async function handleUpdateBannerAction(status = {}) {
 
     if (result?.ok) {
       if (result.mode === "native") {
-        updateBannerMessage.textContent = "재시작을 기다리는 중이에요. 앱을 닫거나 다시 시작하면 업데이트가 적용됩니다.";
+        updateBannerMessage.textContent = "Update is ready. Restart the app to finish installing it.";
         updateBannerDetail.textContent = "";
         return;
       }
 
       if (result.targetUrl) {
-        updateBannerMessage.textContent = "업데이트 페이지를 열었어요. 새 버전을 내려받아 설치해 주세요.";
-        updateBannerDetail.textContent = result.targetUrl;
+        updateBannerMessage.textContent = "Download page opened. Get the latest version now.";
+        updateBannerDetail.textContent = "";
         return;
       }
 
@@ -608,10 +641,11 @@ async function handleUpdateBannerAction(status = {}) {
     }
 
     const fallbackCopy = getUpdateBannerCopy(status);
-    updateBannerMessage.textContent = result?.message || fallbackCopy.message;
+    updateBannerMessage.textContent = fallbackCopy.message;
     updateBannerDetail.textContent = fallbackCopy.detail;
-  } catch (error) {
-    updateBannerMessage.textContent = `업데이트 실행 중 문제가 있었어요: ${error.message}`;
+  } catch (_error) {
+    updateBannerMessage.textContent = "Update check failed. Please try again later.";
+    updateBannerDetail.textContent = "";
   }
 }
 

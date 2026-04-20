@@ -1,7 +1,10 @@
 const fs = require("node:fs/promises");
+const fsStream = require("node:fs");
 const https = require("node:https");
 const path = require("node:path");
-const { BrowserWindow, dialog, shell } = require("electron");
+const { Transform } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
+const { BrowserWindow, dialog } = require("electron");
 
 let autoUpdater = null;
 
@@ -119,11 +122,7 @@ function fetchJson(url) {
         });
         response.on("end", () => {
           if (response.statusCode && response.statusCode >= 400) {
-            reject(
-              new Error(
-                `Release check failed with status ${response.statusCode}.`,
-              ),
-            );
+            reject(new Error(`Release check failed with status ${response.statusCode}.`));
             return;
           }
 
@@ -133,7 +132,7 @@ function fetchJson(url) {
             reject(error);
           }
         });
-      },
+      }
     );
 
     request.on("error", reject);
@@ -202,6 +201,97 @@ function chooseGithubAsset(assets = []) {
   return bestScore >= 0 ? bestAsset : null;
 }
 
+function getInstallerFallbackName(version) {
+  const safeVersion = normalizeVersion(version) || "latest";
+  const extension = process.platform === "darwin"
+    ? ".dmg"
+    : process.platform === "linux"
+      ? ".AppImage"
+      : ".exe";
+
+  return `Jarvis-Desktop-${safeVersion}${extension}`;
+}
+
+function getDownloadFileName(downloadUrl, version) {
+  try {
+    const candidate = path.basename(new URL(downloadUrl).pathname);
+
+    if (candidate && candidate !== "/" && candidate !== "." && candidate !== "..") {
+      return candidate;
+    }
+  } catch (_error) {
+    // Fall back to a safe default name below.
+  }
+
+  return getInstallerFallbackName(version);
+}
+
+async function downloadUrlToFile(downloadUrl, targetPath, onProgress = null, redirectCount = 0) {
+  if (redirectCount > 5) {
+    throw new Error("Too many download redirects.");
+  }
+
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+
+  const response = await new Promise((resolve, reject) => {
+    const request = https.request(
+      downloadUrl,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/octet-stream",
+          "User-Agent": "Jarvis-Desktop-Updater"
+        }
+      },
+      (incoming) => {
+        const statusCode = incoming.statusCode || 0;
+
+        if (statusCode >= 300 && statusCode < 400 && incoming.headers.location) {
+          const nextUrl = new URL(incoming.headers.location, downloadUrl).toString();
+          incoming.resume();
+          resolve({ redirectUrl: nextUrl });
+          return;
+        }
+
+        if (statusCode >= 400) {
+          incoming.resume();
+          reject(new Error(`Download failed with status ${statusCode}.`));
+          return;
+        }
+
+        resolve({
+          stream: incoming,
+          totalBytes: Number(incoming.headers["content-length"] || 0)
+        });
+      }
+    );
+
+    request.on("error", reject);
+    request.setTimeout(15_000, () => request.destroy(new Error("Download timed out.")));
+    request.end();
+  });
+
+  if (response.redirectUrl) {
+    return downloadUrlToFile(response.redirectUrl, targetPath, onProgress, redirectCount + 1);
+  }
+
+  let downloadedBytes = 0;
+  const progressStream = new Transform({
+    transform(chunk, _encoding, callback) {
+      downloadedBytes += chunk.length;
+
+      if (onProgress) {
+        onProgress(downloadedBytes, response.totalBytes || 0);
+      }
+
+      callback(null, chunk);
+    }
+  });
+
+  await pipeline(response.stream, progressStream, fsStream.createWriteStream(targetPath));
+  return targetPath;
+}
+
 class UpdaterService {
   constructor({ app }) {
     this.app = app;
@@ -218,9 +308,11 @@ class UpdaterService {
       availableVersion: "",
       downloadedVersion: "",
       progressPercent: 0,
+      remainingSeconds: 0,
       enabled: false,
       mode: "disabled",
       downloadUrl: "",
+      downloadPath: "",
       releasePageUrl: ""
     };
   }
@@ -319,8 +411,10 @@ class UpdaterService {
     autoUpdater.on("update-available", (info) => {
       this.updateStatus({
         state: "available",
-        message: `Downloading ${info.version}...`,
+        message: "New update is available.",
         availableVersion: info.version || "",
+        progressPercent: 0,
+        remainingSeconds: 0,
         mode: "native"
       });
     });
@@ -346,10 +440,14 @@ class UpdaterService {
     });
 
     autoUpdater.on("download-progress", (progress) => {
+      const percent = Number(progress.percent || 0);
+      const etaSeconds = Number(progress.eta || 0);
+
       this.updateStatus({
         state: "downloading",
-        message: `Downloading update... ${Math.round(progress.percent || 0)}%`,
-        progressPercent: Number(progress.percent || 0),
+        message: "Downloading the latest update...",
+        progressPercent: percent,
+        remainingSeconds: etaSeconds,
         mode: "native"
       });
     });
@@ -357,9 +455,10 @@ class UpdaterService {
     autoUpdater.on("update-downloaded", (info) => {
       this.updateStatus({
         state: "downloaded",
-        message: `Version ${info.version || ""} is ready to install.`,
+        message: "Update is ready to install.",
         downloadedVersion: info.version || "",
         progressPercent: 100,
+        remainingSeconds: 0,
         mode: "native"
       });
     });
@@ -397,6 +496,82 @@ class UpdaterService {
     }
   }
 
+  async downloadInstallerAsset({ version, downloadUrl }) {
+    if (!downloadUrl) {
+      return {
+        ok: false,
+        message: "No downloadable installer asset was found."
+      };
+    }
+
+    const targetPath = path.join(this.app.getPath("downloads"), getDownloadFileName(downloadUrl, version));
+
+    this.updateStatus({
+      state: "downloading",
+      message: "Downloading the latest update...",
+      availableVersion: version || "",
+      downloadedVersion: "",
+      progressPercent: 0,
+      remainingSeconds: 0,
+      downloadUrl,
+      downloadPath: "",
+      mode: "installer"
+    });
+
+    try {
+      await downloadUrlToFile(downloadUrl, targetPath, (downloadedBytes, totalBytes) => {
+        const percent = totalBytes > 0 ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)) : 0;
+
+        this.updateStatus({
+          state: "downloading",
+          message: totalBytes > 0
+            ? `Downloading the latest update... ${percent}%`
+            : "Downloading the latest update...",
+          availableVersion: version || "",
+          downloadedVersion: "",
+          progressPercent: percent,
+          remainingSeconds: 0,
+          downloadUrl,
+          downloadPath: "",
+          mode: "installer"
+        });
+      });
+
+      this.updateStatus({
+        state: "downloaded",
+        message: "Update is ready to install.",
+        availableVersion: version || "",
+        downloadedVersion: version || "",
+        progressPercent: 100,
+        remainingSeconds: 0,
+        downloadUrl,
+        downloadPath: targetPath,
+        mode: "installer"
+      });
+
+      return {
+        ok: true,
+        mode: "installer",
+        targetPath
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      this.updateStatus({
+        state: "error",
+        message: `Could not download the update: ${message}`,
+        downloadUrl,
+        downloadPath: "",
+        mode: "installer"
+      });
+
+      return {
+        ok: false,
+        message
+      };
+    }
+  }
+
   getStatus() {
     return {
       ...this.status,
@@ -405,42 +580,34 @@ class UpdaterService {
     };
   }
 
-  async openInstallerReleasePrompt({
-    version,
-    asset,
-    releasePageUrl,
-    nativeError
-  }) {
-    const downloadUrl = asset?.browser_download_url || releasePageUrl;
-    const primaryLabel = asset ? "Download Installer" : "Open Release Page";
-    const assetLabel = asset?.name
-      ? `Jarvis will open ${asset.name}.`
-      : "Jarvis will open the latest release page.";
-    const detailParts = [
-      nativeError ? `Built-in updater fallback was used because: ${nativeError.message}` : "",
-      assetLabel
-    ].filter(Boolean);
-
+  async openInstallerReleasePrompt({ version, asset }) {
+    const downloadUrl = asset?.browser_download_url || "";
     const result = await dialog.showMessageBox({
       type: "info",
-      title: "Update Available",
+      title: "New update is available",
       message: `Jarvis Desktop ${version} is available.`,
-      detail: detailParts.join("\n\n"),
-      buttons: [primaryLabel, "Later"],
+      detail: asset?.name
+        ? `Download ${asset.name} directly to your Downloads folder.`
+        : "Download the installer directly to your Downloads folder.",
+      buttons: ["Download now", "Later"],
       defaultId: 0,
       cancelId: 1
     }).catch(() => null);
 
-    if (result?.response === 0 && downloadUrl) {
-      await shell.openExternal(downloadUrl).catch(() => {});
-      this.updateStatus({
-        state: "available",
-        message: asset
-          ? "Opened the installer download for the latest version."
-          : "Opened the latest release page.",
-        downloadUrl,
-        releasePageUrl
+    if (result?.response === 0) {
+      const downloadResult = await this.downloadInstallerAsset({
+        version,
+        downloadUrl
       });
+
+      if (!downloadResult.ok) {
+        dialog.showMessageBox({
+          type: "error",
+          title: "Update Error",
+          message: "Jarvis Desktop could not download the installer.",
+          detail: downloadResult.message
+        }).catch(() => {});
+      }
     }
   }
 
@@ -451,9 +618,7 @@ class UpdaterService {
 
     this.updateStatus({
       state: "checking",
-      message: nativeError
-        ? "Checking latest installer release..."
-        : "Checking latest release...",
+      message: nativeError ? "Checking for new update..." : "Checking for new update...",
       mode: "installer",
       releasePageUrl: this.fallbackConfig.releaseNotesUrl
     });
@@ -461,9 +626,6 @@ class UpdaterService {
     try {
       const release = await fetchJson(this.fallbackConfig.releaseApiUrl);
       const latestVersion = normalizeVersion(release.tag_name || release.name || "");
-      const releasePageUrl = String(
-        release.html_url || this.fallbackConfig.releaseNotesUrl,
-      ).trim();
 
       if (!latestVersion) {
         throw new Error("The latest release does not have a usable version tag.");
@@ -476,8 +638,10 @@ class UpdaterService {
           availableVersion: "",
           downloadedVersion: "",
           progressPercent: 0,
+          remainingSeconds: 0,
           downloadUrl: "",
-          releasePageUrl,
+          downloadPath: "",
+          releasePageUrl: this.fallbackConfig.releaseNotesUrl,
           mode: "installer"
         });
 
@@ -493,21 +657,33 @@ class UpdaterService {
       }
 
       const asset = chooseGithubAsset(release.assets);
-      const downloadUrl = String(
-        asset?.browser_download_url || releasePageUrl,
-      ).trim();
+      const downloadUrl = String(asset?.browser_download_url || "").trim();
 
       this.updateStatus({
         state: "available",
-        message: asset
-          ? `Version ${latestVersion} is available to download.`
-          : `Version ${latestVersion} is available on the release page.`,
+        message: "New update is available.",
         availableVersion: latestVersion,
         progressPercent: 0,
+        remainingSeconds: 0,
         downloadUrl,
-        releasePageUrl,
+        downloadPath: "",
+        releasePageUrl: this.fallbackConfig.releaseNotesUrl,
         mode: "installer"
       });
+
+      if (asset && downloadUrl) {
+        await this.openInstallerReleasePrompt({
+          version: latestVersion,
+          asset
+        });
+      } else if (trigger === "manual") {
+        dialog.showMessageBox({
+          type: "info",
+          title: "New update is available",
+          message: `Jarvis Desktop ${latestVersion} is available.`,
+          detail: "No direct installer asset was found, so there is nothing to download here."
+        }).catch(() => {});
+      }
 
       return this.getStatus();
     } catch (error) {
@@ -543,14 +719,21 @@ class UpdaterService {
     }
 
     if (this.installerFallbackEnabled) {
-      const targetUrl = this.status.downloadUrl || this.status.releasePageUrl || this.fallbackConfig?.releaseNotesUrl || "";
-      if (targetUrl) {
-        await shell.openExternal(targetUrl).catch(() => {});
+      if (this.status.state === "downloaded" && this.status.downloadPath) {
         return {
           ok: true,
           mode: "installer",
-          targetUrl
+          targetPath: this.status.downloadPath
         };
+      }
+
+      const downloadUrl = this.status.downloadUrl || "";
+
+      if (downloadUrl) {
+        return this.downloadInstallerAsset({
+          version: this.status.availableVersion || this.status.downloadedVersion || this.status.version,
+          downloadUrl
+        });
       }
     }
 
