@@ -4112,6 +4112,8 @@ class AssistantService {
     '  {"action":"ask_pii","field":"password","reason":"..."} — Ask user for sensitive info (e.g., password) instead of guessing',
     '  {"action":"os_type","text":"...","reason":"..."} — Type text natively in OS',
     '  {"action":"os_app","name":"Safari","reason":"..."} — Open OS application',
+    '  {"action":"os_click","x":100,"y":200,"reason":"..."} — Click at OS screen coordinates',
+    '  {"action":"os_cmd","command":"...","reason":"..."} — Execute OS shell command',
     '  {"action":"done","summary":"..."} — Task complete, provide summary',
     "",
     "RULES:",
@@ -4243,6 +4245,12 @@ class AssistantService {
         case "os_app":
           osAutomation.openApplication(action.name);
           return { state: await this.browser.observe(), error: null };
+        case "os_click":
+          osAutomation.clickCoordinate(action.x, action.y);
+          return { state: await this.browser.observe(), error: null };
+        case "os_cmd":
+          const output = osAutomation.runShellCommand(action.command);
+          return { state: { ...await this.browser.observe(), cmd_output: output }, error: null };
         case "done":
           return { state: null, error: null };
         default:

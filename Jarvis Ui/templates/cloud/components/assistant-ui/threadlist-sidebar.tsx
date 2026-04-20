@@ -905,20 +905,32 @@ export function ThreadListSidebar({
               <span className="text-muted-foreground">보안 정보 (PII)</span>
               <span className="text-xs text-muted-foreground">{piiKeys.length}개 저장됨</span>
             </div>
-            <Button 
-              size="sm" 
-              variant="ghost" 
-              className="mt-1 w-full rounded-xl border border-dashed border-border/50"
-              onClick={() => {
-                const key = window.prompt("저장할 정보의 이름을 입력하세요 (예: password, address)");
-                if (key) {
-                  const val = window.prompt(`${key}의 값을 입력하세요`);
-                  if (val) window.assistantAPI?.invokeTool("pii:set", { key, value: val });
-                }
-              }}
-            >
-              개인정보 추가/관리
-            </Button>
+            <div className="mt-1 flex gap-1">
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                className="flex-1 rounded-xl border border-dashed border-border/50 text-[11px]"
+                onClick={() => {
+                  const key = window.prompt("저장할 정보의 이름을 입력하세요 (예: password, address)");
+                  if (key) {
+                    const val = window.prompt(`${key}의 값을 입력하세요`);
+                    if (val) window.assistantAPI?.invokeTool("pii:set", { key, value: val });
+                  }
+                }}
+              >
+                PII 관리
+              </Button>
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                className="flex-1 rounded-xl border border-dashed border-border/50 text-[11px]"
+                onClick={() => {
+                  window.alert("프롬프트 템플릿 기능은 현재 준비 중입니다.");
+                }}
+              >
+                템플릿
+              </Button>
+            </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">음성 입력</span>
               <span className="font-medium text-foreground">

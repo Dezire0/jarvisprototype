@@ -75,14 +75,49 @@ class OSAutomation {
    * @param {number} y 
    */
   clickCoordinate(x, y) {
-    // Requires cliclick to be installed: brew install cliclick
+    if (x == null || y == null) throw new Error("x and y coordinates are required.");
+    const pyScript = `
+import sys
+import time
+from Quartz.CoreGraphics import CGEventCreateMouseEvent
+from Quartz.CoreGraphics import CGEventPost
+from Quartz.CoreGraphics import kCGEventMouseMoved
+from Quartz.CoreGraphics import kCGEventLeftMouseDown
+from Quartz.CoreGraphics import kCGEventLeftMouseUp
+from Quartz.CoreGraphics import kCGMouseButtonLeft
+from Quartz.CoreGraphics import kCGHIDEventTap
+
+def mouseEvent(type, posx, posy):
+    theEvent = CGEventCreateMouseEvent(None, type, (posx, posy), kCGMouseButtonLeft)
+    CGEventPost(kCGHIDEventTap, theEvent)
+
+def mouseclick(posx, posy):
+    mouseEvent(kCGEventMoved, posx, posy)
+    time.sleep(0.1)
+    mouseEvent(kCGEventLeftMouseDown, posx, posy)
+    time.sleep(0.1)
+    mouseEvent(kCGEventLeftMouseUp, posx, posy)
+
+mouseclick(${x}, ${y})
+`;
     try {
-      execSync(`cliclick c:${x},${y}`);
+      execSync(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`);
     } catch (err) {
-      throw new Error("cliclick is not installed. Please run 'brew install cliclick' for mouse automation.");
+      throw new Error(`Failed to click at (${x}, ${y}): ${err.message}`);
     }
   }
 
+  /**
+   * Run an arbitrary OS shell command.
+   * @param {string} command 
+   */
+  runShellCommand(command) {
+    try {
+      return execSync(command).toString().trim();
+    } catch (err) {
+      throw new Error(`Command failed: ${err.message}`);
+    }
+  }
   /**
    * Open an application by name.
    * @param {string} appName (e.g., "Safari", "Notes")

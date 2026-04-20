@@ -7,7 +7,7 @@ const path = require("node:path");
 const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell } = require("electron");
 const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
-const { BrowserService } = require("./browser-service.cjs");
+const { BrowserService } = require("./beta/browser-service-beta.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
 const { DesktopUiServer } = require("./desktop-ui-server.cjs");
@@ -861,6 +861,21 @@ app.whenReady().then(async () => {
   });
 
   await createServices();
+
+  if (process.platform === "darwin" && !osAutomation.checkPermissions()) {
+    dialog.showMessageBox({
+      type: "info",
+      title: "Accessibility Permission Required",
+      message: "Jarvis requires Accessibility permissions to control other apps and automate tasks.",
+      detail: "Please click 'Open System Settings' and enable Jarvis in Security & Privacy > Accessibility.",
+      buttons: ["Open System Settings", "Later"],
+      defaultId: 0
+    }).then(({ response }) => {
+      if (response === 0) {
+        shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
+      }
+    });
+  }
   await ensureDesktopUiServer();
   updaterService = new UpdaterService({ app });
   await updaterService.init();

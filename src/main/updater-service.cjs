@@ -4,7 +4,7 @@ const https = require("node:https");
 const path = require("node:path");
 const { Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
-const { BrowserWindow, shell } = require("electron");
+const { BrowserWindow, shell, dialog } = require("electron");
 
 let autoUpdater = null;
 
@@ -176,6 +176,10 @@ async function fetchGithubReleases({ owner, repo }) {
           body += chunk;
         });
         response.on("end", () => {
+          if (response.statusCode === 403) {
+            reject(new Error("GitHub API 호출 제한(Rate Limit)이 초과되었습니다. 잠시 후 다시 시도해 주세요."));
+            return;
+          }
           if (response.statusCode && response.statusCode >= 400) {
             reject(new Error(`Release list check failed with status ${response.statusCode}.`));
             return;

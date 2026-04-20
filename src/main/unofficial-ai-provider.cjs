@@ -22,9 +22,17 @@ class UnofficialAIProvider {
   async getAccessToken() {
     if (this.accessToken) return this.accessToken;
 
+    // Plan-based extraction: check for the session token cookie directly
+    const cookies = await session.defaultSession.cookies.get({ name: "__Secure-next-auth.session-token" });
+    if (cookies.length > 0) {
+      console.log("Extracted session token from cookie.");
+      // Note: The cookie itself isn't the accessToken used in headers, 
+      // but api/auth/session uses it to return the accessToken.
+      // If we wanted to use the cookie directly for auth, we'd need a different API approach.
+      // But let's follow the request to use api/auth/session while ensuring we have the cookie.
+    }
+
     return new Promise((resolve, reject) => {
-      // Create a request using Electron's net module, which automatically
-      // uses the default session's cookies (including secure HTTP-only ones).
       const request = net.request("https://chatgpt.com/api/auth/session");
       
       request.on("response", (response) => {
@@ -36,7 +44,6 @@ class UnofficialAIProvider {
             this.accessToken = json.accessToken;
             resolve(this.accessToken);
           } else {
-            // Need manual login
             resolve(null);
           }
         });

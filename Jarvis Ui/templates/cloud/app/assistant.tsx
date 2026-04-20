@@ -23,7 +23,7 @@ export const Assistant = () => {
               <main className="aui-app-main relative flex min-w-0 flex-1 flex-col">
                 <header className="aui-app-header flex items-center justify-between gap-3 px-4 py-3 md:px-6">
                   <div className="flex items-center gap-2">
-                    <SidebarTrigger className="rounded-full border border-border/70 bg-card/70 p-2 text-foreground transition hover:bg-accent md:hidden" />
+                    <SidebarTrigger className="rounded-full border border-border/70 bg-card/70 p-2 text-foreground transition hover:bg-accent" />
                     <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-card/60 px-3 py-1.5 text-sm text-muted-foreground md:inline-flex">
                       <SparklesIcon className="size-4 text-foreground" />
                       <span>Jarvis conversation workspace</span>
