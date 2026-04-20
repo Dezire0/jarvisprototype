@@ -2,6 +2,8 @@ name: Release Desktop App
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -10,31 +12,76 @@ concurrency:
   group: release-desktop-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
-  validate-tag:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      package_changed: ${{ steps.changes.outputs.package_changed }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Validate tag matches package version
+      - name: Resolve package version
         id: version
         shell: bash
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            if [[ "v${VERSION}" != "${GITHUB_REF_NAME}" ]]; then
-              echo "Tag ${GITHUB_REF_NAME} does not match package.json version v${VERSION}" >&2
-              exit 1
-            fi
+      - name: Detect package.json change
+        id: changes
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "package_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "package_changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git diff --name-only "${GITHUB_SHA}^" "${GITHUB_SHA}" | grep -qx "package.json"; then
+            echo "package_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "package_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  create-tag:
+    needs: prepare
+    if: github.ref == 'refs/heads/main' && needs.prepare.outputs.package_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push release tag
+        shell: bash
+        run: |
+          VERSION="v${{ needs.prepare.outputs.version }}"
+
+          if git ls-remote --tags origin "refs/tags/${VERSION}" | grep -q "${VERSION}"; then
+            echo "Tag ${VERSION} already exists. Skipping tag creation."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${VERSION}" -m "Release ${VERSION}"
+          git push origin "${VERSION}"
+
   release:
-    needs: validate-tag
+    needs: prepare
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
@@ -46,8 +93,6 @@ jobs:
           - os: ubuntu-latest
             label: Linux
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
 
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,6 +114,15 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Validate tag matches package version
+        shell: bash
+        run: |
+          VERSION="v${{ needs.prepare.outputs.version }}"
+          if [[ "${GITHUB_REF_NAME}" != "${VERSION}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}" >&2
+            exit 1
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
