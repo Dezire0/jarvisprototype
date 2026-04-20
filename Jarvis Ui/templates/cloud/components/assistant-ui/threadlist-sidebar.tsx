@@ -295,11 +295,11 @@ export function ThreadListSidebar({
     // Periodically check Web AI connection status
     const checkStatus = async () => {
       if (window.assistantAPI?.invokeTool) {
-        const res = await window.assistantAPI.invokeTool("ai:web-status", {});
-        if (res.ok) setWebAiConnected(res.connected);
+        const res = (await window.assistantAPI.invokeTool("ai:web-status", {})) as any;
+        if (res?.ok) setWebAiConnected(Boolean(res.connected));
         
-        const piiRes = await window.assistantAPI.invokeTool("pii:list", {});
-        if (piiRes.ok) setPiiKeys(piiRes.keys);
+        const piiRes = (await window.assistantAPI.invokeTool("pii:list", {})) as any;
+        if (piiRes?.ok && Array.isArray(piiRes.keys)) setPiiKeys(piiRes.keys);
       }
     };
     checkStatus();
