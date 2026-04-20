@@ -41,6 +41,10 @@ jobs:
         include:
           - os: macos-latest
             label: macOS
+          - os: windows-latest
+            label: Windows
+          - os: ubuntu-latest
+            label: Linux
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
