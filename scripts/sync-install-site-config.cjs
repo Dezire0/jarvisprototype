@@ -227,7 +227,7 @@ function inferArchitectureLabel(filename = "", fallback = "") {
 }
 
 function compileAssetPatterns(patterns = []) {
-  return patterns.map((pattern) => new RegExp(`^Jarvis-Desktop-\\d+\\.\\d+\\.\\d+-${pattern}$`, "i"));
+  return patterns.map((pattern) => new RegExp(`^Jarvis-Desktop-[0-9]+(?:\\.[0-9]+)+-${pattern}$`, "i"));
 }
 
 async function fetchGithubReleases({ owner, repo }) {
@@ -294,6 +294,17 @@ function findGithubReleaseAsset({ releases, preferredVersion, patterns }) {
       release: preferredRelease,
       asset: preferredAsset,
     };
+  }
+
+  for (const release of releases) {
+    const fallbackAsset = findInRelease(release);
+
+    if (fallbackAsset) {
+      return {
+        release,
+        asset: fallbackAsset,
+      };
+    }
   }
 
   return null;

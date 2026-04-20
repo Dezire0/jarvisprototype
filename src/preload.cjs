@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   checkForUpdates() {
     return ipcRenderer.invoke("assistant:check-for-updates");
   },
+  installUpdate() {
+    return ipcRenderer.invoke("assistant:install-update");
+  },
   invokeTool(tool, payload = {}) {
     return ipcRenderer.invoke("assistant:invoke-tool", {
       tool,

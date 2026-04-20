@@ -4,7 +4,7 @@ const https = require("node:https");
 const path = require("node:path");
 const { Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
-const { BrowserWindow, dialog } = require("electron");
+const { BrowserWindow, shell } = require("electron");
 
 let autoUpdater = null;
 
@@ -143,6 +143,62 @@ function fetchJson(url) {
   });
 }
 
+async function fetchGithubReleases({ owner, repo }) {
+  if (!owner || !repo) {
+    return [];
+  }
+
+  const url = new URL(`https://api.github.com/repos/${owner}/${repo}/releases`);
+  url.searchParams.set("per_page", "20");
+
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "Jarvis-Desktop-Updater"
+  };
+  const token = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.JARVIS_GITHUB_TOKEN || "").trim();
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = https.request(
+      url,
+      {
+        method: "GET",
+        headers
+      },
+      (response) => {
+        let body = "";
+
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => {
+          if (response.statusCode && response.statusCode >= 400) {
+            reject(new Error(`Release list check failed with status ${response.statusCode}.`));
+            return;
+          }
+
+          try {
+            const payload = JSON.parse(body);
+            resolve(Array.isArray(payload) ? payload.filter((release) => release && !release.draft && !release.prerelease) : []);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+    );
+
+    request.on("error", reject);
+    request.setTimeout(12_000, () => {
+      request.destroy(new Error("Release list check timed out."));
+    });
+    request.end();
+  });
+}
+
 function chooseGithubAsset(assets = []) {
   const platform = process.platform;
   const architecture = process.arch;
@@ -199,6 +255,33 @@ function chooseGithubAsset(assets = []) {
   }
 
   return bestScore >= 0 ? bestAsset : null;
+}
+
+function chooseNewestReleaseWithAsset(releases = [], currentVersion = "") {
+  let selected = null;
+
+  for (const release of Array.isArray(releases) ? releases : []) {
+    const releaseVersion = normalizeVersion(release?.tag_name || release?.name || "");
+
+    if (!releaseVersion || compareVersions(releaseVersion, currentVersion) <= 0) {
+      continue;
+    }
+
+    const asset = chooseGithubAsset(release.assets);
+    if (!asset) {
+      continue;
+    }
+
+    if (!selected || compareVersions(releaseVersion, selected.version) > 0) {
+      selected = {
+        release,
+        asset,
+        version: releaseVersion
+      };
+    }
+  }
+
+  return selected;
 }
 
 function getInstallerFallbackName(version) {
@@ -431,11 +514,11 @@ class UpdaterService {
       });
 
       if (this.lastTrigger === "manual") {
-        dialog.showMessageBox({
-          type: "info",
-          title: "Jarvis Desktop",
-          message: "You are already on the latest version."
-        }).catch(() => {});
+        this.updateStatus({
+          state: "idle",
+          message: "You are already on the latest version.",
+          mode: "native"
+        });
       }
     });
 
@@ -580,37 +663,6 @@ class UpdaterService {
     };
   }
 
-  async openInstallerReleasePrompt({ version, asset }) {
-    const downloadUrl = asset?.browser_download_url || "";
-    const result = await dialog.showMessageBox({
-      type: "info",
-      title: "New update is available",
-      message: `Jarvis Desktop ${version} is available.`,
-      detail: asset?.name
-        ? `Download ${asset.name} directly to your Downloads folder.`
-        : "Download the installer directly to your Downloads folder.",
-      buttons: ["Download now", "Later"],
-      defaultId: 0,
-      cancelId: 1
-    }).catch(() => null);
-
-    if (result?.response === 0) {
-      const downloadResult = await this.downloadInstallerAsset({
-        version,
-        downloadUrl
-      });
-
-      if (!downloadResult.ok) {
-        dialog.showMessageBox({
-          type: "error",
-          title: "Update Error",
-          message: "Jarvis Desktop could not download the installer.",
-          detail: downloadResult.message
-        }).catch(() => {});
-      }
-    }
-  }
-
   async checkInstallerRelease(trigger = "manual", nativeError = null) {
     if (!this.installerFallbackEnabled || !this.fallbackConfig) {
       return this.getStatus();
@@ -624,14 +676,11 @@ class UpdaterService {
     });
 
     try {
-      const release = await fetchJson(this.fallbackConfig.releaseApiUrl);
-      const latestVersion = normalizeVersion(release.tag_name || release.name || "");
+      const releases = await fetchGithubReleases(this.fallbackConfig);
+      const match = chooseNewestReleaseWithAsset(releases, this.app.getVersion());
+      const latestVersion = match?.version || "";
 
-      if (!latestVersion) {
-        throw new Error("The latest release does not have a usable version tag.");
-      }
-
-      if (compareVersions(latestVersion, this.app.getVersion()) <= 0) {
+      if (!match || compareVersions(latestVersion, this.app.getVersion()) <= 0) {
         this.updateStatus({
           state: "idle",
           message: "You are on the latest version.",
@@ -645,19 +694,12 @@ class UpdaterService {
           mode: "installer"
         });
 
-        if (trigger === "manual") {
-          dialog.showMessageBox({
-            type: "info",
-            title: "Jarvis Desktop",
-            message: "You are already on the latest version."
-          }).catch(() => {});
-        }
-
         return this.getStatus();
       }
 
-      const asset = chooseGithubAsset(release.assets);
+      const asset = match.asset;
       const downloadUrl = String(asset?.browser_download_url || "").trim();
+      const releasePageUrl = String(match.release?.html_url || this.fallbackConfig.releaseNotesUrl).trim();
 
       this.updateStatus({
         state: "available",
@@ -667,23 +709,9 @@ class UpdaterService {
         remainingSeconds: 0,
         downloadUrl,
         downloadPath: "",
-        releasePageUrl: this.fallbackConfig.releaseNotesUrl,
+        releasePageUrl,
         mode: "installer"
       });
-
-      if (asset && downloadUrl) {
-        await this.openInstallerReleasePrompt({
-          version: latestVersion,
-          asset
-        });
-      } else if (trigger === "manual") {
-        dialog.showMessageBox({
-          type: "info",
-          title: "New update is available",
-          message: `Jarvis Desktop ${latestVersion} is available.`,
-          detail: "No direct installer asset was found, so there is nothing to download here."
-        }).catch(() => {});
-      }
 
       return this.getStatus();
     } catch (error) {
@@ -695,15 +723,6 @@ class UpdaterService {
         mode: "installer",
         releasePageUrl: this.fallbackConfig.releaseNotesUrl
       });
-
-      if (trigger === "manual") {
-        dialog.showMessageBox({
-          type: "error",
-          title: "Update Error",
-          message: "Jarvis Desktop could not reach the latest release.",
-          detail: message
-        }).catch(() => {});
-      }
 
       return this.getStatus();
     }
@@ -720,10 +739,13 @@ class UpdaterService {
 
     if (this.installerFallbackEnabled) {
       if (this.status.state === "downloaded" && this.status.downloadPath) {
+        const openResult = await shell.openPath(this.status.downloadPath);
+
         return {
-          ok: true,
+          ok: !openResult,
           mode: "installer",
-          targetPath: this.status.downloadPath
+          targetPath: this.status.downloadPath,
+          message: openResult || ""
         };
       }
 

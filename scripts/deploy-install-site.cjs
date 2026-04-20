@@ -86,11 +86,13 @@ const args = [
   "public",
   "--project-name",
   projectName,
-  "--branch",
-  branch,
   "--commit-dirty",
   String(commitDirty),
 ];
+
+if (branch !== "main") {
+  args.push("--branch", branch);
+}
 
 if (commitHash) {
   args.push("--commit-hash", commitHash);

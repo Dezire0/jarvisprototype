@@ -550,6 +550,17 @@ function getUpdateBannerCopy(status = {}) {
     };
   }
 
+  if (state === "downloaded" && mode === "installer") {
+    return {
+      title: "Installer ready",
+      message: version ? `Jarvis Desktop ${version} installer is ready.` : "The latest installer is ready.",
+      detail: "Click Install now to launch the downloaded installer from inside the app.",
+      primaryLabel: "Install now",
+      secondaryLabel: "Later",
+      primaryEnabled: true
+    };
+  }
+
   if (state === "downloading") {
     return {
       title: "New update is available",
@@ -630,6 +641,12 @@ async function handleUpdateBannerAction(status = {}) {
         return;
       }
 
+      if (result.mode === "installer" && result.targetPath) {
+        updateBannerMessage.textContent = "Installer opened. Finish the update in the setup wizard.";
+        updateBannerDetail.textContent = result.targetPath;
+        return;
+      }
+
       if (result.targetUrl) {
         updateBannerMessage.textContent = "Download page opened. Get the latest version now.";
         updateBannerDetail.textContent = "";
@@ -641,7 +658,7 @@ async function handleUpdateBannerAction(status = {}) {
     }
 
     const fallbackCopy = getUpdateBannerCopy(status);
-    updateBannerMessage.textContent = fallbackCopy.message;
+    updateBannerMessage.textContent = result?.message || fallbackCopy.message;
     updateBannerDetail.textContent = fallbackCopy.detail;
   } catch (_error) {
     updateBannerMessage.textContent = "Update check failed. Please try again later.";
