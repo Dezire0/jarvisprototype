@@ -280,28 +280,20 @@ function findGithubReleaseAsset({ releases, preferredVersion, patterns }) {
 
   const normalizedPreferredVersion = normalizeReleaseVersion(preferredVersion);
 
-  if (normalizedPreferredVersion) {
-    const preferredRelease = releases.find(
-      (release) => normalizeReleaseVersion(release.tag_name) === normalizedPreferredVersion,
-    );
-    const preferredAsset = findInRelease(preferredRelease);
-
-    if (preferredAsset) {
-      return {
-        release: preferredRelease,
-        asset: preferredAsset,
-      };
-    }
+  if (!normalizedPreferredVersion) {
+    return null;
   }
 
-  for (const release of releases) {
-    const asset = findInRelease(release);
-    if (asset) {
-      return {
-        release,
-        asset,
-      };
-    }
+  const preferredRelease = releases.find(
+    (release) => normalizeReleaseVersion(release.tag_name) === normalizedPreferredVersion,
+  );
+  const preferredAsset = findInRelease(preferredRelease);
+
+  if (preferredAsset) {
+    return {
+      release: preferredRelease,
+      asset: preferredAsset,
+    };
   }
 
   return null;
