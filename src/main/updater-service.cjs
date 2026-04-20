@@ -486,6 +486,9 @@ class UpdaterService {
   installNativeUpdaterHandlers() {
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
+    // 코드 서명 인증서(CSC_LINK)가 없는 환경에서 빌드 시
+    // macOS ShipIt이 서명 불일치로 업데이트를 거부하는 문제를 방지합니다.
+    autoUpdater.verifyUpdateCodeSignature = false;
 
     autoUpdater.on("checking-for-update", () => {
       this.updateStatus({

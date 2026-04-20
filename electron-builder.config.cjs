@@ -132,6 +132,8 @@ module.exports = {
     icon: path.join(__dirname, "resources", "icons", "icon.icns"),
     hardenedRuntime: true,
     gatekeeperAssess: false,
+    // CSC_LINK가 설정되지 않은 경우 ad-hoc 서명 사용 (서명 불일치로 인한 업데이트 실패 방지)
+    identity: process.env.CSC_LINK ? undefined : null,
     category: "public.app-category.productivity",
     entitlements: path.join(__dirname, "resources", "macos", "entitlements.mac.plist"),
     entitlementsInherit: path.join(__dirname, "resources", "macos", "entitlements.mac.inherit.plist"),
