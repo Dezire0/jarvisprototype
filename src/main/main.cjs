@@ -24,6 +24,11 @@ const { SttService } = require("./stt-service.cjs");
 const { TtsService } = require("./tts-service.cjs");
 const { UpdaterService } = require("./updater-service.cjs");
 
+const unofficialAI = require("./unofficial-ai-provider.cjs");
+const piiManager = require("./pii-manager.cjs");
+const osAutomation = require("./os-automation.cjs");
+const notificationMonitor = require("./notification-monitor.cjs");
+
 let popupWindow;
 let settingsWindow;
 let services;
@@ -803,6 +808,36 @@ async function dispatchTool(tool, payload = {}) {
         tool,
         data
       };
+    }
+    case "ai:web-login": {
+      const token = await unofficialAI.requireLogin();
+      return {
+        ok: !!token,
+        tool,
+        token: !!token
+      };
+    }
+    case "ai:web-status": {
+      const token = await unofficialAI.getAccessToken();
+      return {
+        ok: true,
+        tool,
+        connected: !!token
+      };
+    }
+    case "pii:set": {
+      piiManager.set(payload.key, payload.value);
+      return { ok: true, tool };
+    }
+    case "pii:list": {
+      return { ok: true, tool, keys: piiManager.getAvailableKeys() };
+    }
+    case "pii:delete": {
+      piiManager.delete(payload.key);
+      return { ok: true, tool };
+    }
+    case "os:notifications": {
+      return { ok: true, tool, context: notificationMonitor.getAIContextString() };
     }
     case "project:create": {
       const data = await liveServices.codeProjects.createProject(

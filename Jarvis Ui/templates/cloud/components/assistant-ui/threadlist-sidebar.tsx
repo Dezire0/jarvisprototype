@@ -221,6 +221,8 @@ export function ThreadListSidebar({
     null,
   );
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [webAiConnected, setWebAiConnected] = useState(false);
+  const [piiKeys, setPiiKeys] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const previousThreadIdsRef = useRef<string[]>([]);
   const previousMessageCountRef = useRef(0);
@@ -287,6 +289,22 @@ export function ThreadListSidebar({
         unsubscribe();
       }
     };
+  }, []);
+
+  useEffect(() => {
+    // Periodically check Web AI connection status
+    const checkStatus = async () => {
+      if (window.assistantAPI?.invokeTool) {
+        const res = await window.assistantAPI.invokeTool("ai:web-status", {});
+        if (res.ok) setWebAiConnected(res.connected);
+        
+        const piiRes = await window.assistantAPI.invokeTool("pii:list", {});
+        if (piiRes.ok) setPiiKeys(piiRes.keys);
+      }
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -868,9 +886,39 @@ export function ThreadListSidebar({
               </span>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">로그인</span>
-              <span className="font-medium text-foreground">미연결</span>
+              <span className="text-muted-foreground">로그인 (Web AI)</span>
+              <span className={cn("font-medium", webAiConnected ? "text-green-500" : "text-amber-500")}>
+                {webAiConnected ? "연결됨" : "미연결"}
+              </span>
             </div>
+            {!webAiConnected && (
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="mt-1 w-full rounded-xl"
+                onClick={() => window.assistantAPI?.invokeTool("ai:web-login", {})}
+              >
+                ChatGPT 로그인하기
+              </Button>
+            )}
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">보안 정보 (PII)</span>
+              <span className="text-xs text-muted-foreground">{piiKeys.length}개 저장됨</span>
+            </div>
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className="mt-1 w-full rounded-xl border border-dashed border-border/50"
+              onClick={() => {
+                const key = window.prompt("저장할 정보의 이름을 입력하세요 (예: password, address)");
+                if (key) {
+                  const val = window.prompt(`${key}의 값을 입력하세요`);
+                  if (val) window.assistantAPI?.invokeTool("pii:set", { key, value: val });
+                }
+              }}
+            >
+              개인정보 추가/관리
+            </Button>
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">음성 입력</span>
               <span className="font-medium text-foreground">

@@ -1,11 +1,30 @@
 const {
-  chat,
+  chat: officialChat,
   buildBasePrompt,
   detectLanguageCode,
   FAST_ROUTER_MODEL,
   FAST_PLANNER_MODEL,
   getTierProviderLabel
 } = require("./ollama-service.cjs");
+
+const unofficialAI = require("./unofficial-ai-provider.cjs");
+const osAutomation = require("./os-automation.cjs");
+const piiManager = require("./pii-manager.cjs");
+
+// Override chat to use unofficial Web AI session if configured
+// For now, we will use unofficialAI for everything to save tokens,
+// but fallback to official if needed.
+const chat = async (options) => {
+  try {
+    const prompt = options.systemPrompt 
+      ? `${options.systemPrompt}\n\n${options.userPrompt}`
+      : options.userPrompt;
+    return await unofficialAI.chat(prompt);
+  } catch (err) {
+    console.error("Unofficial AI failed, falling back to official API:", err.message);
+    return await officialChat(options);
+  }
+};
 
 const LONG_TERM_MEMORY_SYSTEM_PROMPT = [
   "You extract durable long-term user memory for a desktop assistant.",
@@ -4080,27 +4099,27 @@ class AssistantService {
   static REACT_MAX_STEPS = 15;
 
   static REACT_AGENT_SYSTEM_PROMPT = [
-    "You are Jarvis, an autonomous browser agent. You control a web browser by issuing ONE action at a time.",
-    "After each action, you will receive the new page state including interactive elements tagged with [id] numbers.",
+    "You are Jarvis, an autonomous browser and OS agent. You control the computer by issuing ONE action at a time.",
+    "After each action, you will receive the new state (web page state or OS state).",
     "",
     "AVAILABLE ACTIONS (respond with valid JSON only):",
     '  {"action":"navigate","url":"https://..."} — Go to a URL',
-    '  {"action":"click","element_id":3,"reason":"..."} — Click element by its tag number',
-    '  {"action":"type","element_id":5,"text":"...","reason":"..."} — Type into an input/textarea',
-    '  {"action":"press_key","key":"Enter","reason":"..."} — Press a keyboard key (Enter, Escape, Tab, etc.)',
-    '  {"action":"scroll","direction":"down","reason":"..."} — Scroll the page (up/down)',
-    '  {"action":"wait","reason":"..."} — Wait for page to load',
-    '  {"action":"done","summary":"..."} — Task is complete, provide a summary of what was accomplished',
+    '  {"action":"click","element_id":3,"reason":"..."} — Click web element by tag',
+    '  {"action":"type","element_id":5,"text":"...","reason":"..."} — Type in web element',
+    '  {"action":"press_key","key":"Enter","reason":"..."} — Press a key',
+    '  {"action":"scroll","direction":"down","reason":"..."} — Scroll page',
+    '  {"action":"wait","reason":"..."} — Wait for load',
+    '  {"action":"ask_pii","field":"password","reason":"..."} — Ask user for sensitive info (e.g., password) instead of guessing',
+    '  {"action":"os_type","text":"...","reason":"..."} — Type text natively in OS',
+    '  {"action":"os_app","name":"Safari","reason":"..."} — Open OS application',
+    '  {"action":"done","summary":"..."} — Task complete, provide summary',
     "",
     "RULES:",
     "1. Issue exactly ONE action per response. No multi-step plans.",
-    "2. Always include a 'reason' field explaining why you chose this action.",
-    "3. Look at the element list carefully. Click buttons and links by their [id] number, not by guessing.",
-    "4. If you see a cookie consent popup or unexpected dialog, dismiss it first before continuing.",
-    "5. If an element was not found, look at the current elements and pick the correct one.",
-    "6. When typing into a search box, usually follow up with pressing Enter or clicking a search button.",
-    "7. When your goal is achieved (page loaded, search results visible, content found), use 'done'.",
-    "8. Respond with JSON only. No markdown, no explanation outside the JSON."
+    "2. Always include a 'reason' field.",
+    "3. Look at the element list carefully.",
+    "4. NEVER GUESS PASSWORDS or PII. Use ask_pii if you need sensitive login info.",
+    "5. When your goal is achieved, use 'done'."
   ].join("\n");
 
   /**
@@ -4161,9 +4180,15 @@ class AssistantService {
   buildReActObservation(state, stepNum, errorMessage = "") {
     const lines = [
       `=== Step ${stepNum} Observation ===`,
+      `Active OS App: ${osAutomation.getActiveApp()}`,
       `URL: ${state.url}`,
       `Title: ${state.title || "(untitled)"}`,
     ];
+
+    const notifs = notificationMonitor.getAIContextString();
+    if (notifs) {
+      lines.push(`--- System Notifications ---\n${notifs}\n---------------------------`);
+    }
 
     if (state.anomalies?.length) {
       lines.push(`⚠️ Detected issues: ${state.anomalies.join(", ")}`);
@@ -4204,6 +4229,20 @@ class AssistantService {
           return { state: await this.browser.scrollPage(action.direction || "down"), error: null };
         case "wait":
           return { state: await this.browser.waitAndObserve(2000), error: null };
+        case "ask_pii":
+          // Check if we already have it in PII Manager
+          const storedPii = piiManager.get(action.field);
+          if (storedPii) {
+            return { state: { ...await this.browser.observe(), pii_retrieved: storedPii }, error: null };
+          }
+          // Otherwise, we would prompt the user. For now, simulate missing PII.
+          return { state: await this.browser.observe(), error: `Missing PII for ${action.field}. Please ask user to set it.` };
+        case "os_type":
+          osAutomation.typeText(action.text);
+          return { state: await this.browser.observe(), error: null };
+        case "os_app":
+          osAutomation.openApplication(action.name);
+          return { state: await this.browser.observe(), error: null };
         case "done":
           return { state: null, error: null };
         default:
