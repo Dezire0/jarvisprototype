@@ -1,4 +1,4 @@
-/// <reference path="./scope-registration.ts" />
+import "./scope-registration";
 
 // scopes
 export type {

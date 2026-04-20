@@ -8,7 +8,7 @@ declare global {
       checkForUpdates: () => Promise<unknown>;
       installUpdate: () => Promise<unknown>;
       invokeTool: (tool: string, payload?: Record<string, unknown>) => Promise<unknown>;
-      onUpdateStatus: (callback: (payload: unknown) => void) => void;
+      onUpdateStatus: (callback: (payload: unknown) => void) => (() => void) | void;
     };
   }
 }

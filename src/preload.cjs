@@ -62,12 +62,24 @@ contextBridge.exposeInMainWorld("assistantAPI", {
     });
   },
   onWakeState(callback) {
-    ipcRenderer.on("assistant:wake-state", (_event, payload) => callback(payload));
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("assistant:wake-state", listener);
+    return () => {
+      ipcRenderer.removeListener("assistant:wake-state", listener);
+    };
   },
   onMuteState(callback) {
-    ipcRenderer.on("assistant:mute-state", (_event, payload) => callback(payload));
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("assistant:mute-state", listener);
+    return () => {
+      ipcRenderer.removeListener("assistant:mute-state", listener);
+    };
   },
   onUpdateStatus(callback) {
-    ipcRenderer.on("assistant:update-status", (_event, payload) => callback(payload));
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("assistant:update-status", listener);
+    return () => {
+      ipcRenderer.removeListener("assistant:update-status", listener);
+    };
   }
 });

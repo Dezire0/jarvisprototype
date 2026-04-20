@@ -1,4 +1,5 @@
 const fs = require("node:fs/promises");
+const fsSync = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { loadProjectEnv } = require("../src/main/project-env.cjs");
@@ -38,17 +39,35 @@ function resolveCorepackCommand() {
   const nodeBinDir = path.dirname(process.execPath);
   const candidates = process.platform === "win32"
     ? [
-        path.join(nodeBinDir, "corepack.cmd"),
-        path.join(nodeBinDir, "corepack.exe"),
-        "corepack.cmd",
-        "corepack"
+        path.join(nodeBinDir, "node.exe"),
+        process.execPath
       ]
     : [
-        path.join(nodeBinDir, "corepack"),
-        "corepack"
+        process.execPath
       ];
 
   return candidates[0];
+}
+
+function getCorepackArgs() {
+  const nodeBinDir = path.dirname(process.execPath);
+  const candidates = [
+    path.join(nodeBinDir, "..", "node_modules", "corepack", "dist", "corepack.js"),
+    path.join(nodeBinDir, "node_modules", "corepack", "dist", "corepack.js"),
+    path.join(nodeBinDir, "corepack"),
+    path.join(nodeBinDir, "corepack.js")
+  ];
+
+  const corepackPath = candidates.find((candidate) => fsSync.existsSync(candidate));
+
+  if (!corepackPath) {
+    throw new Error(`Unable to locate corepack entrypoint near ${process.execPath}`);
+  }
+
+  return [
+    corepackPath,
+    "pnpm"
+  ];
 }
 
 async function pathExists(targetPath) {
@@ -184,7 +203,7 @@ async function main() {
   await runCommand(
     resolveCorepackCommand(),
     [
-      "pnpm",
+      ...getCorepackArgs(),
       "--dir",
       jarvisUiRoot,
       "-r",
