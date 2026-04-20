@@ -31,6 +31,6 @@ jobs:
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUD_FLARE_ID }}
           CF_PAGES_PROJECT_NAME: dexproject
         run: npm run site:install:deploy
