@@ -70,7 +70,8 @@ class UnofficialAIProvider {
       this.loginWindow = new BrowserWindow({
         width: 800,
         height: 800,
-        title: "Login to ChatGPT",
+        title: "Jarvis 연동을 위한 ChatGPT 로그인 (완료 시 창이 자동으로 닫힙니다)",
+        autoHideMenuBar: true,
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
@@ -78,7 +79,6 @@ class UnofficialAIProvider {
         }
       });
 
-      // Clear cookies to force a fresh login if needed? No, let's keep it persistent.
       this.loginWindow.loadURL("https://chatgpt.com");
 
       // Monitor navigations to see when they hit the main chat interface
