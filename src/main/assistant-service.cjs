@@ -4075,267 +4075,305 @@ class AssistantService {
     }
   }
 
-  async planBrowserTask(input) {
-    const heuristic = buildHeuristicBrowserPlan(input);
+  // ─── v2 ReAct Loop Constants ──────────────────────────────────────────────
 
-    if (heuristic.login?.required) {
-      return heuristic;
+  static REACT_MAX_STEPS = 15;
+
+  static REACT_AGENT_SYSTEM_PROMPT = [
+    "You are Jarvis, an autonomous browser agent. You control a web browser by issuing ONE action at a time.",
+    "After each action, you will receive the new page state including interactive elements tagged with [id] numbers.",
+    "",
+    "AVAILABLE ACTIONS (respond with valid JSON only):",
+    '  {"action":"navigate","url":"https://..."} — Go to a URL',
+    '  {"action":"click","element_id":3,"reason":"..."} — Click element by its tag number',
+    '  {"action":"type","element_id":5,"text":"...","reason":"..."} — Type into an input/textarea',
+    '  {"action":"press_key","key":"Enter","reason":"..."} — Press a keyboard key (Enter, Escape, Tab, etc.)',
+    '  {"action":"scroll","direction":"down","reason":"..."} — Scroll the page (up/down)',
+    '  {"action":"wait","reason":"..."} — Wait for page to load',
+    '  {"action":"done","summary":"..."} — Task is complete, provide a summary of what was accomplished',
+    "",
+    "RULES:",
+    "1. Issue exactly ONE action per response. No multi-step plans.",
+    "2. Always include a 'reason' field explaining why you chose this action.",
+    "3. Look at the element list carefully. Click buttons and links by their [id] number, not by guessing.",
+    "4. If you see a cookie consent popup or unexpected dialog, dismiss it first before continuing.",
+    "5. If an element was not found, look at the current elements and pick the correct one.",
+    "6. When typing into a search box, usually follow up with pressing Enter or clicking a search button.",
+    "7. When your goal is achieved (page loaded, search results visible, content found), use 'done'.",
+    "8. Respond with JSON only. No markdown, no explanation outside the JSON."
+  ].join("\n");
+
+  /**
+   * v2: Resolve the initial URL to navigate to based on user intent (heuristic).
+   * This replaces the old planBrowserTask for the initial navigation step only.
+   */
+  resolveInitialBrowserUrl(input) {
+    const normalized = normalizePlanText(input);
+
+    // Explicit URL in input
+    const explicitUrl = extractUrl(normalized);
+    if (explicitUrl) {
+      return /^https?:\/\//i.test(explicitUrl) ? explicitUrl : `https://${explicitUrl}`;
     }
 
-    if (!looksComplexChainedRequest(input) && isFastBrowserPlan(heuristic)) {
-      return heuristic;
+    // YouTube request
+    if (looksLikeYouTubePlaybackRequest(normalized) || /(유튜브|youtube)/i.test(normalized)) {
+      const query = extractYouTubePlaybackQuery(normalized);
+      if (query) return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+      return "https://www.youtube.com/";
     }
 
+    // Known site
+    const siteName = guessSiteName(normalized);
+    const knownUrl = getKnownSiteUrl(siteName);
+    if (knownUrl) return knownUrl;
+
+    // Direct site URL
+    const directUrl = buildDirectSiteUrl(siteName || normalized);
+    if (directUrl) return directUrl;
+
+    // Fallback: Google search
+    const query = stripCommandPrefix(normalized) || normalized;
+    return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+  }
+
+  /**
+   * Format DOM-tagged elements into a compact text table for the AI.
+   */
+  formatElementsForAI(elements = []) {
+    if (!elements.length) return "(No interactive elements found on page)";
+    return elements.map(el => {
+      const parts = [`[${el.id}]`, el.tag];
+      if (el.type) parts.push(`type=${el.type}`);
+      if (el.role) parts.push(`role=${el.role}`);
+      if (el.text) parts.push(`"${el.text.slice(0, 60)}"`);
+      if (el.placeholder) parts.push(`placeholder="${el.placeholder}"`);
+      if (el.ariaLabel) parts.push(`aria="${el.ariaLabel.slice(0, 40)}"`);
+      if (el.href) parts.push(`href=${el.href.slice(0, 60)}`);
+      if (el.value) parts.push(`value="${el.value}"`);
+      return parts.join(" ");
+    }).join("\n");
+  }
+
+  /**
+   * Build the observation message sent to the AI at each ReAct step.
+   */
+  buildReActObservation(state, stepNum, errorMessage = "") {
+    const lines = [
+      `=== Step ${stepNum} Observation ===`,
+      `URL: ${state.url}`,
+      `Title: ${state.title || "(untitled)"}`,
+    ];
+
+    if (state.anomalies?.length) {
+      lines.push(`⚠️ Detected issues: ${state.anomalies.join(", ")}`);
+    }
+    if (errorMessage) {
+      lines.push(`❌ Previous action failed: ${errorMessage}`);
+    }
+
+    lines.push("");
+    lines.push(`Interactive elements (${state.elementCount} total):`);
+    lines.push(this.formatElementsForAI(state.elements));
+
+    if (state.visibleText) {
+      lines.push("");
+      lines.push(`Visible page text (truncated):`);
+      lines.push(state.visibleText.slice(0, 1500));
+    }
+
+    return lines.join("\n");
+  }
+
+  /**
+   * Execute one ReAct action returned by the AI.
+   * Returns: { state, error }
+   */
+  async executeReActAction(action) {
     try {
-      const plannerPrompt = [
-        "You convert desktop browser requests into a short JSON execution plan.",
-        "Respond with valid JSON only.",
-        'Schema: {"reply":"short summary","steps":[{"action":"open_url","target":"https://example.com"}]}',
-        "Allowed actions: open_url, search_google, search_youtube, click_text, click_search_result, site_search, read_page.",
-        "For navigation requests like 'search then open', create multiple steps in order.",
-        "If a site requires login, prefer opening the site and letting the user complete the login manually before continuing the workflow.",
-        "For known site names like YouTube, GitHub, and Google, prefer click_text or open_url rather than raw search-result URLs."
-      ].join(" ");
-
-      const raw = await chat({
-        systemPrompt: plannerPrompt,
-        tier: "fast",
-        model: FAST_PLANNER_MODEL,
-        userPrompt: normalizePlanText(input)
-      });
-
-      const parsed = safeJsonParse(raw);
-
-      if (!parsed?.steps?.length) {
-        return heuristic;
+      switch (action.action) {
+        case "navigate":
+          return { state: await this.browser.navigate(action.url), error: null };
+        case "click":
+          return { state: await this.browser.clickElement(action.element_id), error: null };
+        case "type":
+          return { state: await this.browser.typeText(action.element_id, action.text), error: null };
+        case "press_key":
+          return { state: await this.browser.pressKey(action.key || "Enter"), error: null };
+        case "scroll":
+          return { state: await this.browser.scrollPage(action.direction || "down"), error: null };
+        case "wait":
+          return { state: await this.browser.waitAndObserve(2000), error: null };
+        case "done":
+          return { state: null, error: null };
+        default:
+          return { state: await this.browser.observe(), error: `Unknown action: ${action.action}` };
       }
-
-      const plan = {
-        reply: parsed.reply || "",
-        steps: parsed.steps
-      };
-
-      if (heuristic.steps.length >= 2 && heuristic.steps[1]?.action === "open_url") {
-        return heuristic;
+    } catch (err) {
+      // Self-correcting: return the error to AI so it can adapt
+      try {
+        const recoveryState = await this.browser.observe();
+        return { state: recoveryState, error: err.message };
+      } catch {
+        return { state: null, error: err.message };
       }
-
-      return plan;
-    } catch (_error) {
-      return heuristic;
     }
   }
 
-  async planAppTask(input, appName) {
-    const fallback = buildFallbackAppPlan(input, appName);
-    const extensionHints = this.getExtensionPlanningHints(appName);
-
-    if (!looksComplexChainedRequest(input) && isFastAppPlan(fallback)) {
-      return fallback;
-    }
-
-    try {
-      const plannerPrompt = [
-        "You convert desktop app control requests into a short JSON execution plan.",
-        "Respond with valid JSON only.",
-        'Schema: {"reply":"short summary","steps":[{"action":"open_app","target":"Notes"}]}',
-        "Allowed actions: open_app, open_url, app_type, app_key, app_shortcut, app_menu_click.",
-        "app_key fields: target, key, optional modifiers.",
-        "app_shortcut fields: target, key, modifiers.",
-        "app_type fields: target, text.",
-        "app_menu_click fields: target, menuPath as an array of menu labels.",
-        "Always start with open_app unless the request is impossible.",
-        "Keep plans safe and realistic for desktop UI automation.",
-        "Prefer command+n for new notes/documents/tabs/windows, command+f for in-app search, and enter to confirm searches when needed.",
-        extensionHints.length
-          ? `Connector and skill hints for this app: ${extensionHints.join(" | ")}`
-          : ""
-      ].join(" ");
-
-      const raw = await chat({
-        systemPrompt: plannerPrompt,
-        tier: "fast",
-        model: FAST_PLANNER_MODEL,
-        userPrompt: [
-          `App name: ${appName}`,
-          "",
-          `User request: ${input}`
-        ].join("\n")
-      });
-
-      const parsed = safeJsonParse(raw);
-
-      if (!parsed?.steps?.length) {
-        return fallback;
-      }
-
-      return {
-        reply: parsed.reply || "",
-        steps: parsed.steps.map((step) => ({
-          ...step,
-          target: step.target || appName
-        }))
-      };
-    } catch (_error) {
-      return fallback;
-    }
-  }
-
-  async polishCommandReply(input, result, fallbackMessage = "") {
-    const language = detectReplyLanguage(input);
-    const summary = JSON.stringify(
-      {
-        actions: result.actions,
-        details: result.details || {}
-      },
-      null,
-      2
-    );
-    const fallback = buildCommandFallback(language, fallbackMessage || result.reply);
-
-    if (shouldSkipCommandPolish(input, result)) {
-      return fallback;
-    }
-
-    try {
-      return await chat({
-        systemPrompt: [
-          "You write the final user-facing message for Jarvis after a desktop task has already been executed.",
-          `Reply only in ${buildLanguageName(language)}.`,
-          "Sound calm, polished, and competent with a subtle Jarvis flavor.",
-          "Keep it to 1 or 2 short paragraphs.",
-          "First say what was completed or what happened in plain language.",
-          "If helpful, end with one short follow-up offer or one practical next step.",
-          "Never mention internal tools, JSON, models, routes, or APIs.",
-          "Do not spell out raw URLs unless the user explicitly asked for a URL. Prefer site names or page names."
-        ].join(" "),
-        userPrompt: [
-          `User request: ${input}`,
-          "",
-          "Execution summary:",
-          summary
-        ].join("\n"),
-        tier: "fast"
-      });
-    } catch (_error) {
-      return fallback;
-    }
-  }
-
-  async handleScreenAcademic(input) {
-    const capture = await this.screen.captureAndOcr();
-    const reply = await this.replyWithModel(
-      input,
-      [
-        "The following text came from OCR on the user's current screen.",
-        "Act as an academic and workplace advisor.",
-        "If the OCR looks like a math, science, humanities, or writing task, explain the likely context and help the user move forward.",
-        `OCR:\n${capture.text || "(No readable text was detected on screen.)"}`
-      ].join("\n\n"),
-      {
-        tier: "complex"
-      }
-    );
-
-    return {
-      reply,
-      actions: [
-        this.makeAction("screen_capture", capture.imagePath),
-        this.makeAction("screen_ocr", `chars:${capture.text.length}`),
-        this.makeAction("academic_assist", "screen")
-      ],
-      provider: getTierProviderLabel("complex"),
-      details: {
-        ocrText: capture.text,
-        imagePath: capture.imagePath
-      }
-    };
-  }
-
-  async handleScreenSummary(input) {
-    const capture = await this.screen.captureAndOcr();
-    const reply = await this.replyWithModel(
-      input,
-      [
-        "Summarize what is visible on the screen using the OCR below.",
-        "If the OCR is noisy, say so and still extract the likely meaning.",
-        `OCR:\n${capture.text || "(No readable text was detected on screen.)"}`
-      ].join("\n\n"),
-      {
-        tier: "fast"
-      }
-    );
-
-    return {
-      reply,
-      actions: [
-        this.makeAction("screen_capture", capture.imagePath),
-        this.makeAction("screen_ocr", `chars:${capture.text.length}`)
-      ],
-      provider: getTierProviderLabel("fast"),
-      details: {
-        ocrText: capture.text,
-        imagePath: capture.imagePath
-      }
-    };
-  }
-
+  /**
+   * v2 ReAct Loop: The core autonomous browser handler.
+   * Replaces the old planBrowserTask → executePlan → completeBrowserPlan pipeline.
+   */
   async handleBrowser(input) {
-    const plan = await this.planBrowserTask(input);
+    const language = detectReplyLanguage(input);
+    const actions = [];
+    const maxSteps = AssistantService.REACT_MAX_STEPS;
 
-    if (plan.login?.required) {
-      return this.beginPendingBrowserContinuation(input, plan);
+    // Step 0: Navigate to initial URL
+    const initialUrl = this.resolveInitialBrowserUrl(input);
+    let state;
+    try {
+      state = await this.browser.navigate(initialUrl);
+    } catch (navError) {
+      // If Playwright fails, try system browser as fallback
+      try {
+        await this.automation.execute({ type: "open_url", target: initialUrl });
+        const label = inferFriendlyBrowserLabel(initialUrl, language) || initialUrl;
+        return {
+          reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
+          actions: [this.makeAction("open_url", initialUrl)],
+          provider: "system-browser",
+          details: { url: initialUrl, openMode: "external-browser" }
+        };
+      } catch {
+        throw navError;
+      }
+    }
+    actions.push(this.makeAction("browser_navigate", initialUrl));
+
+    // Build conversation history for the ReAct agent
+    const agentHistory = [];
+    let lastError = "";
+    let finalSummary = "";
+
+    // Check if the initial page already satisfies the request (simple open)
+    const isSimpleOpen = /^(open|go to|visit|열어|들어가|켜)/i.test(normalizePlanText(input)) &&
+      !/(search|검색|찾아|play|틀어|read|읽어|summarize|요약)/i.test(normalizePlanText(input));
+
+    if (isSimpleOpen && !state.anomalies?.length) {
+      const label = inferFriendlyBrowserLabel(state.title || initialUrl, language) || initialUrl;
+      return {
+        reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
+        actions,
+        provider: "local",
+        details: { url: state.url, title: state.title }
+      };
     }
 
-    if (isSimpleExternalBrowserPlan(plan)) {
-      const step = plan.steps[0] || {};
-      const targetUrl = buildExternalBrowserTarget(step);
+    // ReAct Loop
+    for (let step = 1; step <= maxSteps; step++) {
+      const observation = this.buildReActObservation(state, step, lastError);
+      lastError = "";
 
-      if (targetUrl) {
-        try {
-          await this.automation.execute({
-            type: "open_url",
-            target: targetUrl
-          });
+      // Build the user prompt for this step
+      const userPrompt = step === 1
+        ? `User's goal: ${input}\n\n${observation}\n\nDecide your first action to achieve the user's goal.`
+        : `${observation}\n\nContinue working toward the goal: ${input}`;
 
-          const language = detectReplyLanguage(input);
-          const finalPage = {
-            url: targetUrl,
-            title:
-              step.action === "open_url"
-                ? inferFriendlyBrowserLabel(step.target || targetUrl, language)
-                : ""
-          };
-          const actions = [this.makeAction("open_url", targetUrl)];
-          const details = {
-            title: finalPage.title || "",
-            url: finalPage.url,
-            openMode: "external-browser",
-            plannedStep: step
-          };
+      agentHistory.push({ role: "user", content: userPrompt });
 
-          return {
-            reply: buildCompactBrowserReply(
-              input,
-              [
-                {
-                  ...step,
-                  target: targetUrl
-                }
-              ],
-              finalPage
-            ),
-            actions,
-            provider: "system-browser",
-            details
-          };
-        } catch (_error) {
-          // Fall through to Playwright automation when the system browser open fails.
-        }
+      // Ask AI for next action
+      let aiResponse;
+      try {
+        aiResponse = await chat({
+          systemPrompt: AssistantService.REACT_AGENT_SYSTEM_PROMPT,
+          tier: "fast",
+          model: FAST_PLANNER_MODEL,
+          history: agentHistory.slice(-8),  // Keep last 4 exchanges
+          userPrompt
+        });
+      } catch {
+        finalSummary = language === "ko"
+          ? "브라우저 작업 중 AI 응답에 문제가 있었어요."
+          : "There was a problem with the AI response during the browser task.";
+        break;
+      }
+
+      agentHistory.push({ role: "assistant", content: aiResponse });
+
+      // Parse AI action
+      const parsed = safeJsonParse(aiResponse);
+      if (!parsed?.action) {
+        lastError = "Invalid AI response (not valid JSON with an action field). Try again.";
+        continue;
+      }
+
+      // Done?
+      if (parsed.action === "done") {
+        finalSummary = parsed.summary || "";
+        actions.push(this.makeAction("browser_done", parsed.summary || "completed"));
+        break;
+      }
+
+      // Execute the action
+      const result = await this.executeReActAction(parsed);
+      actions.push(this.makeAction(`browser_${parsed.action}`,
+        parsed.url || parsed.text || `element_${parsed.element_id}` || parsed.key || parsed.direction || ""));
+
+      if (result.error) {
+        lastError = result.error;
+      }
+
+      if (result.state) {
+        state = result.state;
+      } else if (!result.error) {
+        // done action already handled above
+        break;
       }
     }
 
-    const data = await this.browser.executePlan(plan.steps);
-    return this.completeBrowserPlan(input, data);
+    // Build final reply
+    const finalState = state || {};
+    const notices = detectBrowserSpecialCases(finalState);
+    let reply = "";
+
+    if (finalSummary) {
+      reply = finalSummary;
+    } else {
+      // Ask AI to summarize what happened
+      try {
+        reply = await this.replyWithModel(
+          input,
+          [
+            "The user asked you to do something in the browser. Here is the result.",
+            `Reply only in ${buildLanguageName(language)}.`,
+            `Final page URL: ${finalState.url || "(unknown)"}`,
+            `Final page title: ${finalState.title || "(untitled)"}`,
+            `Actions taken: ${actions.map(a => a.type).join(" → ")}`,
+            finalState.visibleText ? `Visible text:\n${finalState.visibleText.slice(0, 2000)}` : ""
+          ].join("\n\n"),
+          { tier: "fast", includeHistory: false }
+        );
+      } catch {
+        reply = language === "ko"
+          ? "브라우저 작업을 처리했어요."
+          : "I handled the browser task.";
+      }
+    }
+
+    reply = appendBrowserNotices(reply, notices, language);
+
+    return {
+      reply,
+      actions,
+      provider: "react-agent",
+      details: {
+        url: finalState.url || "",
+        title: finalState.title || "",
+        stepsExecuted: actions.length,
+        anomalies: notices
+      }
+    };
   }
 
   async handleBrowserLogin(input, route) {
