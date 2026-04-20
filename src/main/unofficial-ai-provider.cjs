@@ -3,11 +3,11 @@ const crypto = require("crypto");
 const { safeJsonParse } = require("./utils.cjs");
 
 /**
- * UnofficialAIProvider extracts the session token from a legitimate ChatGPT
- * login and uses the internal `backend-api` to bypass official API costs.
+ * UnofficialAIProvider는 로그인된 ChatGPT 웹 세션에서 세션 토큰을 추출하여
+ * 내부 `backend-api`를 호출함으로써 공식 API 비용을 절감하는 기능을 제공합니다.
  * 
- * WARNING: This is an unofficial wrapper and is subject to breakage if
- * OpenAI changes their authentication or API structure.
+ * 주의: 이는 공식적인 방법이 아니며, OpenAI의 인증 방식이나 API 구조 변경 시
+ * 언제든지 작동이 중단될 수 있습니다.
  */
 class UnofficialAIProvider {
   constructor() {
@@ -141,11 +141,15 @@ class UnofficialAIProvider {
         url: "https://chatgpt.com/backend-api/conversation",
       });
 
+      const timeout = setTimeout(() => {
+        request.abort();
+        reject(new Error("ChatGPT API response timed out."));
+      }, 45000);
+
       request.setHeader("Authorization", `Bearer ${token}`);
       request.setHeader("Content-Type", "application/json");
       request.setHeader("Accept", "text/event-stream");
       request.setHeader("Oai-Device-Id", this.deviceId);
-      // Essential anti-bot headers
       request.setHeader("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
       request.setHeader("Origin", "https://chatgpt.com");
       request.setHeader("Referer", "https://chatgpt.com/");
@@ -154,7 +158,7 @@ class UnofficialAIProvider {
 
       request.on("response", (response) => {
         if (response.statusCode === 401 || response.statusCode === 403) {
-          // Token expired or Cloudflare blocked
+          clearTimeout(timeout);
           this.accessToken = null;
           reject(new Error(`API Error: ${response.statusCode} (Token might be expired or blocked)`));
           return;
@@ -162,30 +166,35 @@ class UnofficialAIProvider {
 
         response.on("data", (chunk) => {
           const text = chunk.toString();
-          // The response is a Server-Sent Event (SSE) stream
-          // Example: data: {"message": {"author": {"role": "assistant"}, "content": {"parts": ["Hello!"]}}}
-          
           const lines = text.split("\n");
           for (const line of lines) {
             if (line.startsWith("data: ") && line !== "data: [DONE]") {
               try {
                 const data = JSON.parse(line.slice(6));
                 if (data.message?.author?.role === "assistant" && data.message?.content?.parts) {
-                  // The text is appended cumulatively or partially depending on the specific API version.
-                  // Usually, it sends the full cumulative string in parts[0]
                   fullResponse = data.message.content.parts[0];
                 }
               } catch (e) {
-                // Ignore parse errors on incomplete chunks
+                // Ignore incomplete JSON
               }
             }
           }
         });
 
-        response.on("end", () => resolve(fullResponse));
+        response.on("end", () => {
+          clearTimeout(timeout);
+          if (!fullResponse) {
+            reject(new Error("Received empty response from ChatGPT."));
+          } else {
+            resolve(fullResponse);
+          }
+        });
       });
 
-      request.on("error", (error) => reject(error));
+      request.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
       request.write(JSON.stringify(payload));
       request.end();
     });

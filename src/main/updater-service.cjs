@@ -490,7 +490,7 @@ class UpdaterService {
     autoUpdater.on("checking-for-update", () => {
       this.updateStatus({
         state: "checking",
-        message: "Checking for updates...",
+        message: "업데이트 확인 중...",
         mode: "native"
       });
     });
@@ -498,7 +498,7 @@ class UpdaterService {
     autoUpdater.on("update-available", (info) => {
       this.updateStatus({
         state: "available",
-        message: "New update is available.",
+        message: "새로운 업데이트가 있습니다.",
         availableVersion: info.version || "",
         progressPercent: 0,
         remainingSeconds: 0,
@@ -509,7 +509,7 @@ class UpdaterService {
     autoUpdater.on("update-not-available", () => {
       this.updateStatus({
         state: "idle",
-        message: "You are on the latest version.",
+        message: "현재 최신 버전을 사용 중입니다.",
         progressPercent: 0,
         availableVersion: "",
         downloadedVersion: "",
@@ -520,7 +520,7 @@ class UpdaterService {
       if (this.lastTrigger === "manual") {
         this.updateStatus({
           state: "idle",
-          message: "You are already on the latest version.",
+          message: "이미 최신 버전입니다.",
           mode: "native"
         });
       }
@@ -532,7 +532,7 @@ class UpdaterService {
 
       this.updateStatus({
         state: "downloading",
-        message: "Downloading the latest update...",
+        message: `업데이트 다운로드 중... (${Math.round(percent)}%)`,
         progressPercent: percent,
         remainingSeconds: etaSeconds,
         mode: "native"
@@ -542,7 +542,7 @@ class UpdaterService {
     autoUpdater.on("update-downloaded", (info) => {
       this.updateStatus({
         state: "downloaded",
-        message: "Update is ready to install.",
+        message: "업데이트 설치 준비 완료.",
         downloadedVersion: info.version || "",
         progressPercent: 100,
         remainingSeconds: 0,
@@ -552,18 +552,19 @@ class UpdaterService {
 
     autoUpdater.on("error", (error) => {
       const message = error instanceof Error ? error.message : String(error);
+      console.error("Native updater error:", message);
 
       this.updateStatus({
         state: "error",
-        message,
+        message: `업데이트 실패: ${message}`,
         mode: "native"
       });
 
       if (this.lastTrigger === "manual" && !this.installerFallbackEnabled) {
         dialog.showMessageBox({
           type: "error",
-          title: "Update Error",
-          message: "Jarvis Desktop could not complete the update check.",
+          title: "업데이트 오류",
+          message: "Jarvis 업데이트 확인 중에 문제가 발생했습니다.",
           detail: message
         }).catch(() => {});
       }
