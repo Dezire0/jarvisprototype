@@ -23,6 +23,9 @@ import {
   FileTextIcon,
   FolderIcon,
   LogOutIcon,
+  Link2Icon,
+  Link2OffIcon,
+  SparklesIcon,
 } from "lucide-react";
 
 const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
@@ -77,6 +80,8 @@ export function ThreadListSidebar({
   const [loginOpen, setLoginOpen] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [cloudThreads, setCloudThreads] = useState<any[]>([]);
+  const [webAiStatus, setWebAiStatus] = useState<"connected" | "disconnected" | "checking">("checking");
+  const [webAiProvider, setWebAiProvider] = useState<string | null>(null);
 
   const allThreads = threadsState.threadItems.filter(
     (item) => item.status === "regular",
@@ -98,6 +103,11 @@ export function ThreadListSidebar({
         // ignore parse error
       }
     }
+
+    // Check Web AI connection status (ChatGPT/Gemini session)
+    checkWebAiStatus();
+    const interval = setInterval(checkWebAiStatus, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   async function fetchCloudThreads(token: string) {
@@ -109,6 +119,33 @@ export function ThreadListSidebar({
       if (data.success) setCloudThreads(data.threads);
     } catch {
       // silently fail
+    }
+  }
+
+  async function checkWebAiStatus() {
+    if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
+      try {
+        const res = await (window as any).assistantAPI.invokeTool("ai:web-status", {}) as any;
+        if (res?.ok) {
+          setWebAiStatus(res.connected ? "connected" : "disconnected");
+          setWebAiProvider(res.provider || null);
+        }
+      } catch {
+        setWebAiStatus("disconnected");
+      }
+    } else {
+      setWebAiStatus("disconnected");
+    }
+  }
+
+  async function connectWebAi() {
+    if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
+      try {
+        await (window as any).assistantAPI.invokeTool("ai:web-login", { provider: "chatgpt" });
+        setTimeout(checkWebAiStatus, 3000);
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -164,6 +201,36 @@ export function ThreadListSidebar({
         className="border-r-0 bg-[#171717] text-[#ececec] [--sidebar-width:260px]"
       >
         <SidebarHeader className="border-none px-3 pt-3 pb-0">
+          {/* Web AI Connection Status Banner */}
+          <button
+            type="button"
+            onClick={webAiStatus !== "connected" ? connectWebAi : undefined}
+            className={cn(
+              "mb-1 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors w-full text-left",
+              webAiStatus === "connected"
+                ? "bg-emerald-950/60 text-emerald-400 cursor-default"
+                : webAiStatus === "checking"
+                  ? "bg-zinc-800/60 text-zinc-500 cursor-default"
+                  : "bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/60 hover:text-white cursor-pointer"
+            )}
+          >
+            {webAiStatus === "connected" ? (
+              <Link2Icon className="size-3.5 shrink-0" />
+            ) : (
+              <Link2OffIcon className="size-3.5 shrink-0" />
+            )}
+            <span className="flex-1 truncate">
+              {webAiStatus === "connected"
+                ? `Web AI 연결됨 (${webAiProvider || "ChatGPT"})`
+                : webAiStatus === "checking"
+                  ? "Web AI 상태 확인 중..."
+                  : "Web AI 연결 안 됨 — 클릭하여 연결"}
+            </span>
+            {webAiStatus !== "connected" && webAiStatus !== "checking" && (
+              <SparklesIcon className="size-3 shrink-0 text-zinc-500" />
+            )}
+          </button>
+
           <div className="flex flex-col gap-0.5">
             <Button
               variant="ghost"

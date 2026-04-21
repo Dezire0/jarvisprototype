@@ -818,11 +818,12 @@ async function dispatchTool(tool, payload = {}) {
       };
     }
     case "ai:web-status": {
-      const token = await unofficialAI.getAccessToken();
+      const provider = await unofficialAI.isConnected();
       return {
         ok: true,
         tool,
-        connected: !!token
+        connected: !!provider,
+        provider: provider || null
       };
     }
     case "pii:set": {
