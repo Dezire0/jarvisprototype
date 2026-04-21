@@ -430,7 +430,11 @@ class UpdaterService {
 
     if (autoUpdater) {
       const updateConfigPath = path.join(process.resourcesPath, "app-update.yml");
-      if (await pathExists(updateConfigPath)) {
+      // macOS의 경우 서명되지 않은 상태에서 native update(autoUpdater.quitAndInstall)를 시도하면 앱이 손상되거나 삭제되므로,
+      // Windows나 Linux에서만 native를 켜고 macOS는 fallback(DMG 수동 설치)으로 유도합니다.
+      const isMac = process.platform === "darwin";
+      
+      if (!isMac && await pathExists(updateConfigPath)) {
         this.nativeUpdaterEnabled = true;
         this.enabled = true;
         this.installNativeUpdaterHandlers();
