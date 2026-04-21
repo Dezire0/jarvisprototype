@@ -3,12 +3,11 @@ const path = require("path");
 const fs = require("fs");
 
 app.whenReady().then(async () => {
-  const appDataPath = app.getPath("appData");
-  // 쿠키가 확인된 실제 경로로 강제 설정
-  const foundPath = path.join(appDataPath, "jarvis-prototype");
+  // 현재 디렉토리의 temp_test_data를 사용
+  const foundPath = path.join(process.cwd(), "temp_test_data");
   
   console.log("------------------------------------------");
-  console.log("Target UserData Path:", foundPath);
+  console.log("Using ISOLATED Temp Path:", foundPath);
   app.setPath("userData", foundPath);
 
   const unofficialAI = require("./src/main/unofficial-ai-provider.cjs");
@@ -17,22 +16,23 @@ app.whenReady().then(async () => {
   const cookie = await unofficialAI.getChatgptCookie("__Secure-next-auth.session-token");
   
   if (!cookie) {
-    console.error("Error: Session cookie still not found. Please ensure the app is closed.");
+    console.error("Error: Session cookie not found even in temp directory!");
     app.quit();
     return;
   }
   
+  console.log("SUCCESS: Cookie found in isolated environment!");
   console.log("Found Cookie Name:", cookie.name);
-  console.log("Session cookie found! Value starts with:", cookie.value.substring(0, 10) + "...");
+  console.log("Value starts with:", cookie.value.substring(0, 10) + "...");
 
-  console.log("Attempting to fetch Access Token...");
+  console.log("Attempting to fetch Access Token via net.request...");
   try {
     const token = await unofficialAI.getAccessToken({ forceRefresh: true });
     if (token) {
-      console.log("SUCCESS! Access Token retrieved successfully.");
+      console.log("FINAL SUCCESS! Access Token retrieved successfully using the new matching logic.");
       console.log("Token sample:", token.substring(0, 30) + "...");
     } else {
-      console.log("FAILED: Received null token.");
+      console.log("FAILED: Token is still null. Checking raw response...");
       const response = await unofficialAI.request({
         url: "https://chatgpt.com/api/auth/session",
         headers: {
@@ -42,7 +42,7 @@ app.whenReady().then(async () => {
         }
       });
       console.log("HTTP Status:", response.statusCode);
-      console.log("Response Body Preview:", response.text.substring(0, 300));
+      console.log("Body:", response.text.substring(0, 200));
     }
   } catch (err) {
     console.error("Error during fetch:", err.message);

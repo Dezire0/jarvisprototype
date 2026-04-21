@@ -468,13 +468,13 @@ async function main() {
   const githubRepo = readGithubRepo();
   const releaseNotesUrl = String(process.env.NEXT_PUBLIC_JARVIS_RELEASE_NOTES_URL || "").trim();
   const envWindowsDownloadUrl = String(
-    process.env.NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL || "https://github.com/Dezire0/jarvisprototype/releases/download/v1.3.22/Jarvis-Desktop-1.3.22-win-x64.exe",
+    process.env.NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL || `https://github.com/Dezire0/jarvisprototype/releases/download/v${version}/Jarvis-Desktop-${version}-win-x64.exe`,
   ).trim();
   const envMacDownloadUrl = String(
-    process.env.NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL || "https://github.com/Dezire0/jarvisprototype/releases/download/v1.3.22/Jarvis-Desktop-1.3.22-mac-arm64.dmg",
+    process.env.NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL || `https://github.com/Dezire0/jarvisprototype/releases/download/v${version}/Jarvis-Desktop-${version}-mac-arm64.dmg`,
   ).trim();
   const envLinuxDownloadUrl = String(
-    process.env.NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL || "https://github.com/Dezire0/jarvisprototype/releases/download/v1.3.22/Jarvis-Desktop-1.3.22-linux-x64.AppImage",
+    process.env.NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL || `https://github.com/Dezire0/jarvisprototype/releases/download/v${version}/Jarvis-Desktop-${version}-linux-x64.AppImage`,
   ).trim();
   const owner = githubRepo?.owner || "";
   const repo = githubRepo?.repo || "";
