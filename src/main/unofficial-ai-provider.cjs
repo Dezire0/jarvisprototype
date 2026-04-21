@@ -206,7 +206,7 @@ class UnofficialAIProvider {
     }
   }
 
-  async getConnectionState({ forceRefresh = false } = {}) {
+  async getConnectionState({ forceRefresh = false, provider = null } = {}) {
     const now = Date.now();
     if (!forceRefresh && now - this.lastConnectionState.checkedAt < 10000) {
       return this.lastConnectionState;
@@ -228,36 +228,73 @@ class UnofficialAIProvider {
       const sessionCookie = await this.getChatgptCookie("__Secure-next-auth.session-token");
       const geminiCookie = await this.getGeminiCookie();
 
-      // ChatGPT 토큰 확인 (쿠키가 있을 때만 검증 시도)
-      let token = this.accessToken;
-      if (sessionCookie && (forceRefresh || !token)) {
-        token = await this.getAccessToken().catch(() => null);
-      } else if (!sessionCookie) {
-        token = null;
+      // ChatGPT 검증
+      let chatgptConnected = false;
+      let chatgptToken = this.accessToken;
+      let chatgptReason = "disconnected";
+
+      if (sessionCookie) {
+        // 쿠키가 존재하면 사용자 입장에서는 로그인이 된 상태 (창 닫힘 허용)
+        chatgptConnected = true;
+        
+        if (forceRefresh || !chatgptToken) {
+          chatgptToken = await this.getAccessToken({ forceRefresh }).catch(() => null);
+        }
+        
+        if (chatgptToken) {
+          chatgptReason = "ok";
+        } else {
+          chatgptReason = "token_fetch_failed";
+        }
+      } else {
+        chatgptToken = null;
         this.accessToken = null;
       }
 
-      if (token) {
+      // Gemini 검증
+      const geminiConnected = !!geminiCookie;
+
+      // 상태 결정 로직
+      // 요청된 provider가 있다면 그 결과를 최우선으로 반영
+      if (provider === "chatgpt") {
         nextState = {
-          connected: true,
+          connected: chatgptConnected,
           provider: "chatgpt",
-          reason: "ok",
+          reason: chatgptReason,
           checkedAt: now
         };
-      } else if (geminiCookie) {
+      } else if (provider === "gemini") {
         nextState = {
-          connected: true,
+          connected: geminiConnected,
           provider: "gemini",
-          reason: "ok",
+          reason: geminiConnected ? "ok" : "disconnected",
           checkedAt: now
         };
-      } else if (sessionCookie) {
-        nextState = {
-          connected: false,
-          provider: "chatgpt",
-          reason: "expired",
-          checkedAt: now
-        };
+      } else {
+        // provider가 명시되지 않은 경우, 현재 활성화된 것을 우선 (ChatGPT 우선)
+        if (chatgptConnected) {
+          nextState = {
+            connected: true,
+            provider: "chatgpt",
+            reason: "ok",
+            checkedAt: now
+          };
+        } else if (geminiConnected) {
+          nextState = {
+            connected: true,
+            provider: "gemini",
+            reason: "ok",
+            checkedAt: now
+          };
+        } else if (sessionCookie) {
+          // 쿠키는 있지만 토큰이 없는 ChatGPT 상태
+          nextState = {
+            connected: false,
+            provider: "chatgpt",
+            reason: "token_fetch_failed",
+            checkedAt: now
+          };
+        }
       }
     } catch (error) {
       nextState = {
@@ -307,7 +344,8 @@ class UnofficialAIProvider {
 
       const finish = async () => {
         const state = await this.getConnectionState({
-          forceRefresh: true
+          forceRefresh: true,
+          provider
         });
         if (!state.connected || state.provider !== provider) {
           return false;

@@ -821,10 +821,11 @@ async function dispatchTool(tool, payload = {}) {
       const provider = payload.provider || "chatgpt";
       const token = await unofficialAI.requireLogin(provider);
       const state = await unofficialAI.getConnectionState({
-        forceRefresh: true
+        forceRefresh: true,
+        provider
       });
       return {
-        ok: !!token,
+        ok: state.connected,
         tool,
         token: !!token,
         provider: state.provider,
