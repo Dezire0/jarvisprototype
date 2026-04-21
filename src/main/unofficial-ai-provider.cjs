@@ -537,14 +537,16 @@ class UnofficialAIProvider {
 
           if (!textarea) return { error: "Chat input not found after 5 seconds. Might need login or Cloudflare blocked." };
 
-          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set ||
-                                         Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'innerText')?.set;
-          
-          if (nativeInputValueSetter) {
-            nativeInputValueSetter.call(textarea, ${escapedPrompt});
+          if (textarea.tagName === 'TEXTAREA') {
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+            if (nativeInputValueSetter) {
+              nativeInputValueSetter.call(textarea, ${escapedPrompt});
+            } else {
+              textarea.value = ${escapedPrompt};
+            }
           } else {
-            textarea.value = ${escapedPrompt};
-            textarea.innerText = ${escapedPrompt};
+            // contenteditable div 인 경우
+            textarea.innerHTML = ${escapedPrompt}.replace(/\\n/g, '<br>');
           }
           textarea.dispatchEvent(new Event('input', { bubbles: true }));
 
