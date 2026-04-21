@@ -132,6 +132,12 @@ class UnofficialAIProvider {
       });
 
       request.on("error", reject);
+      
+      // 타임아웃 처리 (10초)
+      request.on("timeout", () => {
+        request.abort();
+        reject(new Error("Request timeout"));
+      });
 
       if (body) {
         request.write(body);
@@ -164,26 +170,27 @@ class UnofficialAIProvider {
       return this.accessToken;
     }
 
-    const response = await this.request({
-      url: CHATGPT_SESSION_ENDPOINT,
-      headers: {
-        Accept: "application/json",
-        Referer: `${CHATGPT_URL}/`,
-        Origin: CHATGPT_URL
-      }
-    });
+    try {
+      const response = await this.request({
+        url: CHATGPT_SESSION_ENDPOINT,
+        headers: {
+          Accept: "application/json",
+          Referer: `${CHATGPT_URL}/`,
+          Origin: CHATGPT_URL
+        }
+      }).catch(() => ({ statusCode: 0 }));
 
-    // 200 OK이면서 accessToken이 문자열로 존재해야 실제 연결된 것으로 간주
-    const token = response.statusCode === 200 && typeof response.json?.accessToken === "string"
-      ? response.json.accessToken
-      : null;
+      // 200 OK이면서 accessToken이 문자열로 존재해야 실제 연결된 것으로 간주
+      const token = response.statusCode === 200 && typeof response.json?.accessToken === "string"
+        ? response.json.accessToken
+        : null;
 
-    if (!token && response.statusCode !== 200) {
-      console.log(`[WebAI] Session validation failed with status ${response.statusCode}`);
+      this.accessToken = token;
+      return token;
+    } catch (_error) {
+      this.accessToken = null;
+      return null;
     }
-
-    this.accessToken = token;
-    return token;
   }
 
   async getConnectionState({ forceRefresh = false } = {}) {
@@ -200,9 +207,22 @@ class UnofficialAIProvider {
     };
 
     try {
-      const token = await this.getAccessToken({
-        forceRefresh: forceRefresh || !this.accessToken // 토큰이 없으면 강제 검증
-      });
+      // 로그인 중이면 검증 건너뜀 (창 충돌 방지)
+      if (this.isLoggingIn && !forceRefresh) {
+        return this.lastConnectionState;
+      }
+
+      const sessionCookie = await this.getChatgptCookie("__Secure-next-auth.session-token");
+      const geminiCookie = await this.getGeminiCookie();
+
+      // ChatGPT 토큰 확인 (쿠키가 있을 때만 검증 시도)
+      let token = this.accessToken;
+      if (sessionCookie && (forceRefresh || !token)) {
+        token = await this.getAccessToken().catch(() => null);
+      } else if (!sessionCookie) {
+        token = null;
+        this.accessToken = null;
+      }
 
       if (token) {
         nextState = {
@@ -211,28 +231,20 @@ class UnofficialAIProvider {
           reason: "ok",
           checkedAt: now
         };
-      } else {
-        const sessionCookie = await this.getChatgptCookie("__Secure-next-auth.session-token");
-        
-        // Gemini는 쿠키만으로는 불안정하므로 일단 ChatGPT 세션을 우선하되, 
-        // 만약 ChatGPT가 없고 Gemini 쿠키가 있다면 연결된 것으로 보되 엄격히 체크
-        const geminiCookie = await this.getGeminiCookie();
-
-        if (geminiCookie) {
-          nextState = {
-            connected: true,
-            provider: "gemini",
-            reason: "ok",
-            checkedAt: now
-          };
-        } else if (sessionCookie) {
-          nextState = {
-            connected: false,
-            provider: "chatgpt",
-            reason: "expired",
-            checkedAt: now
-          };
-        }
+      } else if (geminiCookie) {
+        nextState = {
+          connected: true,
+          provider: "gemini",
+          reason: "ok",
+          checkedAt: now
+        };
+      } else if (sessionCookie) {
+        nextState = {
+          connected: false,
+          provider: "chatgpt",
+          reason: "expired",
+          checkedAt: now
+        };
       }
     } catch (error) {
       nextState = {
