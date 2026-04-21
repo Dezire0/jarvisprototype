@@ -24,6 +24,7 @@ import { LoginModal } from "@/components/jarvis/login-modal";
 import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 import {
   clearAuthSession,
+  persistAuthSession,
   restoreAuthSession,
   updateStoredAuthUser,
   type AuthUser,
@@ -591,6 +592,7 @@ export function ThreadListSidebar({
     setProfileDraftName(user.name || user.email.split("@")[0] || "");
     setProfileAutoSync(user.settings?.autoSync ?? true);
     setProfilePreferWebAi(user.settings?.preferWebAi ?? true);
+    void persistAuthSession(token, user); // 세션 영구 저장
     void hydrateCloudIndex(token);
   }
 
@@ -692,12 +694,12 @@ export function ThreadListSidebar({
   }
 
   const userDisplayName =
-    authUser?.name?.trim() || authUser?.email?.split("@")[0] || "Guest";
+    authUser?.name?.trim() || authUser?.email?.split("@")[0] || "로그인이 필요합니다";
   const userSubLabel = authUser
     ? authUser.settings?.autoSync
       ? "동기화 활성화됨"
       : "로컬 프로필"
-    : "로그인 필요";
+    : "Plus Membership";
 
   return (
     <>
