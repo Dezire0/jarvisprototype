@@ -750,6 +750,21 @@ class UpdaterService {
     }
 
     if (this.installerFallbackEnabled) {
+      // On macOS, downloading installers inside the app is frequently blocked by
+      // Gatekeeper/quarantine tools and third-party security software. Prefer
+      // opening the release page in the user's default browser.
+      if (process.platform === "darwin") {
+        const targetUrl = String(this.status.releasePageUrl || this.status.downloadUrl || "").trim();
+        if (targetUrl) {
+          await shell.openExternal(targetUrl);
+          return {
+            ok: true,
+            mode: "installer",
+            targetUrl
+          };
+        }
+      }
+
       if (this.status.state === "downloaded" && this.status.downloadPath) {
         const openResult = await shell.openPath(this.status.downloadPath);
 
@@ -764,10 +779,25 @@ class UpdaterService {
       const downloadUrl = this.status.downloadUrl || "";
 
       if (downloadUrl) {
-        return this.downloadInstallerAsset({
+        const result = await this.downloadInstallerAsset({
           version: this.status.availableVersion || this.status.downloadedVersion || this.status.version,
           downloadUrl
         });
+
+        if (!result?.ok) {
+          const targetUrl = String(this.status.releasePageUrl || "").trim();
+          if (targetUrl) {
+            await shell.openExternal(targetUrl);
+            return {
+              ok: true,
+              mode: "installer",
+              targetUrl,
+              message: result?.message || ""
+            };
+          }
+        }
+
+        return result;
       }
     }
 

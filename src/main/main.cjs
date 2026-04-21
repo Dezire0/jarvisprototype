@@ -809,6 +809,14 @@ async function dispatchTool(tool, payload = {}) {
         data
       };
     }
+    case "system:open-external": {
+      const url = String(payload.url || payload.target || "").trim();
+      if (!url) {
+        return { ok: false, tool, message: "No URL provided." };
+      }
+      await shell.openExternal(url);
+      return { ok: true, tool };
+    }
     case "ai:web-login": {
       const provider = payload.provider || "chatgpt";
       const token = await unofficialAI.requireLogin(provider);
