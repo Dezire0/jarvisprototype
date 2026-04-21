@@ -231,7 +231,7 @@ function createAssistantTransportServer({
       for (const piece of chunkText(reply)) {
         if (piece) {
           writeStateAppendText(res, assistantMessageIndex, piece);
-          await delay(10);
+          await delay(2);
         }
       }
 

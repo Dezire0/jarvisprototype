@@ -572,15 +572,15 @@ class UnofficialAIProvider {
                 lastText = assistants[assistants.length - 1].innerText;
               }
 
-              const isDone = sendBtnNow && !sendBtnNow.disabled && checkCount > 15;
+              const isDone = sendBtnNow && !sendBtnNow.disabled && checkCount > 50;
               if (isDone) {
                 clearInterval(interval);
                 resolve({ text: lastText });
-              } else if (checkCount > 450) {
+              } else if (checkCount > 2000) {
                 clearInterval(interval);
                 resolve({ text: lastText || "Timeout", timeout: true });
               }
-            }, 100);
+            }, 20);
           });
         } catch (err) {
           return { error: err.message };
