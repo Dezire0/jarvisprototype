@@ -227,9 +227,7 @@ const Composer: FC = () => {
             placeholder="Message Jarvis"
             className="aui-composer-input max-h-40 min-h-12 w-full resize-none bg-transparent px-2 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/80"
             rows={1}
-            unstable_focusOnRunStart={false}
-            unstable_focusOnScrollToBottom={false}
-            unstable_focusOnThreadSwitched={false}
+            autoFocus
             aria-label="Message input"
           />
           <div className="flex items-end justify-between gap-3">
@@ -466,9 +464,7 @@ const EditComposer: FC = () => {
       <ComposerPrimitive.Root className="aui-edit-composer-root ml-auto flex w-full max-w-[85%] flex-col rounded-[28px] bg-[color:var(--aui-user-bubble-bg)]">
         <ComposerPrimitive.Input
           className="aui-edit-composer-input min-h-14 w-full resize-none bg-transparent p-4 text-sm text-foreground outline-none"
-          unstable_focusOnRunStart={false}
-          unstable_focusOnScrollToBottom={false}
-          unstable_focusOnThreadSwitched={false}
+          autoFocus
         />
         <div className="aui-edit-composer-footer mx-3 mb-3 flex items-center gap-2 self-end">
           <ComposerPrimitive.Cancel asChild>
