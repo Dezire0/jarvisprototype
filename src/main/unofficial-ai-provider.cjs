@@ -162,11 +162,11 @@ class UnofficialAIProvider {
 
   async getChatgptCookie(name) {
     const cookies = await this.chatgptSession.cookies.get({
-      url: CHATGPT_URL,
-      name
+      url: CHATGPT_URL
     });
 
-    return cookies[0] || null;
+    // name으로 시작하는 첫 번째 쿠키 반환 (다중 계정 대응: .0, .1 등)
+    return cookies.find(c => c.name.startsWith(name)) || null;
   }
 
   async getGeminiCookie() {
