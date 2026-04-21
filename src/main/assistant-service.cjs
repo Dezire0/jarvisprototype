@@ -3127,9 +3127,9 @@ class AssistantService {
       case "browser_login":
         return this.handleBrowserLogin(cleanInput, route);
       case "browser":
+        return this.handleBrowser(cleanInput);
       case "app_action":
-        // 자율 에이전트(Autonomous Agent)가 브라우저와 OS를 직접 제어하도록 통합합니다.
-        return this.handleAutonomousAgent(cleanInput, route);
+        return this.handleAppAction(cleanInput, route);
       case "code_project":
         return this.handleCodeProject(cleanInput, route);
       case "game_install":
