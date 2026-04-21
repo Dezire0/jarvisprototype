@@ -453,21 +453,27 @@ class UnofficialAIProvider {
     }
 
     let token = await this.getAccessToken();
-    if (!token) {
-      token = await this.requireLogin("chatgpt");
-      if (!token) {
+    let state = await this.getConnectionState({ provider: "chatgpt" });
+    
+    if (!state.connected) {
+      await this.requireLogin("chatgpt");
+      state = await this.getConnectionState({ provider: "chatgpt" });
+      if (!state.connected) {
         throw new Error("User did not log in to ChatGPT.");
       }
+      token = this.accessToken;
     }
 
-    try {
-      return await this._chatViaBackendApi(prompt, token);
-    } catch (error) {
-      console.warn("Direct ChatGPT backend request failed, falling back to DOM automation:", error.message);
-      this.accessToken = null;
-      await this.getConnectionState({
-        forceRefresh: true
-      }).catch(() => {});
+    if (token) {
+      try {
+        return await this._chatViaBackendApi(prompt, token);
+      } catch (error) {
+        console.warn("Direct ChatGPT backend request failed, falling back to DOM automation:", error.message);
+        this.accessToken = null;
+        return this._chatViaDOM_ChatGPT(prompt);
+      }
+    } else {
+      console.warn("No ChatGPT token available (likely blocked). Using DOM automation fallback.");
       return this._chatViaDOM_ChatGPT(prompt);
     }
   }
