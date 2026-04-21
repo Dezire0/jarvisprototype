@@ -59,8 +59,11 @@ fs.mkdirSync(wranglerLogDir, {
 });
 
 const projectName = process.env.CF_PAGES_PROJECT_NAME || "dexproject";
+const refType = process.env.GITHUB_REF_TYPE || ""; // 'tag' or 'branch'
 const branch =
   process.env.CF_PAGES_BRANCH ||
+  // 태그 이벤트(v*)일 때는 branch를 main으로 강제 — Cloudflare Pages는 main만 프로덕션으로 처리
+  (refType === "tag" ? "main" : null) ||
   process.env.GITHUB_REF_NAME ||
   git(["rev-parse", "--abbrev-ref", "HEAD"]) ||
   "main";
