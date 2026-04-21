@@ -15,13 +15,13 @@ const piiManager = require("./pii-manager.cjs");
 const chat = async (options) => {
   try {
     const connectedProvider = await unofficialAI.isConnected();
-    if (connectedProvider) {
+    if (connectedProvider && !options.localOnly) {
       const prompt = options.systemPrompt 
         ? `${options.systemPrompt}\n\n${options.userPrompt}`
         : options.userPrompt;
       return await unofficialAI.chat(prompt, connectedProvider);
     } else {
-      // 연결되지 않았으면 Ollama로 바로 라우팅 (로그인 팝업 띄우지 않음)
+      // 연결되지 않았거나 로컬 모델 전용 요청이면 Ollama로 바로 라우팅
       return await officialChat(options);
     }
   } catch (err) {
@@ -3175,6 +3175,7 @@ class AssistantService {
       const raw = await chat({
         systemPrompt: LONG_TERM_MEMORY_SYSTEM_PROMPT,
         tier: "fast",
+        localOnly: true,
         model: FAST_PLANNER_MODEL,
         history: [],
         userPrompt: [
@@ -4022,6 +4023,7 @@ class AssistantService {
       const raw = await chat({
         systemPrompt: routerPrompt,
         tier: "fast",
+        localOnly: true,
         model: FAST_ROUTER_MODEL,
         userPrompt: [
           "Recent conversation:",
@@ -4975,18 +4977,27 @@ class AssistantService {
       return extensionWebhookResult;
     }
 
-    let route = await this.routeInput(cleanInput);
+    let route;
+    const connectedProvider = await unofficialAI.isConnected();
 
-    if (
-      route.route === "chat" &&
-      looksLikeAppAction(cleanInput) &&
-      this.lastActiveApp
-    ) {
-      route = {
-        ...route,
-        route: "app_action",
-        appName: this.lastActiveApp
-      };
+    if (connectedProvider) {
+      // Web AI가 연결된 경우, 로컬 라우터를 거치지 않고 바로 handleGeneral(ChatGPT)로 보냅니다.
+      // ChatGPT가 답변 과정에서 [ACTION: ...] 태그를 통해 스스로 라우팅을 수행합니다.
+      route = { route: "chat", language: detectReplyLanguage(cleanInput) };
+    } else {
+      route = await this.routeInput(cleanInput);
+
+      if (
+        route.route === "chat" &&
+        looksLikeAppAction(cleanInput) &&
+        this.lastActiveApp
+      ) {
+        route = {
+          ...route,
+          route: "app_action",
+          appName: this.lastActiveApp
+        };
+      }
     }
 
     let result;
