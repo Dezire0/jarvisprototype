@@ -128,6 +128,29 @@
 
           <div class="download-platform-grid" id="download-platform-grid"></div>
 
+          <div class="mac-security-fix reveal">
+            <div class="mac-security-card">
+              <div class="mac-security-header">
+                <div class="mac-security-icon" aria-hidden="true">⚠️</div>
+                <h3 class="mac-security-title" data-i18n="downloads.macSecurityTitle">macOS 사용자 필독: 보안 경고 해결 방법</h3>
+              </div>
+              <p class="mac-security-body" data-i18n="downloads.macSecurityBody">앱 실행 시 '손상되었기 때문에 열 수 없습니다'라는 메시지가 뜨나요? 터미널에 아래 명령어를 입력하면 즉시 해결됩니다.</p>
+              
+              <div class="command-box">
+                <div class="command-header">
+                  <span class="command-label" data-i18n="downloads.macSecurityCommandLabel">터미널에 붙여넣을 명령어</span>
+                  <button type="button" class="copy-btn" id="copy-command-btn">
+                    <span class="copy-btn-text" data-i18n="downloads.macSecurityCopy">명령어 복사</span>
+                  </button>
+                </div>
+                <div class="command-content">
+                  <code id="mac-command">xattr -cr /Applications/Jarvis\ Desktop.app</code>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
           <section class="install-helper-card surface-card">
             <p class="surface-label" data-i18n="common.directInstall">바로 설치</p>
             <h3 class="install-helper-title">Jarvis Desktop</h3>

@@ -95,7 +95,12 @@
         fallbackMessage:
           "최신 {platform} 빌드는 아직 준비 중이지만 v{version} 설치 파일을 바로 받을 수 있습니다.",
         helperNote:
-          "다운로드 버튼을 누르면 파일을 받기 시작합니다."
+          "다운로드 버튼을 누르면 파일을 받기 시작합니다.",
+        macSecurityTitle: "macOS 사용자 필독: 보안 경고 해결 방법",
+        macSecurityBody: "앱 실행 시 '손상되었기 때문에 열 수 없습니다'라는 메시지가 뜨나요? 이는 Apple의 미인증 앱 차단 정책 때문이며, 아래 명령어를 터미널에 입력하면 즉시 해결됩니다.",
+        macSecurityCommandLabel: "터미널에 붙여넣을 명령어",
+        macSecurityCopy: "명령어 복사",
+        macSecurityCopied: "복사 완료!"
       },
       thanks: {
         heroKicker: "INSTALL GUIDE",
@@ -223,7 +228,12 @@
         fallbackMessage:
           "The latest {platform} build is not ready yet, but you can install v{version} right now.",
         helperNote:
-          "When you click a download button, the file starts downloading."
+          "When you click a download button, the file starts downloading.",
+        macSecurityTitle: "For macOS Users: Solving 'Damaged' App Error",
+        macSecurityBody: "If you see a 'is damaged and can't be opened' message, it's due to Apple's security policy for unnotarized apps. Run the following command in your Terminal to fix it instantly.",
+        macSecurityCommandLabel: "Command to paste in Terminal",
+        macSecurityCopy: "Copy Command",
+        macSecurityCopied: "Copied!"
       },
       thanks: {
         heroKicker: "INSTALL GUIDE",
@@ -777,6 +787,25 @@
 
   if (elements.downloadPlatformGrid) {
     elements.downloadPlatformGrid.addEventListener("click", handleDownloadClick);
+  }
+
+  const copyBtn = document.getElementById("copy-command-btn");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", () => {
+      const commandText = document.getElementById("mac-command").innerText;
+      navigator.clipboard.writeText(commandText).then(() => {
+        const btnText = copyBtn.querySelector(".copy-btn-text");
+        const originalText = btnText.textContent;
+        
+        copyBtn.classList.add("success");
+        btnText.textContent = t("downloads.macSecurityCopied", "Copied!");
+
+        setTimeout(() => {
+          copyBtn.classList.remove("success");
+          btnText.textContent = originalText;
+        }, 2000);
+      });
+    });
   }
 
   if (mediaQuery) {

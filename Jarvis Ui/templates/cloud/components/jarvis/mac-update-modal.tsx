@@ -82,7 +82,16 @@ export const MacUpdateModal: React.FC<MacUpdateModalProps> = ({
                   오류가 뜰 수 있습니다. 그럴 땐 터미널에 아래 명령어를 입력해
                   주세요:
                 </p>
-                <div className="mt-2 break-all rounded border border-white/5 bg-black/40 p-2 font-mono text-[10px] text-emerald-400">
+                <div
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      "xattr -cr /Applications/Jarvis\\ Desktop.app",
+                    );
+                    alert("명령어가 복사되었습니다! 터미널에 붙여넣으세요.");
+                  }}
+                  className="mt-2 cursor-pointer break-all rounded border border-white/5 bg-black/40 p-2 font-mono text-[10px] text-emerald-400 transition-colors hover:bg-black/60"
+                  title="클릭하여 명령어 복사"
+                >
                   xattr -cr /Applications/Jarvis\ Desktop.app
                 </div>
               </div>

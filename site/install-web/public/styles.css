@@ -1095,3 +1095,107 @@ html[data-theme="dark"] .status-pill.pending {
     max-width: 100%;
   }
 }
+.mac-security-fix {
+  margin-top: 48px;
+  margin-bottom: 32px;
+}
+
+.mac-security-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: var(--shadow-soft);
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.mac-security-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mac-security-icon {
+  font-size: 1.5rem;
+}
+
+.mac-security-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mac-security-body {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-soft);
+  margin-bottom: 24px;
+}
+
+.command-box {
+  background: #0d0f16;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.command-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.command-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.copy-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.copy-btn.success {
+  background: #10b981;
+  color: white;
+}
+
+.command-content {
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.command-content code {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.9rem;
+  color: #6ee7b7;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .mac-security-card {
+    padding: 24px;
+  }
+  
+  .command-content code {
+    font-size: 0.8rem;
+  }
+}
