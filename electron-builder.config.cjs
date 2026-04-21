@@ -130,7 +130,7 @@ module.exports = {
   ],
   mac: {
     icon: path.join(__dirname, "resources", "icons", "icon.icns"),
-    hardenedRuntime: true,
+    hardenedRuntime: Boolean(process.env.CSC_LINK),
     gatekeeperAssess: false,
     // CSC_LINK가 설정되지 않은 경우 ad-hoc 서명 사용 (서명 불일치로 인한 업데이트 실패 방지)
     identity: process.env.CSC_LINK ? undefined : null,

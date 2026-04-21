@@ -20,6 +20,25 @@ class UnofficialAIProvider {
   }
 
   /**
+   * Check if user is already logged in to any provider without prompting.
+   * Returns 'chatgpt', 'gemini', or null.
+   */
+  async isConnected() {
+    const chatgptSession = session.fromPartition("persist:chatgpt");
+    
+    // Check ChatGPT
+    if (this.accessToken) return "chatgpt";
+    const gptCookies = await chatgptSession.cookies.get({ url: "https://chatgpt.com", name: "__Secure-next-auth.session-token" });
+    if (gptCookies.length > 0) return "chatgpt";
+
+    // Check Gemini
+    const geminiCookies = await chatgptSession.cookies.get({ url: "https://gemini.google.com", name: "__Secure-1PSID" });
+    if (geminiCookies.length > 0) return "gemini";
+
+    return null;
+  }
+
+  /**
    * Check if we have a valid session, otherwise prompt login.
    */
   async getAccessToken() {
@@ -154,101 +173,170 @@ class UnofficialAIProvider {
    * Send a message to ChatGPT's unofficial backend API.
    * @param {string} prompt 
    */
-  async chat(prompt) {
+  async chat(prompt, provider = "chatgpt") {
+    // 1. 토큰(로그인) 확인
     let token = await this.getAccessToken();
-    if (!token) {
+    if (!token && provider === "chatgpt") {
       console.log("No valid session. Prompting login...");
-      token = await this.requireLogin();
-      if (!token) throw new Error("User did not log in to ChatGPT.");
+      token = await this.requireLogin(provider);
+      if (!token) throw new Error("User did not log in to AI provider.");
     }
 
-    // Prepare the payload (this matches the typical payload as of mid-2024)
-    // Note: This changes frequently.
-    const payload = {
-      action: "next",
-      messages: [
-        {
-          id: crypto.randomUUID(),
-          author: { role: "user" },
-          content: { content_type: "text", parts: [prompt] },
-          metadata: {}
+    // 2. 숨겨진 브라우저 창(Chat Window) 가져오기 및 로드
+    if (!this.chatWindow || this.chatWindow.isDestroyed()) {
+      this.chatWindow = new BrowserWindow({
+        show: false, // 백그라운드 실행
+        width: 1024,
+        height: 768,
+        webPreferences: {
+          partition: "persist:chatgpt", // 동일한 파티션(로그인 상태) 공유
+          nodeIntegration: false,
+          contextIsolation: true
         }
-      ],
-      parent_message_id: crypto.randomUUID(), // For a new chat
-      model: "auto",
-      timezone_offset_min: -540,
-      history_and_training_disabled: false,
-      conversation_mode: { kind: "primary_assistant" },
-      force_paragen: false,
-      force_paragen_model_slug: "",
-      force_nulligen: false,
-      force_rate_limit: false,
-      websocket_request_id: crypto.randomUUID()
-    };
-
-    return new Promise((resolve, reject) => {
-      const request = net.request({
-        method: "POST",
-        url: "https://chatgpt.com/backend-api/conversation",
       });
+      const targetUrl = provider === "gemini" ? "https://gemini.google.com/app" : "https://chatgpt.com/";
+      await this.chatWindow.loadURL(targetUrl);
+      
+      // 페이지 로딩 대기
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
 
-      const timeout = setTimeout(() => {
-        request.abort();
-        reject(new Error("ChatGPT API response timed out."));
-      }, 45000);
+    // 3. DOM 조작을 통해 메시지 전송 및 결과 추출
+    if (provider === "chatgpt") {
+      return await this._chatViaDOM_ChatGPT(prompt);
+    } else {
+      return await this._chatViaDOM_Gemini(prompt);
+    }
+  }
 
-      request.setHeader("Authorization", `Bearer ${token}`);
-      request.setHeader("Content-Type", "application/json");
-      request.setHeader("Accept", "text/event-stream");
-      request.setHeader("Oai-Device-Id", this.deviceId);
-      request.setHeader("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-      request.setHeader("Origin", "https://chatgpt.com");
-      request.setHeader("Referer", "https://chatgpt.com/");
+  async _chatViaDOM_ChatGPT(prompt) {
+    const escapedPrompt = JSON.stringify(prompt);
+    const script = `
+      (async function() {
+        try {
+          const textarea = document.querySelector('#prompt-textarea');
+          if (!textarea) return { error: "Chat input not found. Might need login." };
+          
+          // 1. 텍스트 입력
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+          nativeInputValueSetter.call(textarea, ${escapedPrompt});
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
 
-      let fullResponse = "";
-
-      request.on("response", (response) => {
-        if (response.statusCode === 401 || response.statusCode === 403) {
-          clearTimeout(timeout);
-          this.accessToken = null;
-          reject(new Error(`API Error: ${response.statusCode} (Token might be expired or blocked)`));
-          return;
-        }
-
-        response.on("data", (chunk) => {
-          const text = chunk.toString();
-          const lines = text.split("\n");
-          for (const line of lines) {
-            if (line.startsWith("data: ") && line !== "data: [DONE]") {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.message?.author?.role === "assistant" && data.message?.content?.parts) {
-                  fullResponse = data.message.content.parts[0];
-                }
-              } catch (e) {
-                // Ignore incomplete JSON
-              }
-            }
-          }
-        });
-
-        response.on("end", () => {
-          clearTimeout(timeout);
-          if (!fullResponse) {
-            reject(new Error("Received empty response from ChatGPT."));
+          // 2. 전송 버튼 클릭
+          await new Promise(r => setTimeout(r, 200));
+          const sendBtn = document.querySelector('button[data-testid="send-button"]');
+          if (sendBtn && !sendBtn.disabled) {
+            sendBtn.click();
           } else {
-            resolve(fullResponse);
+            textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
           }
-        });
-      });
 
-      request.on("error", (error) => {
-        clearTimeout(timeout);
-        reject(error);
-      });
-      request.write(JSON.stringify(payload));
-      request.end();
-    });
+          // 3. 응답 대기 및 폴링
+          return await new Promise((resolve) => {
+            let lastText = "";
+            let checkCount = 0;
+            const interval = setInterval(() => {
+              checkCount++;
+              const assistants = document.querySelectorAll('div[data-message-author-role="assistant"]');
+              const sendBtnNow = document.querySelector('button[data-testid="send-button"]');
+              
+              if (assistants.length > 0) {
+                lastText = assistants[assistants.length - 1].innerText;
+              }
+
+              // 전송 버튼이 다시 활성화되면 생성 완료로 간주
+              const isDone = sendBtnNow && !sendBtnNow.disabled && checkCount > 15;
+              
+              if (isDone) {
+                clearInterval(interval);
+                resolve({ text: lastText });
+              } else if (checkCount > 400) { // 약 40초 타임아웃
+                clearInterval(interval);
+                resolve({ text: lastText || "Timeout", timeout: true });
+              }
+            }, 100);
+          });
+        } catch (err) {
+          return { error: err.message };
+        }
+      })();
+    `;
+
+    try {
+      const result = await this.chatWindow.webContents.executeJavaScript(script);
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      return result.text;
+    } catch (err) {
+      console.error("DOM ChatGPT error:", err);
+      throw err;
+    }
+  }
+
+  async _chatViaDOM_Gemini(prompt) {
+    const escapedPrompt = JSON.stringify(prompt);
+    const script = `
+      (async function() {
+        try {
+          // Gemini 입력창
+          const textarea = document.querySelector('div[role="textbox"][contenteditable="true"]') || document.querySelector('rich-textarea');
+          if (!textarea) return { error: "Gemini input not found." };
+          
+          // 1. 텍스트 입력
+          textarea.innerHTML = ${escapedPrompt}.replace(/\\n/g, '<br>');
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+          // 2. 전송 버튼 클릭
+          await new Promise(r => setTimeout(r, 200));
+          const sendBtn = document.querySelector('button[aria-label="Send message"], button[aria-label="메시지 전송"]');
+          if (sendBtn && !sendBtn.disabled) {
+            sendBtn.click();
+          } else {
+            textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+          }
+
+          // 3. 응답 대기
+          return await new Promise((resolve) => {
+            let lastText = "";
+            let checkCount = 0;
+            const interval = setInterval(() => {
+              checkCount++;
+              const messages = document.querySelectorAll('message-content');
+              const sendBtnNow = document.querySelector('button[aria-label="Send message"], button[aria-label="메시지 전송"]');
+              
+              if (messages.length > 0) {
+                lastText = messages[messages.length - 1].innerText;
+              }
+
+              // 전송 버튼이 다시 나타나거나 활성화되면 완료
+              const isDone = sendBtnNow && checkCount > 20;
+              
+              if (isDone) {
+                clearInterval(interval);
+                resolve({ text: lastText });
+              } else if (checkCount > 400) {
+                clearInterval(interval);
+                resolve({ text: lastText || "Timeout", timeout: true });
+              }
+            }, 100);
+          });
+        } catch (err) {
+          return { error: err.message };
+        }
+      })();
+    `;
+
+    try {
+      const result = await this.chatWindow.webContents.executeJavaScript(script);
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      return result.text;
+    } catch (err) {
+      console.error("DOM Gemini error:", err);
+      throw err;
+    }
   }
 }
 

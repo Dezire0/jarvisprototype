@@ -1,6 +1,6 @@
 {
   "name": "jarvis-prototype",
-  "version": "1.3.8",
+  "version": "1.3.9",
   "description": "Jarvis Desktop assistant with local automation, packaged UI, and auto-update support.",
   "author": {
     "name": "JYH",
@@ -31,7 +31,7 @@
     "site:install:sync": "node scripts/sync-install-site-config.cjs",
     "site:install:dev": "npm run site:install:sync && npm --prefix site/install-web run dev",
     "site:install:deploy": "node scripts/deploy-install-site.cjs",
-    "check": "node --check electron-builder.config.cjs && node --check scripts/build-desktop-ui.cjs && node --check scripts/doctor-macos-signing.cjs && node --check scripts/generate-icons.cjs && node --check scripts/notarize-macos.cjs && node --check scripts/run-electron-builder.cjs && node --check src/main/project-env.cjs && node --check src/main/main.cjs && node --check src/main/assistant-service.cjs && node --check src/main/extensions-service.cjs && node --check src/main/platform-adapters.cjs && node --check src/main/ollama-service.cjs && node --check src/main/stt-service.cjs && node --check src/main/tts-service.cjs && node --check src/main/credential-store.cjs && node --check src/main/settings-store.cjs && node --check src/main/screen-service.cjs && node --check src/main/browser-service.cjs && node --check src/main/desktop-ui-server.cjs && node --check src/main/updater-service.cjs && node --check src/main/obs-service.cjs && node --check src/main/file-service.cjs && node --check src/main/game-service.cjs && node --check src/main/code-project-service.cjs && node --check src/renderer/renderer.js && node --check src/renderer/popup.js",
+    "check": "node --check electron-builder.config.cjs && node --check scripts/build-desktop-ui.cjs && node --check scripts/doctor-macos-signing.cjs && node --check scripts/generate-icons.cjs && node --check scripts/notarize-macos.cjs && node --check scripts/run-electron-builder.cjs && node --check src/main/project-env.cjs && node --check src/main/main.cjs && node --check src/main/assistant-service.cjs && node --check src/main/extensions-service.cjs && node --check src/main/platform-adapters.cjs && node --check src/main/ollama-service.cjs && node --check src/main/stt-service.cjs && node --check src/main/tts-service.cjs && node --check src/main/credential-store.cjs && node --check src/main/settings-store.cjs && node --check src/main/screen-service.cjs && node --check src/main/beta/browser-service-beta.cjs && node --check src/main/desktop-ui-server.cjs && node --check src/main/updater-service.cjs && node --check src/main/obs-service.cjs && node --check src/main/file-service.cjs && node --check src/main/game-service.cjs && node --check src/main/code-project-service.cjs && node --check src/renderer/renderer.js && node --check src/renderer/popup.js",
     "test:node": "node --test tests/node/*.test.cjs",
     "e2e:smoke": ".venv/bin/python scripts/e2e_smoke.py",
     "install:browsers": "playwright install chromium"

@@ -12,14 +12,18 @@ const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
 
 // Override chat to use unofficial Web AI session if configured
-// For now, we will use unofficialAI for everything to save tokens,
-// but fallback to official if needed.
 const chat = async (options) => {
   try {
-    const prompt = options.systemPrompt 
-      ? `${options.systemPrompt}\n\n${options.userPrompt}`
-      : options.userPrompt;
-    return await unofficialAI.chat(prompt);
+    const connectedProvider = await unofficialAI.isConnected();
+    if (connectedProvider) {
+      const prompt = options.systemPrompt 
+        ? `${options.systemPrompt}\n\n${options.userPrompt}`
+        : options.userPrompt;
+      return await unofficialAI.chat(prompt, connectedProvider);
+    } else {
+      // 연결되지 않았으면 Ollama로 바로 라우팅 (로그인 팝업 띄우지 않음)
+      return await officialChat(options);
+    }
   } catch (err) {
     console.error("Unofficial AI failed, falling back to official API:", err.message);
     return await officialChat(options);

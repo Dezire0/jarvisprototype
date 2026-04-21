@@ -24,6 +24,8 @@ import {
   RefreshCcwIcon,
   SearchIcon,
   SparklesIcon,
+  LockIcon,
+  SettingsIcon,
 } from "lucide-react";
 
 type SidebarProject = {
@@ -579,347 +581,122 @@ export function ThreadListSidebar({
   return (
     <Sidebar
       {...props}
-      variant="floating"
-      className="aui-sidebar border-r-0 bg-transparent [--sidebar-width:23rem]"
+      className="border-r-0 bg-[#f9f9f9] dark:bg-[#171717] [--sidebar-width:260px]"
     >
-      <SidebarHeader className="border-none px-3 pt-4">
-        <div className="rounded-[28px] border border-border/80 bg-card/88 p-3 shadow-[0_18px_70px_rgba(0,0,0,0.16)] backdrop-blur">
-          <div className="mb-3 flex items-center gap-2">
-            <Button
-              type="button"
-              onClick={startNewChat}
-              className="flex-1 justify-start rounded-2xl bg-foreground text-background hover:bg-foreground/90"
-            >
-              <PlusIcon className="size-4" />
-              새 채팅
-            </Button>
-            <div className="relative flex-1">
-              <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="채팅 검색"
-                className="h-10 rounded-2xl border-border/70 bg-background/70 pr-3 pl-9"
-              />
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setShowConnections((current) => !current)}
-              className="rounded-2xl border-border/70 bg-background/70"
-            >
-              <MoreHorizontalIcon className="size-4" />
-            </Button>
-          </div>
-
-          {showConnections ? (
-            <div className="grid gap-2 rounded-[22px] border border-border/70 bg-background/55 p-3">
-              <div className="grid grid-cols-2 gap-2">
-                <CompactStatus label="Voice" value={voiceStatusLabel} />
-                <CompactStatus label="Connections" value={connectionStatusLabel} />
-                <CompactStatus
-                  label="Connectors"
-                  value={String(extensionSummary.connectors)}
-                />
-                <CompactStatus
-                  label="Webhooks"
-                  value={String(extensionSummary.webhooks)}
-                />
+      <SidebarHeader className="border-none px-3 pt-3">
+        <div className="flex items-center justify-between">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={startNewChat}
+            className="flex-1 justify-start rounded-lg hover:bg-black/5 dark:hover:bg-white/5 h-10 px-2"
+          >
+            <div className="flex items-center gap-2 text-foreground/80">
+              <div className="flex size-6 items-center justify-center rounded-full border border-border/50 shadow-sm bg-background">
+                <SparklesIcon className="size-3.5" />
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!extensionsAvailable || extensionsRefreshing}
-                  onClick={() => void reloadExtensions()}
-                  className="rounded-full"
-                >
-                  <RefreshCcwIcon
-                    className={cn(
-                      "size-3.5",
-                      extensionsRefreshing && "animate-spin",
-                    )}
-                  />
-                  연결 새로고침
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!selectedProjectId}
-                  onClick={() => assignCurrentThreadToProject(selectedProjectId)}
-                  className="rounded-full"
-                >
-                  현재 채팅을 프로젝트에 담기
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => assignCurrentThreadToProject(null)}
-                  className="rounded-full"
-                >
-                  프로젝트에서 빼기
-                </Button>
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Connector는 앱 이름을 보정하고, Skill은 작업 힌트를 더하고,
-                Webhook은 일반 라우팅 전에 먼저 실행됩니다.
-              </p>
-              {voiceError ? (
-                <p className="text-xs leading-5 text-amber-600 dark:text-amber-400">
-                  {voiceError}
-                </p>
-              ) : null}
+              <span className="font-medium text-sm">새로운 채팅</span>
             </div>
-          ) : null}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowConnections((current) => !current)}
+            className="rounded-lg hover:bg-black/5 dark:hover:bg-white/5 size-10 shrink-0 ml-1"
+          >
+            <MoreHorizontalIcon className="size-4 text-muted-foreground" />
+          </Button>
         </div>
+        
+        {showConnections ? (
+          <div className="mt-2 grid gap-1 rounded-xl border border-border/50 bg-background/50 p-2 text-xs">
+            <div className="flex items-center justify-between px-2 py-1">
+              <span className="text-muted-foreground">음성 연결</span>
+              <span>{voiceStatusLabel}</span>
+            </div>
+            <div className="flex items-center justify-between px-2 py-1">
+              <span className="text-muted-foreground">확장 프로그램</span>
+              <span>{connectionStatusLabel}</span>
+            </div>
+          </div>
+        ) : null}
       </SidebarHeader>
 
-      <SidebarContent className="gap-3 px-3 pb-3">
-        <section className="rounded-[28px] border border-border/70 bg-card/82 p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-                프로젝트
-              </p>
-              <h3 className="mt-1 text-lg font-semibold tracking-tight">
-                특정 주제별 채팅 모음
-              </h3>
+      <SidebarContent className="px-3 pb-3 pt-2">
+        <div className="flex flex-col gap-1">
+          <p className="px-2 py-2 text-xs font-semibold text-muted-foreground">
+            최근 채팅
+          </p>
+          {filteredRecentThreads.length === 0 ? (
+            <div className="px-2 py-3 text-xs text-muted-foreground">
+              이전 대화가 없습니다.
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setIsAddingProject((current) => !current)}
-              className="rounded-full"
-            >
-              <FolderPlusIcon className="size-4" />
-            </Button>
-          </div>
-
-          {isAddingProject ? (
-            <div className="mb-3 rounded-2xl border border-border/70 bg-background/65 p-3">
-              <Input
-                value={projectDraft}
-                onChange={(event) => setProjectDraft(event.target.value)}
-                placeholder="새 프로젝트 이름"
-                className="h-10 rounded-xl border-border/70 bg-background/80"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    createProject();
-                  }
-                }}
-              />
-              <div className="mt-2 flex gap-2">
-                <Button
+          ) : (
+            filteredRecentThreads.map((thread) => {
+              const isActive = threadsState.mainThreadId === thread.id;
+              return (
+                <button
+                  key={thread.id}
                   type="button"
-                  size="sm"
-                  onClick={createProject}
-                  className="rounded-full"
+                  onClick={() => switchToThread(thread.id)}
+                  className={cn(
+                    "group relative flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                    isActive
+                      ? "bg-black/5 dark:bg-white/10 font-medium text-foreground"
+                      : "text-foreground/80 hover:bg-black/5 dark:hover:bg-white/5",
+                  )}
                 >
-                  프로젝트 추가
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setProjectDraft("");
-                    setIsAddingProject(false);
-                  }}
-                  className="rounded-full"
-                >
-                  취소
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="grid gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedProjectId(null)}
-              className={cn(
-                "flex items-center justify-between rounded-2xl border px-3 py-3 text-left transition",
-                selectedProjectId === null
-                  ? "border-border bg-background text-foreground"
-                  : "border-border/60 bg-background/55 text-foreground hover:bg-background/75",
-              )}
-            >
-              <div className="min-w-0">
-                <p className="font-medium">전체 채팅</p>
-                <p className="text-xs text-muted-foreground">
-                  프로젝트에 묶이지 않은 채팅까지 함께 봅니다.
-                </p>
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {allThreads.length}
-              </span>
-            </button>
-
-            {visibleProjects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                onClick={() => setSelectedProjectId(project.id)}
-                className={cn(
-                  "flex items-center justify-between rounded-2xl border px-3 py-3 text-left transition",
-                  selectedProjectId === project.id
-                    ? "border-border bg-background text-foreground"
-                    : "border-border/60 bg-background/55 text-foreground hover:bg-background/75",
-                )}
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{project.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {project.threadCount > 0
-                      ? `${project.threadCount}개의 채팅`
-                      : "아직 담긴 채팅 없음"}
-                  </p>
-                </div>
-                <FolderRootIcon className="size-4 shrink-0 text-muted-foreground" />
-              </button>
-            ))}
-          </div>
-
-          {projectEntries.length > 5 ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowAllProjects((current) => !current)}
-              className="mt-2 rounded-full text-muted-foreground"
-            >
-              {showAllProjects ? "프로젝트 접기" : "더 보기"}
-            </Button>
-          ) : null}
-        </section>
-
-        <section className="min-h-0 rounded-[28px] border border-border/70 bg-card/82 p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-                최근
-              </p>
-              <h3 className="mt-1 text-lg font-semibold tracking-tight">
-                {selectedProjectName}
-              </h3>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              최신 업데이트 순
-            </span>
-          </div>
-
-          <div className="flex min-h-0 flex-col gap-2">
-            {filteredRecentThreads.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border/70 bg-background/45 px-4 py-5 text-sm leading-6 text-muted-foreground">
-                검색 결과가 없거나, 아직 이 프로젝트에 담긴 채팅이 없어요.
-              </div>
-            ) : (
-              filteredRecentThreads.map((thread) => {
-                const metadata = threadMetaById[thread.id];
-                const projectName = metadata?.projectId
-                  ? projectNameMap[metadata.projectId]
-                  : "";
-                const isActive = threadsState.mainThreadId === thread.id;
-
-                return (
-                  <button
-                    key={thread.id}
-                    type="button"
-                    onClick={() => switchToThread(thread.id)}
-                    className={cn(
-                      "rounded-2xl border px-3 py-3 text-left transition",
-                      isActive
-                        ? "border-border bg-background text-foreground"
-                        : "border-border/60 bg-background/55 text-foreground hover:bg-background/75",
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-                        <MessageSquareIcon className="size-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="truncate font-medium">
-                            {thread.title || "New Chat"}
-                          </p>
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {formatRelativeTime(metadata?.updatedAt)}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {projectName
-                            ? `${projectName} 프로젝트`
-                            : "최근 업데이트된 일반 채팅"}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </section>
+                  <MessageSquareIcon className={cn("size-4 shrink-0", isActive ? "text-foreground" : "opacity-50")} />
+                  <div className="relative flex-1 truncate">
+                    {thread.title || "새로운 채팅"}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
       </SidebarContent>
 
-      <SidebarFooter className="border-none px-3 pb-4">
-        <div className="rounded-[24px] border border-border/70 bg-card/78 px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-            계정 정보
-          </p>
-          <div className="mt-3 grid gap-2 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">세션</span>
-              <span className="font-medium text-foreground">
-                {bootstrapPayload?.app?.packaged ? "Desktop build" : "Local preview"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">버전</span>
-              <span className="font-medium text-foreground">
-                {bootstrapPayload?.app?.version || "0.1.0"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">로그인 (Web AI)</span>
-              <span className={cn("font-medium", webAiConnected ? "text-green-500" : "text-amber-500")}>
-                {webAiConnected ? "연결됨" : "미연결"}
-              </span>
-            </div>
-            {!webAiConnected && (
-              <div className="mt-1 flex gap-1">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  className="flex-1 rounded-xl text-[11px]"
-                  onClick={() => window.assistantAPI?.invokeTool("ai:web-login", { provider: "chatgpt" })}
-                >
-                  ChatGPT 로그인
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  className="flex-1 rounded-xl text-[11px]"
-                  onClick={() => window.assistantAPI?.invokeTool("ai:web-login", { provider: "gemini" })}
-                >
-                  Gemini 로그인
-                </Button>
-              </div>
-            )}
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">보안 정보 (PII)</span>
-              <span className="text-xs text-muted-foreground">{piiKeys.length}개 저장됨</span>
-            </div>
-            <div className="mt-1 flex gap-1">
+      <SidebarFooter className="border-none px-3 pb-3">
+        <div className="flex flex-col gap-1">
+          {!webAiConnected ? (
+            <div className="mb-2 grid grid-cols-2 gap-2">
               <Button 
                 size="sm" 
+                variant="default" 
+                className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm text-[10px] px-1"
+                onClick={() => window.assistantAPI?.invokeTool("ai:web-login", { provider: "chatgpt" })}
+              >
+                ChatGPT 로그인
+              </Button>
+              <Button 
+                size="sm" 
+                variant="default" 
+                className="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm text-[10px] px-1"
+                onClick={() => window.assistantAPI?.invokeTool("ai:web-login", { provider: "gemini" })}
+              >
+                Gemini 로그인
+              </Button>
+            </div>
+          ) : null}
+
+          <div className="mt-1 flex items-center justify-between rounded-lg px-2 py-2 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+            <div className="flex items-center gap-2">
+              <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white shadow-sm">
+                <span className="text-xs font-bold">J</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-sm font-medium">Jarvis Desktop</span>
+                <span className="text-[10px] text-muted-foreground">버전 {bootstrapPayload?.app?.version || "1.3.4"}</span>
+              </div>
+            </div>
+            <div className="flex gap-1">
+              <Button 
+                size="icon" 
                 variant="ghost" 
-                className="flex-1 rounded-xl border border-dashed border-border/50 text-[11px]"
+                className="size-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+                title="개인정보(PII) 관리"
                 onClick={() => {
                   const key = window.prompt("저장할 정보의 이름을 입력하세요 (예: password, address)");
                   if (key) {
@@ -928,79 +705,32 @@ export function ThreadListSidebar({
                   }
                 }}
               >
-                PII 관리
+                <LockIcon className="size-3.5" />
               </Button>
               <Button 
-                size="sm" 
+                size="icon" 
                 variant="ghost" 
-                className="flex-1 rounded-xl border border-dashed border-border/50 text-[11px]"
+                className="size-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+                title="업데이트 확인"
                 onClick={() => {
-                  window.alert("프롬프트 템플릿 기능은 현재 준비 중입니다.");
+                  if (!window.assistantAPI?.checkForUpdates) return;
+                  void window.assistantAPI.checkForUpdates().then((payload) => {
+                    const next = (payload || null) as AppStatePayload;
+                    setUpdateStatus(next.updater || null);
+                    if (next.updater?.state === "error") {
+                      window.alert("업데이트 확인 실패: " + next.updater.message);
+                    } else if (next.updater?.availableVersion) {
+                      window.alert("새로운 버전을 발견했습니다: " + next.updater.availableVersion);
+                    } else {
+                      window.alert("현재 최신 버전입니다.");
+                    }
+                  });
                 }}
               >
-                템플릿
+                <SettingsIcon className="size-3.5" />
               </Button>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">음성 입력</span>
-              <span className="font-medium text-foreground">
-                {bootstrapPayload?.providers?.stt || "Web Speech"}
-              </span>
-            </div>
           </div>
-          <div className="mt-3 rounded-2xl border border-border/70 bg-background/55 px-3 py-2 text-xs leading-5 text-muted-foreground">
-            {bootstrapPayload?.shortcut ||
-              "Cmd/Ctrl + Shift + Space로 앱을 다시 열 수 있어요."}
-          </div>
-
-          {hasUpdateNotice ? (
-            <div className="mt-3 rounded-[22px] border border-amber-500/30 bg-amber-500/10 px-3 py-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-[0.22em] text-amber-500">
-                    {updateLabel}
-                  </p>
-                  <p className="mt-1 text-sm leading-5 text-foreground">
-                    {updateStatus?.state === "error"
-                      ? (updateStatus.message || "업데이트 상태를 다시 확인해 보세요.")
-                      : updateDetail}
-                  </p>
-                  {updateStatus?.version ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      현재 버전: {updateStatus.version}
-                      {updateStatus.availableVersion
-                        ? ` · 최신: ${updateStatus.availableVersion}`
-                        : ""}
-                    </p>
-                  ) : null}
-                </div>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0 rounded-full border-amber-500/30 bg-background/80"
-                  onClick={() => {
-                    if (!window.assistantAPI?.checkForUpdates) {
-                      return;
-                    }
-
-                    void window.assistantAPI
-                      .checkForUpdates()
-                      .then((payload) => {
-                        const next = (payload || null) as AppStatePayload;
-                        setUpdateStatus(next.updater || null);
-                      })
-                      .catch(() => {
-                        setUpdateStatus((current) => current);
-                      });
-                  }}
-                >
-                  지금 확인
-                </Button>
-              </div>
-            </div>
-          ) : null}
         </div>
       </SidebarFooter>
       <SidebarRail />
