@@ -1147,22 +1147,22 @@ function looksLikeAppAction(text = "") {
   }
 
   const lowered = normalizePlanText(text).toLowerCase();
+  
+  // 너무 긴 문장은 대화일 가능성이 높음
+  if (lowered.length > 50) return false;
 
-  return (
-    hasAny(lowered, [
-      "open",
-      "show",
-      "go to",
-      "switch",
-      "move to",
-      "열어",
-      "보여",
-      "이동",
-      "입력",
-      "type",
-      "paste",
-      "붙여넣",
-      "press",
+  const hasAction = hasAny(lowered, [
+    "열어", "실행", "보여", "이동", "입력", "붙여넣", "클릭", "검색",
+    "open", "run", "launch", "show", "switch", "type", "paste", "click", "press"
+  ]);
+
+  const hasTarget = hasAny(lowered, [
+    "앱", "app", "창", "window", "tab", "폴더", "folder", "파일", "file",
+    "chrome", "finder", "terminal", "slack", "discord", "spotify", "notion"
+  ]);
+
+  return hasAction && hasTarget;
+}
       "눌러",
       "shortcut",
       "단축키",
@@ -4928,14 +4928,43 @@ class AssistantService {
           "대화를 자연스럽게 이어가세요.",
           `${buildLanguageName(language)}로만 응답하세요.`,
           "당신은 유능하고 친절한 AI 비서 Jarvis입니다.",
-          "일상적인 대화라면 풍부하고 친절하게 답변하세요.",
-          "추천이 필요한 경우 구체적인 옵션을 제안하세요."
+          "만약 브라우저 검색이나 웹 작업이 필요하다고 판단되면 답변 맨 끝에 [ACTION: BROWSE] 검색어 형식을 포함하세요.",
+          "만약 특정 앱을 실행해야 한다면 [ACTION: OPEN_APP] 앱이름 형식을 포함하세요.",
+          "일상적인 대화라면 풍부하고 친절하게 답변하세요."
         ].join("\n"),
         {
           tier
         }
       );
       
+      // 자율 행동 판단 (Action Detection)
+      if (typeof reply === 'string') {
+        const browseMatch = reply.match(/\[ACTION: BROWSE\]\s*(.*)/i);
+        const openMatch = reply.match(/\[ACTION: OPEN_APP\]\s*(.*)/i);
+
+        if (browseMatch) {
+          const query = browseMatch[1].trim();
+          const cleanReply = reply.replace(/\[ACTION: BROWSE\].*/i, '').trim();
+          const browserResult = await this.handleBrowser(query);
+          return {
+            ...browserResult,
+            reply: cleanReply ? `${cleanReply}\n\n${browserResult.reply}` : browserResult.reply,
+            provider: `web-${connectedProvider}-autonomous`
+          };
+        }
+
+        if (openMatch) {
+          const appName = openMatch[1].trim();
+          const cleanReply = reply.replace(/\[ACTION: OPEN_APP\].*/i, '').trim();
+          const appResult = await this.handleAppOpen(input, { appName });
+          return {
+            ...appResult,
+            reply: cleanReply ? `${cleanReply}\n\n${appResult.reply}` : appResult.reply,
+            provider: `web-${connectedProvider}-autonomous`
+          };
+        }
+      }
+
       // 웹 AI가 아니었을 때만 Ollama 티어 라벨로 교체
       if (!connectedProvider) {
         provider = getTierProviderLabel(tier);
