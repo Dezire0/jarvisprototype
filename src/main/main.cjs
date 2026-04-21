@@ -831,6 +831,10 @@ async function dispatchTool(tool, payload = {}) {
         reason: state.reason
       };
     }
+    case "ai:web-logout": {
+      await unofficialAI.logout();
+      return { ok: true, tool };
+    }
     case "ai:web-status": {
       const state = await unofficialAI.getConnectionState({
         forceRefresh: Boolean(payload.forceRefresh)

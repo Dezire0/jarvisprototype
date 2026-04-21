@@ -88,6 +88,19 @@ class UnofficialAIProvider {
     };
   }
 
+  async logout() {
+    this.accessToken = null;
+    await this.chatgptSession.clearStorageData({
+      storages: ["cookies", "localstorage"]
+    });
+    this.lastConnectionState = {
+      connected: false,
+      provider: null,
+      reason: "disconnected",
+      checkedAt: 0
+    };
+  }
+
   get chatgptSession() {
     return session.fromPartition(CHATGPT_PARTITION);
   }

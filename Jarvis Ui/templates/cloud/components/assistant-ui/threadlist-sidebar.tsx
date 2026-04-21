@@ -232,6 +232,7 @@ export function ThreadListSidebar({
   const [webAiProvider, setWebAiProvider] = useState<string | null>(null);
   const [webAiReason, setWebAiReason] = useState<string | null>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [webAiModalOpen, setWebAiModalOpen] = useState(false);
   const [newVersion, setNewVersion] = useState("");
   const [downloadUrl, setDownloadUrl] = useState(
     "https://dexproject.pages.dev/",
@@ -570,7 +571,7 @@ export function ThreadListSidebar({
     }
   }
 
-  async function connectWebAi() {
+  async function connectWebAi(provider: string = "chatgpt") {
     if (typeof window === "undefined" || !window.assistantAPI?.invokeTool) {
       return;
     }
@@ -578,7 +579,7 @@ export function ThreadListSidebar({
     setWebAiStatus("checking");
     try {
       await window.assistantAPI.invokeTool("ai:web-login", {
-        provider: "chatgpt",
+        provider: provider,
       });
       await checkWebAiStatus(true);
     } catch {
@@ -930,42 +931,122 @@ export function ThreadListSidebar({
         <SidebarHeader className="border-none px-3 pt-3 pb-0">
           <button
             type="button"
-            onClick={
-              webAiStatus === "connected"
-                ? undefined
-                : () => void connectWebAi()
-            }
+            onClick={() => setWebAiModalOpen(true)}
             className={cn(
-              "mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left font-medium text-xs transition-colors",
-              webAiStatus === "connected" &&
-                "bg-emerald-950/60 text-emerald-400",
-              webAiStatus === "checking" && "bg-zinc-800/60 text-zinc-500",
-              webAiStatus === "disconnected" &&
-                "bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/60 hover:text-white",
+              "mb-2 flex w-full items-center gap-2 rounded-xl border border-white/5 px-3 py-2.5 text-left font-semibold text-xs transition-all",
+              webAiStatus === "connected"
+                ? "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20"
+                : "bg-zinc-800/60 text-zinc-300 ring-1 ring-zinc-700/30 hover:bg-zinc-700/60 hover:text-white",
               webAiStatus === "expired" &&
-                "bg-amber-950/60 text-amber-300 hover:bg-amber-900/60",
+                "bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20 hover:bg-amber-900/40",
             )}
           >
-            {webAiStatus === "connected" ? (
-              <Link2Icon className="size-3.5 shrink-0" />
-            ) : webAiStatus === "expired" ? (
-              <ShieldAlertIcon className="size-3.5 shrink-0" />
-            ) : (
-              <Link2OffIcon className="size-3.5 shrink-0" />
-            )}
+            <SparklesIcon className="size-3.5 shrink-0" />
             <span className="flex-1 truncate">
               {webAiStatus === "connected"
-                ? `Web AI 연결됨 (${webAiProvider || "chatgpt"})`
+                ? `${webAiProvider?.toUpperCase() || "Web AI"} 활성화됨`
                 : webAiStatus === "checking"
-                  ? "Web AI 상태 확인 중..."
-                  : webAiStatus === "expired"
-                    ? "Web AI 세션 만료됨 — 다시 연결"
-                    : "Web AI 연결 안 됨 — 클릭하여 연결"}
+                  ? "상태 확인 중..."
+                  : "Web AI 연동 및 관리"}
             </span>
-            {webAiStatus !== "connected" && (
-              <SparklesIcon className="size-3 shrink-0 text-zinc-500" />
-            )}
+            <div className="flex items-center gap-1.5 rounded-full bg-black/20 px-1.5 py-0.5 font-bold text-[9px] uppercase tracking-wider">
+              {webAiStatus === "connected" ? "Connected" : "Setup"}
+            </div>
           </button>
+
+          {/* Web AI Management Modal */}
+          <Dialog open={webAiModalOpen} onOpenChange={setWebAiModalOpen}>
+            <DialogContent className="max-w-[380px] border-none bg-[#171717] p-0 text-white shadow-2xl">
+              <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
+              <div className="p-6">
+                <DialogHeader className="mb-4">
+                  <DialogTitle className="flex items-center gap-2 text-xl">
+                    <SparklesIcon className="size-5 text-emerald-400" />
+                    Web AI 관리
+                  </DialogTitle>
+                  <DialogDescription className="text-zinc-400">
+                    브라우저 계정의 무료 토큰을 사용하여 고성능 모델을 연결합니다.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-3">
+                  {/* ChatGPT Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWebAiModalOpen(false);
+                      void connectWebAi("chatgpt");
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-xl border p-4 transition-all hover:scale-[1.02]",
+                      webAiProvider === "chatgpt" && webAiStatus === "connected"
+                        ? "border-emerald-500/50 bg-emerald-500/10 ring-1 ring-emerald-500/20"
+                        : "border-white/5 bg-white/5 hover:bg-white/10",
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 font-bold text-emerald-400">
+                        C
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-sm">ChatGPT</p>
+                        <p className="text-xs text-zinc-500">OpenAI Backend API</p>
+                      </div>
+                    </div>
+                    {webAiProvider === "chatgpt" &&
+                      webAiStatus === "connected" && (
+                        <BadgeCheckIcon className="size-5 text-emerald-400" />
+                      )}
+                  </button>
+
+                  {/* Gemini Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWebAiModalOpen(false);
+                      void connectWebAi("gemini");
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-xl border p-4 transition-all hover:scale-[1.02]",
+                      webAiProvider === "gemini" && webAiStatus === "connected"
+                        ? "border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20"
+                        : "border-white/5 bg-white/5 hover:bg-white/10",
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 font-bold text-blue-400">
+                        G
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-sm">Gemini</p>
+                        <p className="text-xs text-zinc-500">Google Advanced Web</p>
+                      </div>
+                    </div>
+                    {webAiProvider === "gemini" &&
+                      webAiStatus === "connected" && (
+                        <BadgeCheckIcon className="size-5 text-blue-400" />
+                      )}
+                  </button>
+                </div>
+
+                {webAiStatus === "connected" && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      // 로그아웃 로직 (메인 프로세스에서 세션 클리어 필요)
+                      window.assistantAPI
+                        ?.invokeTool?.("ai:web-logout", {})
+                        .then(() => checkWebAiStatus(true));
+                      setWebAiModalOpen(false);
+                    }}
+                    className="mt-6 w-full text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
+                  >
+                    연결 해제하기
+                  </Button>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {webAiReason && webAiStatus === "expired" && (
             <p className="mb-2 px-1 text-[11px] text-amber-300/80">
