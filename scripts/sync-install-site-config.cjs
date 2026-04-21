@@ -149,12 +149,27 @@ function buildLegacyDownloads(config) {
       format: ".AppImage",
       href: config.linuxDownloadUrl,
       channel: "installer",
-      architecture: "ARM64",
-      hint: "바로 실행 가능한 포터블 Linux ARM64 패키지입니다.",
+      architecture: "x64",
+      hint: "바로 실행 가능한 포터블 Linux 패키지입니다.",
       recommended: true,
       sizeBytes: 0,
       version: config.version,
-      isFallback: false,
+      isFallback: true,
+    });
+    
+    // Add ARM64 variant as well if we have a base URL
+    downloads.push({
+      platform: "Linux",
+      label: "Linux AppImage (ARM64)",
+      format: ".AppImage",
+      href: config.linuxDownloadUrl.replace("-x64", "-arm64"),
+      channel: "installer",
+      architecture: "ARM64",
+      hint: "바로 실행 가능한 포터블 Linux ARM64 패키지입니다.",
+      recommended: false,
+      sizeBytes: 0,
+      version: config.version,
+      isFallback: true,
     });
   }
 
@@ -453,13 +468,13 @@ async function main() {
   const githubRepo = readGithubRepo();
   const releaseNotesUrl = String(process.env.NEXT_PUBLIC_JARVIS_RELEASE_NOTES_URL || "").trim();
   const envWindowsDownloadUrl = String(
-    process.env.NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL || "",
+    process.env.NEXT_PUBLIC_JARVIS_WINDOWS_DOWNLOAD_URL || "https://github.com/Dezire0/jarvisprototype/releases/download/v1.3.22/Jarvis-Desktop-1.3.22-win-x64.exe",
   ).trim();
   const envMacDownloadUrl = String(
-    process.env.NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL || "",
+    process.env.NEXT_PUBLIC_JARVIS_MAC_DOWNLOAD_URL || "https://github.com/Dezire0/jarvisprototype/releases/download/v1.3.22/Jarvis-Desktop-1.3.22-mac-arm64.dmg",
   ).trim();
   const envLinuxDownloadUrl = String(
-    process.env.NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL || "",
+    process.env.NEXT_PUBLIC_JARVIS_LINUX_DOWNLOAD_URL || "https://github.com/Dezire0/jarvisprototype/releases/download/v1.3.22/Jarvis-Desktop-1.3.22-linux-x64.AppImage",
   ).trim();
   const owner = githubRepo?.owner || "";
   const repo = githubRepo?.repo || "";
@@ -560,16 +575,21 @@ async function main() {
     version,
     githubOwner: owner,
     githubRepo: repo,
-    windowsDownloadUrl: primaryWindowsDownload?.href || "",
-    macDownloadUrl: primaryMacDownload?.href || "",
-    linuxDownloadUrl: primaryLinuxDownload?.href || "",
+    windowsDownloadUrl: primaryWindowsDownload?.href || envWindowsDownloadUrl || "",
+    macDownloadUrl: primaryMacDownload?.href || envMacDownloadUrl || "",
+    linuxDownloadUrl: primaryLinuxDownload?.href || envLinuxDownloadUrl || "",
     releaseNotesUrl,
     downloads,
     platforms: [],
   };
 
-  if (!config.downloads.length) {
-    config.downloads = buildLegacyDownloads(config);
+  // Ensure all platforms have at least one download if a fallback URL exists
+  const legacyDownloads = buildLegacyDownloads(config);
+  for (const legacy of legacyDownloads) {
+    const exists = config.downloads.some((d) => d.platform === legacy.platform);
+    if (!exists && legacy.href) {
+      config.downloads.push(legacy);
+    }
   }
 
   config.platforms = buildPlatformSummary(config.downloads, version);
