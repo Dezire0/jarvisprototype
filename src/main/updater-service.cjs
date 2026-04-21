@@ -569,7 +569,7 @@ class UpdaterService {
           title: "업데이트 오류",
           message: "Jarvis 업데이트 확인 중에 문제가 발생했습니다.",
           detail: message
-        }).catch(() => {});
+        }).catch(() => { });
       }
     });
   }
