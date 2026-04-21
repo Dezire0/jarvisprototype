@@ -61,15 +61,18 @@ export const MacUpdateModal: React.FC<MacUpdateModalProps> = ({
           </div>
 
           {/* Info Box */}
-          <div className="mb-8 rounded-xl border border-white/5 bg-white/5 p-4">
+          <div className="mb-6 rounded-xl border border-white/5 bg-white/5 p-4 text-left">
             <div className="flex gap-3">
               <ShieldAlertIcon className="size-5 shrink-0 text-amber-400" />
               <div className="flex flex-col gap-1">
                 <span className="text-sm font-semibold text-zinc-200">macOS 보안 안내</span>
                 <p className="text-xs leading-relaxed text-zinc-400">
-                  현재 Apple 개발자 인증서 미등록 빌드를 사용 중입니다. 
-                  자동 업데이트 시 앱이 손상될 수 있어, **안전한 수동 업데이트** 방식을 사용합니다.
+                  Apple 인증서 미등록 빌드이므로 설치 후 **"손상된 파일"** 오류가 뜰 수 있습니다. 
+                  그럴 땐 터미널에 아래 명령어를 입력해 주세요:
                 </p>
+                <div className="mt-2 rounded bg-black/40 p-2 font-mono text-[10px] text-emerald-400 break-all border border-white/5">
+                  xattr -cr /Applications/Jarvis\ Desktop.app
+                </div>
               </div>
             </div>
           </div>
