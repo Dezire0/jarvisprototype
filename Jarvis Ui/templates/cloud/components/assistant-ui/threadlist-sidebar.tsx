@@ -304,9 +304,8 @@ export function ThreadListSidebar({
           (status.mode === "installer" || status.mode === "disabled")
         ) {
           setNewVersion(status.availableVersion || "");
-          if (status.releasePageUrl) {
-            setDownloadUrl(status.releasePageUrl);
-          }
+          // 항상 공식 설치 페이지로 유도
+          setDownloadUrl("https://dexproject.pages.dev/");
           setUpdateModalOpen(true);
         }
       }) as (() => void) | undefined;
