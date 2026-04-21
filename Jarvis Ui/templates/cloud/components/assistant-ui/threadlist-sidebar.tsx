@@ -26,7 +26,9 @@ import {
   Link2Icon,
   Link2OffIcon,
   SparklesIcon,
+  ShieldAlertIcon,
 } from "lucide-react";
+import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 
 const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
 
@@ -83,6 +85,11 @@ export function ThreadListSidebar({
   const [webAiStatus, setWebAiStatus] = useState<"connected" | "disconnected" | "checking">("checking");
   const [webAiProvider, setWebAiProvider] = useState<string | null>(null);
 
+  // Update Modal State
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [newVersion, setNewVersion] = useState("");
+  const [downloadUrl, setDownloadUrl] = useState("https://dexproject.pages.dev/");
+
   const allThreads = threadsState.threadItems.filter(
     (item) => item.status === "regular",
   );
@@ -107,7 +114,26 @@ export function ThreadListSidebar({
     // Check Web AI connection status (ChatGPT/Gemini session)
     checkWebAiStatus();
     const interval = setInterval(checkWebAiStatus, 15000);
-    return () => clearInterval(interval);
+
+    // Listen for updates
+    let unsubscribeUpdate: (() => void) | undefined;
+    if (typeof window !== "undefined" && (window as any).assistantAPI?.onUpdateStatus) {
+      unsubscribeUpdate = (window as any).assistantAPI.onUpdateStatus((status: any) => {
+        console.log("Update status received:", status);
+        // macOS (mode === 'installer') && state === 'available'
+        if (status.state === "available" && (status.mode === "installer" || status.mode === "disabled")) {
+          setNewVersion(status.availableVersion || "");
+          // 만약 releasePageUrl이 있으면 사용, 없으면 기본값
+          if (status.releasePageUrl) setDownloadUrl(status.releasePageUrl);
+          setUpdateModalOpen(true);
+        }
+      });
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (unsubscribeUpdate) unsubscribeUpdate();
+    };
   }, []);
 
   async function fetchCloudThreads(token: string) {
@@ -194,6 +220,13 @@ export function ThreadListSidebar({
         open={loginOpen}
         onClose={() => setLoginOpen(false)}
         onSuccess={handleLoginSuccess}
+      />
+
+      <MacUpdateModal
+        isOpen={updateModalOpen}
+        onClose={() => setUpdateModalOpen(false)}
+        version={newVersion}
+        downloadUrl={downloadUrl}
       />
 
       <Sidebar
