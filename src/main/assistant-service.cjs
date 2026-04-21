@@ -4912,7 +4912,10 @@ class AssistantService {
     const language = detectReplyLanguage(input);
     const tier = chooseChatModelTier(input, this.getRecentHistory());
     let reply = "";
-    let provider = "local-chat";
+    
+    // 웹 AI 연결 상태를 먼저 확인하여 UI 라벨을 결정합니다.
+    const connectedProvider = await unofficialAI.isConnected();
+    let provider = connectedProvider ? `web-${connectedProvider}` : "local-chat";
 
     try {
       reply = await this.replyWithModel(
@@ -4920,21 +4923,23 @@ class AssistantService {
         [
           "대화를 자연스럽게 이어가세요.",
           `${buildLanguageName(language)}로만 응답하세요.`,
-          "현대적이고 세련되며 따뜻하고 유능한 개인 비서 Jarvis처럼 행동하세요.",
-          "아이언맨의 느낌을 약간 섞되, 너무 연극적이지 않고 업무에 적합한 톤을 유지하세요.",
-          "일상적인 대화라면 강력한 일반 챗봇처럼 답변하세요.",
-          "추천이 필요한 경우 구체적인 옵션을 2~3개 제안하세요.",
-          "사용자가 인사하면 자연스럽게 인사하고 다음 요청을 유도하세요.",
-          "시스템 메시지나 상태 표시처럼 딱딱하게 말하지 마세요."
+          "당신은 유능하고 친절한 AI 비서 Jarvis입니다.",
+          "일상적인 대화라면 풍부하고 친절하게 답변하세요.",
+          "추천이 필요한 경우 구체적인 옵션을 제안하세요."
         ].join("\n"),
         {
           tier
         }
       );
-      provider = getTierProviderLabel(tier);
+      
+      // 웹 AI가 아니었을 때만 Ollama 티어 라벨로 교체
+      if (!connectedProvider) {
+        provider = getTierProviderLabel(tier);
+      }
     } catch (_error) {
-      // Unofficial AI 실패 시 로컬 또는 공식 API로 대체됩니다.
+      console.error("General chat failed:", _error.message);
       reply = buildLocalChatReply(input, this.getRecentHistory());
+      provider = "local-fallback";
     }
 
     return {

@@ -230,25 +230,12 @@ class UnofficialAIProvider {
 
       // ChatGPT 검증
       let chatgptConnected = false;
-      let chatgptToken = this.accessToken;
       let chatgptReason = "disconnected";
 
       if (sessionCookie) {
-        // 쿠키가 존재하면 사용자 입장에서는 로그인이 된 상태 (창 닫힘 허용)
+        // 쿠키가 존재하면 연결된 것으로 간주
         chatgptConnected = true;
-        
-        if (forceRefresh || !chatgptToken) {
-          chatgptToken = await this.getAccessToken({ forceRefresh }).catch(() => null);
-        }
-        
-        if (chatgptToken) {
-          chatgptReason = "ok";
-        } else {
-          chatgptReason = "token_fetch_failed";
-        }
-      } else {
-        chatgptToken = null;
-        this.accessToken = null;
+        chatgptReason = "ok";
       }
 
       // Gemini 검증
