@@ -25,17 +25,12 @@ const chat = async (options) => {
       return await officialChat(options);
     }
   } catch (err) {
-    console.error("Unofficial AI failed, falling back to official API:", err.message);
-    const fallbackResponse = await officialChat(options);
-    const warningPrefix = `[⚠️ Web AI 연결 실패로 로컬 모델(Gemma)이 대신 답변합니다: ${err.message}]\n\n`;
+    console.error("Unofficial AI failed:", err.message);
     
-    if (typeof fallbackResponse === "string") {
-      return warningPrefix + fallbackResponse;
-    } else if (fallbackResponse && typeof fallbackResponse.text === "string") {
-      fallbackResponse.text = warningPrefix + fallbackResponse.text;
-      return fallbackResponse;
-    }
-    return fallbackResponse;
+    // [임시 디버깅 용도] 오류 원인 파악을 위해 로컬 모델 폴백을 비활성화하고 에러를 그대로 출력합니다.
+    const errorMessage = `[🚨 Web AI 오류 발생]\n\n현재 로컬 모델(Gemma) 폴백이 임시로 비활성화되어 있습니다. 아래의 에러 내용을 확인해 주세요:\n\n${err.message}\n\n${err.stack}`;
+    
+    return errorMessage;
   }
 };
 

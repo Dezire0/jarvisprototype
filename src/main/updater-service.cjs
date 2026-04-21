@@ -750,30 +750,44 @@ class UpdaterService {
     }
 
     if (this.installerFallbackEnabled) {
-      // On macOS, downloading installers inside the app is frequently blocked by
-      // Gatekeeper/quarantine tools and third-party security software. Prefer
-      // opening the release page in the user's default browser.
-      if (process.platform === "darwin") {
-        const targetUrl = String(this.status.releasePageUrl || this.status.downloadUrl || "").trim();
-        if (targetUrl) {
-          await shell.openExternal(targetUrl);
+      if (this.status.state === "downloaded" && this.status.downloadPath) {
+        if (process.platform === "darwin") {
+          const dmgPath = this.status.downloadPath;
+          const shellScript = `mkdir -p /tmp/jarvis_update_mount && hdiutil attach "${dmgPath}" -mountpoint /tmp/jarvis_update_mount -nobrowse -quiet && rm -rf "/Applications/Jarvis Desktop.app" && cp -aR /tmp/jarvis_update_mount/*.app /Applications/ && xattr -cr "/Applications/Jarvis Desktop.app" && hdiutil detach /tmp/jarvis_update_mount -force && open -a "/Applications/Jarvis Desktop.app"`;
+          const appleScript = `do shell script "${shellScript.replace(/"/g, '\\"')}" with administrator privileges`;
+
+          try {
+            const { exec } = require("child_process");
+            // nohup을 사용하여 부모 프로세스(앱)가 죽어도 끝까지 실행되도록 보장합니다.
+            exec(`nohup osascript -e '${appleScript}' > /dev/null 2>&1 &`);
+
+            // 앱을 즉시 종료하여 덮어쓰기 중 발생할 수 있는 충돌을 방지합니다.
+            setTimeout(() => {
+              this.app.quit();
+            }, 1000);
+
+            return {
+              ok: true,
+              mode: "installer",
+              message: "백그라운드에서 업데이트를 설치 중입니다. 비밀번호를 입력해 주세요."
+            };
+          } catch (error) {
+            console.error("Failed to execute AppleScript updater:", error);
+            return {
+              ok: false,
+              mode: "installer",
+              message: `업데이트 스크립트 실행 실패: ${error.message}`
+            };
+          }
+        } else {
+          const openResult = await shell.openPath(this.status.downloadPath);
           return {
-            ok: true,
+            ok: !openResult,
             mode: "installer",
-            targetUrl
+            targetPath: this.status.downloadPath,
+            message: openResult || ""
           };
         }
-      }
-
-      if (this.status.state === "downloaded" && this.status.downloadPath) {
-        const openResult = await shell.openPath(this.status.downloadPath);
-
-        return {
-          ok: !openResult,
-          mode: "installer",
-          targetPath: this.status.downloadPath,
-          message: openResult || ""
-        };
       }
 
       const downloadUrl = this.status.downloadUrl || "";
@@ -783,6 +797,11 @@ class UpdaterService {
           version: this.status.availableVersion || this.status.downloadedVersion || this.status.version,
           downloadUrl
         });
+
+        if (result?.ok) {
+          // 다운로드 완료 후 즉시 설치 로직으로 넘어갑니다.
+          return this.installUpdate();
+        }
 
         if (!result?.ok) {
           const targetUrl = String(this.status.releasePageUrl || "").trim();
