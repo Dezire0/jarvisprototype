@@ -452,10 +452,12 @@ class UnofficialAIProvider {
       return this._chatViaDOM_Gemini(prompt);
     }
 
+    console.log("[WebAI] Attempting to fetch ChatGPT token...");
     let token = await this.getAccessToken();
     let state = await this.getConnectionState({ provider: "chatgpt" });
     
     if (!state.connected) {
+      console.log("[WebAI] Not connected. Requiring login...");
       await this.requireLogin("chatgpt");
       state = await this.getConnectionState({ provider: "chatgpt" });
       if (!state.connected) {
@@ -466,14 +468,15 @@ class UnofficialAIProvider {
 
     if (token) {
       try {
+        console.log("[WebAI] Token found. Sending direct API request...");
         return await this._chatViaBackendApi(prompt, token);
       } catch (error) {
-        console.warn("Direct ChatGPT backend request failed, falling back to DOM automation:", error.message);
+        console.warn("[WebAI] Direct API failed. Falling back to DOM automation:", error.message);
         this.accessToken = null;
         return this._chatViaDOM_ChatGPT(prompt);
       }
     } else {
-      console.warn("No ChatGPT token available (likely blocked). Using DOM automation fallback.");
+      console.warn("[WebAI] Token fetch returned null (likely Cloudflare block). Using DOM automation fallback.");
       return this._chatViaDOM_ChatGPT(prompt);
     }
   }
