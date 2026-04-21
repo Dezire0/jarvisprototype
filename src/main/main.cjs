@@ -810,21 +810,65 @@ async function dispatchTool(tool, payload = {}) {
       };
     }
     case "ai:web-login": {
-      const token = await unofficialAI.requireLogin(payload.provider || "chatgpt");
+      const provider = payload.provider || "chatgpt";
+      const token = await unofficialAI.requireLogin(provider);
+      const state = await unofficialAI.getConnectionState({
+        forceRefresh: true
+      });
       return {
         ok: !!token,
         tool,
-        token: !!token
+        token: !!token,
+        provider: state.provider,
+        reason: state.reason
       };
     }
     case "ai:web-status": {
-      const provider = await unofficialAI.isConnected();
+      const state = await unofficialAI.getConnectionState({
+        forceRefresh: Boolean(payload.forceRefresh)
+      });
       return {
         ok: true,
         tool,
-        connected: !!provider,
-        provider: provider || null
+        connected: state.connected,
+        provider: state.provider,
+        reason: state.reason,
+        checkedAt: state.checkedAt
       };
+    }
+    case "auth:session-save": {
+      if (payload.token) {
+        piiManager.set("auth.token", String(payload.token));
+      }
+      if (payload.user) {
+        piiManager.set("auth.user", JSON.stringify(payload.user));
+      }
+      return { ok: true, tool };
+    }
+    case "auth:session-restore": {
+      const token = piiManager.get("auth.token");
+      const rawUser = piiManager.get("auth.user");
+      let user = null;
+
+      if (rawUser) {
+        try {
+          user = JSON.parse(rawUser);
+        } catch (_error) {
+          user = null;
+        }
+      }
+
+      return {
+        ok: true,
+        tool,
+        token: token || null,
+        user
+      };
+    }
+    case "auth:session-clear": {
+      piiManager.delete("auth.token");
+      piiManager.delete("auth.user");
+      return { ok: true, tool };
     }
     case "pii:set": {
       piiManager.set(payload.key, payload.value);

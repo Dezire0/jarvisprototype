@@ -3,15 +3,13 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import { XIcon, LoaderCircleIcon, SparklesIcon } from "lucide-react";
+import {
+  persistAuthSession,
+  type AuthUser,
+} from "@/components/jarvis/auth-session";
 
 const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
-
-type AuthUser = {
-  id: string;
-  email: string;
-};
 
 type LoginModalProps = {
   open: boolean;
@@ -21,6 +19,7 @@ type LoginModalProps = {
 
 export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -33,16 +32,21 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
     setLoading(true);
     setError(null);
 
-    const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
+    const endpoint =
+      mode === "login" ? "/api/auth/login" : "/api/auth/register";
 
     try {
       const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          name: name.trim() || undefined,
+        }),
       });
 
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
 
       if (!res.ok) {
         setError(data.error || "Something went wrong");
@@ -56,15 +60,37 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
         });
-        const loginData = await loginRes.json() as any;
-        if (!loginRes.ok) { setError(loginData.error || "Auto-login failed"); return; }
-        localStorage.setItem("jarvis_auth_token", loginData.token);
-        onSuccess(loginData.user, loginData.token);
+        const loginData = (await loginRes.json()) as any;
+        if (!loginRes.ok) {
+          setError(loginData.error || "Auto-login failed");
+          return;
+        }
+        const nextUser = {
+          ...loginData.user,
+          name: loginData.user?.name || name.trim() || email.split("@")[0],
+          settings: {
+            autoSync: true,
+            preferWebAi: true,
+          },
+        } satisfies AuthUser;
+        await persistAuthSession(loginData.token, nextUser);
+        onSuccess(nextUser, loginData.token);
       } else {
-        localStorage.setItem("jarvis_auth_token", data.token);
-        onSuccess(data.user, data.token);
+        const nextUser = {
+          ...data.user,
+          name: data.user?.name || email.split("@")[0],
+          settings: {
+            autoSync: true,
+            preferWebAi: true,
+          },
+        } satisfies AuthUser;
+        await persistAuthSession(data.token, nextUser);
+        onSuccess(nextUser, data.token);
       }
 
+      setName("");
+      setEmail("");
+      setPassword("");
       onClose();
     } catch {
       setError("Network error. Please check your connection.");
@@ -77,8 +103,9 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
       <div className="relative w-full max-w-sm rounded-2xl border border-white/10 bg-[#1a1a1a] p-7 shadow-2xl">
         <button
+          type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors"
+          className="absolute top-4 right-4 text-zinc-400 transition-colors hover:text-white"
         >
           <XIcon className="size-4" />
         </button>
@@ -87,10 +114,10 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
           <div className="flex size-10 items-center justify-center rounded-full bg-white/10">
             <SparklesIcon className="size-5 text-white" />
           </div>
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="font-semibold text-lg text-white">
             {mode === "login" ? "Jarvis에 로그인" : "새 계정 만들기"}
           </h2>
-          <p className="text-xs text-zinc-400 text-center">
+          <p className="text-center text-xs text-zinc-400">
             {mode === "login"
               ? "로그인하면 대화 기록이 모든 기기에 저장됩니다."
               : "계정을 만들면 클라우드에 대화가 영구 저장됩니다."}
@@ -98,6 +125,15 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          {mode === "register" && (
+            <Input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="표시 이름"
+              className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
+            />
+          )}
           <Input
             type="email"
             value={email}
@@ -117,7 +153,7 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
           />
 
           {error && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-400 text-xs">
               {error}
             </p>
           )}
@@ -125,7 +161,7 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
           <Button
             type="submit"
             disabled={loading}
-            className="mt-1 h-11 w-full rounded-xl bg-white text-black font-medium hover:bg-zinc-200 transition-colors"
+            className="mt-1 h-11 w-full rounded-xl bg-white font-medium text-black transition-colors hover:bg-zinc-200"
           >
             {loading ? (
               <LoaderCircleIcon className="size-4 animate-spin" />
@@ -143,8 +179,11 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
               계정이 없으신가요?{" "}
               <button
                 type="button"
-                onClick={() => { setMode("register"); setError(null); }}
-                className="text-zinc-300 hover:text-white underline"
+                onClick={() => {
+                  setMode("register");
+                  setError(null);
+                }}
+                className="text-zinc-300 underline hover:text-white"
               >
                 회원가입
               </button>
@@ -154,8 +193,11 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
               이미 계정이 있으신가요?{" "}
               <button
                 type="button"
-                onClick={() => { setMode("login"); setError(null); }}
-                className="text-zinc-300 hover:text-white underline"
+                onClick={() => {
+                  setMode("login");
+                  setError(null);
+                }}
+                className="text-zinc-300 underline hover:text-white"
               >
                 로그인
               </button>

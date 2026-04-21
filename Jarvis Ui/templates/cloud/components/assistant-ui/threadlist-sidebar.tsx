@@ -1,10 +1,8 @@
 "use client";
 
 import type * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useState } from "react";
 import { useAui, useAuiState } from "@assistant-ui/react";
-import { useJarvisExtensions } from "@/components/jarvis/extensions-provider";
-import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import {
   Sidebar,
   SidebarContent,
@@ -12,25 +10,55 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { LoginModal } from "@/components/jarvis/login-modal";
+import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
+import {
+  clearAuthSession,
+  restoreAuthSession,
+  updateStoredAuthUser,
+  type AuthUser,
+} from "@/components/jarvis/auth-session";
 import {
   EditIcon,
   SearchIcon,
-  BrainCircuitIcon,
   MoreHorizontalIcon,
   FolderPlusIcon,
-  FileTextIcon,
   FolderIcon,
   LogOutIcon,
   Link2Icon,
   Link2OffIcon,
   SparklesIcon,
   ShieldAlertIcon,
+  RocketIcon,
+  MonitorIcon,
+  BadgeCheckIcon,
+  UserRoundIcon,
+  RefreshCwIcon,
 } from "lucide-react";
-import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 
 const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
+const SIDEBAR_STORAGE_KEY = "jarvis-sidebar-layout-v3";
+const LOCAL_INDEX_STORAGE_KEY = "jarvis-thread-search-index-v1";
+const PINNED_APP_NAMES = [
+  "Google Chrome",
+  "Visual Studio Code",
+  "Cursor",
+  "iTerm2",
+  "Terminal",
+  "Slack",
+  "Notion",
+  "Finder",
+];
 
 type SidebarProject = {
   id: string;
@@ -44,20 +72,50 @@ type StoredThreadMeta = {
   projectId: string | null;
 };
 
-type AuthUser = {
-  id: string;
-  email: string;
+type StoredSidebarState = {
+  projects: SidebarProject[];
+  threadMetaById: Record<string, StoredThreadMeta>;
+  selectedProjectId: string | null;
 };
 
-const SIDEBAR_STORAGE_KEY = "jarvis-sidebar-layout-v2";
+type LocalThreadSnapshot = {
+  threadId: string;
+  title: string;
+  text: string;
+  snippet: string;
+  updatedAt: number;
+};
 
-function readSidebarState() {
+type CloudThread = {
+  id: string;
+  title?: string | null;
+  createdAt?: string | number;
+};
+
+type CloudSearchEntry = {
+  threadId: string;
+  title: string;
+  text: string;
+  snippet: string;
+  updatedAt: number;
+};
+
+type LauncherApp = {
+  name: string;
+  path: string;
+};
+
+function readSidebarState(): StoredSidebarState {
   if (typeof window === "undefined") {
     return { projects: [], threadMetaById: {}, selectedProjectId: null };
   }
+
   try {
     const raw = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    if (!raw) return { projects: [], threadMetaById: {}, selectedProjectId: null };
+    if (!raw) {
+      return { projects: [], threadMetaById: {}, selectedProjectId: null };
+    }
+
     const parsed = JSON.parse(raw);
     return {
       projects: Array.isArray(parsed.projects) ? parsed.projects : [],
@@ -69,150 +127,577 @@ function readSidebarState() {
   }
 }
 
+function readLocalThreadIndex(): Record<string, LocalThreadSnapshot> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_INDEX_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+function extractMessageText(value: unknown): string {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(extractMessageText).filter(Boolean).join(" ").trim();
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (typeof record.text === "string") {
+      return record.text.trim();
+    }
+    if ("content" in record) {
+      return extractMessageText(record.content);
+    }
+    if ("parts" in record) {
+      return extractMessageText(record.parts);
+    }
+  }
+
+  return "";
+}
+
+function buildSnippet(text: string, maxLength = 120) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "아직 저장된 메시지가 없어요.";
+  }
+
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength).trim()}...`
+    : normalized;
+}
+
+function scoreSearch(query: string, haystack: string, title: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return 0;
+
+  const full = `${title} ${haystack}`.toLowerCase();
+  if (!full.includes(normalizedQuery)) return 0;
+
+  let score = 10;
+  if (title.toLowerCase().includes(normalizedQuery)) {
+    score += 20;
+  }
+  if (full.startsWith(normalizedQuery)) {
+    score += 8;
+  }
+  score += Math.max(0, 12 - full.indexOf(normalizedQuery));
+
+  return score;
+}
+
 export function ThreadListSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const aui = useAui();
   const threadsState = useAuiState((state) => state.threads);
+  const activeThreadMessages = useAuiState((state) => state.thread.messages);
 
-  const [searchQuery, setSearchQuery] = useState("");
   const [projects, setProjects] = useState<SidebarProject[]>([]);
-  const [threadMetaById, setThreadMetaById] = useState<Record<string, StoredThreadMeta>>({});
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [threadMetaById, setThreadMetaById] = useState<
+    Record<string, StoredThreadMeta>
+  >({});
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
+  const [localThreadIndex, setLocalThreadIndex] = useState<
+    Record<string, LocalThreadSnapshot>
+  >({});
   const [loginOpen, setLoginOpen] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [cloudThreads, setCloudThreads] = useState<any[]>([]);
-  const [webAiStatus, setWebAiStatus] = useState<"connected" | "disconnected" | "checking">("checking");
+  const [cloudThreads, setCloudThreads] = useState<CloudThread[]>([]);
+  const [cloudSearchIndex, setCloudSearchIndex] = useState<
+    Record<string, CloudSearchEntry>
+  >({});
+  const [webAiStatus, setWebAiStatus] = useState<
+    "connected" | "disconnected" | "checking" | "expired"
+  >("checking");
   const [webAiProvider, setWebAiProvider] = useState<string | null>(null);
-
-  // Update Modal State
+  const [webAiReason, setWebAiReason] = useState<string | null>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [newVersion, setNewVersion] = useState("");
-  const [downloadUrl, setDownloadUrl] = useState("https://dexproject.pages.dev/");
+  const [downloadUrl, setDownloadUrl] = useState(
+    "https://dexproject.pages.dev/",
+  );
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [launcherOpen, setLauncherOpen] = useState(false);
+  const [launcherQuery, setLauncherQuery] = useState("");
+  const [launcherApps, setLauncherApps] = useState<LauncherApp[]>([]);
+  const [launcherLoading, setLauncherLoading] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileDraftName, setProfileDraftName] = useState("");
+  const [profileAutoSync, setProfileAutoSync] = useState(true);
+  const [profilePreferWebAi, setProfilePreferWebAi] = useState(true);
+  const profileNameInputId = useId();
 
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const allThreads = threadsState.threadItems.filter(
     (item) => item.status === "regular",
+  );
+  const activeThread =
+    allThreads.find((thread) => thread.id === threadsState.mainThreadId) ||
+    null;
+  const activeThreadId = activeThread?.id || null;
+  const activeThreadTitle = activeThread?.title || "새 채팅";
+  const activeThreadText = useMemo(
+    () =>
+      activeThreadMessages
+        .map((message) => extractMessageText(message))
+        .filter(Boolean)
+        .join(" ")
+        .trim(),
+    [activeThreadMessages],
   );
 
   useEffect(() => {
     const stored = readSidebarState();
     setProjects(stored.projects);
     setThreadMetaById(stored.threadMetaById);
+    setSelectedProjectId(stored.selectedProjectId);
+    setLocalThreadIndex(readLocalThreadIndex());
 
-    // Restore session from localStorage
-    const token = localStorage.getItem("jarvis_auth_token");
-    const savedUser = localStorage.getItem("jarvis_auth_user");
-    if (token && savedUser) {
-      try {
-        setAuthUser(JSON.parse(savedUser));
-        fetchCloudThreads(token);
-      } catch {
-        // ignore parse error
+    void (async () => {
+      const session = await restoreAuthSession();
+      if (session.user) {
+        setAuthUser(session.user);
+        setProfileDraftName(
+          session.user.name || session.user.email.split("@")[0] || "",
+        );
+        setProfileAutoSync(session.user.settings?.autoSync ?? true);
+        setProfilePreferWebAi(session.user.settings?.preferWebAi ?? true);
       }
-    }
+      if (session.token) {
+        void hydrateCloudIndex(session.token);
+      }
+    })();
 
-    // Check Web AI connection status (ChatGPT/Gemini session)
-    checkWebAiStatus();
-    const interval = setInterval(checkWebAiStatus, 15000);
+    void checkWebAiStatus(true);
+    const interval = window.setInterval(() => {
+      void checkWebAiStatus(false);
+    }, 15000);
 
-    // Listen for updates
     let unsubscribeUpdate: (() => void) | undefined;
-    if (typeof window !== "undefined" && (window as any).assistantAPI?.onUpdateStatus) {
-      unsubscribeUpdate = (window as any).assistantAPI.onUpdateStatus((status: any) => {
-        console.log("Update status received:", status);
-        // macOS (mode === 'installer') && state === 'available'
-        if (status.state === "available" && (status.mode === "installer" || status.mode === "disabled")) {
+    if (typeof window !== "undefined" && window.assistantAPI?.onUpdateStatus) {
+      unsubscribeUpdate = window.assistantAPI.onUpdateStatus((status: any) => {
+        if (
+          status?.state === "available" &&
+          (status.mode === "installer" || status.mode === "disabled")
+        ) {
           setNewVersion(status.availableVersion || "");
-          // 만약 releasePageUrl이 있으면 사용, 없으면 기본값
-          if (status.releasePageUrl) setDownloadUrl(status.releasePageUrl);
+          if (status.releasePageUrl) {
+            setDownloadUrl(status.releasePageUrl);
+          }
           setUpdateModalOpen(true);
         }
-      });
+      }) as (() => void) | undefined;
     }
 
     return () => {
-      clearInterval(interval);
-      if (unsubscribeUpdate) unsubscribeUpdate();
+      window.clearInterval(interval);
+      unsubscribeUpdate?.();
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      SIDEBAR_STORAGE_KEY,
+      JSON.stringify({
+        projects,
+        threadMetaById,
+        selectedProjectId,
+      } satisfies StoredSidebarState),
+    );
+  }, [projects, selectedProjectId, threadMetaById]);
+
+  useEffect(() => {
+    if (!activeThreadId || typeof window === "undefined") {
+      return;
+    }
+
+    const now = Date.now();
+    const nextSnapshot: LocalThreadSnapshot = {
+      threadId: activeThreadId,
+      title: activeThreadTitle,
+      text: activeThreadText,
+      snippet: buildSnippet(activeThreadText),
+      updatedAt: now,
+    };
+
+    setLocalThreadIndex((prev) => {
+      const current = prev[activeThreadId];
+      if (
+        current &&
+        current.title === nextSnapshot.title &&
+        current.text === nextSnapshot.text &&
+        current.snippet === nextSnapshot.snippet
+      ) {
+        return prev;
+      }
+
+      const next = {
+        ...prev,
+        [activeThreadId]: nextSnapshot,
+      };
+      window.localStorage.setItem(
+        LOCAL_INDEX_STORAGE_KEY,
+        JSON.stringify(next),
+      );
+      return next;
+    });
+
+    setThreadMetaById((prev) => {
+      const current = prev[activeThreadId];
+      const nextMeta: StoredThreadMeta = {
+        createdAt: current?.createdAt || now,
+        updatedAt: now,
+        projectId: current?.projectId ?? selectedProjectId ?? null,
+      };
+
+      if (
+        current &&
+        current.createdAt === nextMeta.createdAt &&
+        current.updatedAt === nextMeta.updatedAt &&
+        current.projectId === nextMeta.projectId
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [activeThreadId]: nextMeta,
+      };
+    });
+  }, [activeThreadId, activeThreadText, activeThreadTitle, selectedProjectId]);
+
+  const displayThreads = useMemo(() => {
+    const filtered = selectedProjectId
+      ? allThreads.filter(
+          (thread) =>
+            threadMetaById[thread.id]?.projectId === selectedProjectId,
+        )
+      : allThreads;
+
+    return filtered
+      .slice()
+      .sort((left, right) => {
+        const leftUpdated = threadMetaById[left.id]?.updatedAt || 0;
+        const rightUpdated = threadMetaById[right.id]?.updatedAt || 0;
+        return rightUpdated - leftUpdated;
+      })
+      .slice(0, 12);
+  }, [allThreads, selectedProjectId, threadMetaById]);
+
+  const selectedProject =
+    projects.find((project) => project.id === selectedProjectId) || null;
+  const launcherQuickApps = useMemo(() => {
+    const query = launcherQuery.trim().toLowerCase();
+    const filtered = launcherApps.filter((app) => {
+      if (!query) return true;
+      return `${app.name} ${app.path}`.toLowerCase().includes(query);
+    });
+
+    return filtered
+      .slice()
+      .sort((left, right) => {
+        const leftPinned = PINNED_APP_NAMES.indexOf(left.name);
+        const rightPinned = PINNED_APP_NAMES.indexOf(right.name);
+        const leftScore = leftPinned === -1 ? 999 : leftPinned;
+        const rightScore = rightPinned === -1 ? 999 : rightPinned;
+        return leftScore - rightScore || left.name.localeCompare(right.name);
+      })
+      .slice(0, 18);
+  }, [launcherApps, launcherQuery]);
+
+  const searchResults = useMemo(() => {
+    const query = deferredSearchQuery.trim();
+    if (!query) {
+      return [];
+    }
+
+    const localEntries = Object.values(localThreadIndex).map((entry) => ({
+      id: `local-${entry.threadId}`,
+      source: "local" as const,
+      threadId: entry.threadId,
+      title: entry.title || "새 채팅",
+      snippet: entry.snippet,
+      score: scoreSearch(query, entry.text, entry.title),
+    }));
+
+    const cloudEntries = Object.values(cloudSearchIndex).map((entry) => ({
+      id: `cloud-${entry.threadId}`,
+      source: "cloud" as const,
+      threadId: entry.threadId,
+      title: entry.title,
+      snippet: entry.snippet,
+      score: scoreSearch(query, entry.text, entry.title),
+    }));
+
+    return [...localEntries, ...cloudEntries]
+      .filter((entry) => entry.score > 0)
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          right.snippet.length - left.snippet.length,
+      )
+      .slice(0, 16);
+  }, [cloudSearchIndex, deferredSearchQuery, localThreadIndex]);
+
   async function fetchCloudThreads(token: string) {
+    const response = await fetch(`${API_BASE}/api/chat/threads`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch cloud threads.");
+    }
+
+    const data = (await response.json()) as {
+      success?: boolean;
+      threads?: CloudThread[];
+    };
+
+    return Array.isArray(data.threads) ? data.threads : [];
+  }
+
+  async function fetchCloudThreadMessages(threadId: string, token: string) {
+    const response = await fetch(
+      `${API_BASE}/api/chat/threads/${threadId}/messages`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = (await response.json()) as {
+      messages?: Array<{ content?: string }>;
+    };
+
+    return Array.isArray(data.messages) ? data.messages : [];
+  }
+
+  async function hydrateCloudIndex(token: string) {
     try {
-      const res = await fetch(`${API_BASE}/api/chat/threads`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json() as any;
-      if (data.success) setCloudThreads(data.threads);
+      const threads = await fetchCloudThreads(token);
+      setCloudThreads(threads);
+
+      const entries = await Promise.all(
+        threads.slice(0, 20).map(async (thread) => {
+          const messages = await fetchCloudThreadMessages(thread.id, token);
+          const text = messages
+            .map((message) => message.content || "")
+            .join(" ")
+            .trim();
+          const title = thread.title?.trim() || "Cloud Chat";
+
+          return [
+            thread.id,
+            {
+              threadId: thread.id,
+              title,
+              text,
+              snippet: buildSnippet(text || title),
+              updatedAt:
+                typeof thread.createdAt === "number"
+                  ? thread.createdAt
+                  : Number(new Date(thread.createdAt || Date.now())),
+            } satisfies CloudSearchEntry,
+          ] as const;
+        }),
+      );
+
+      setCloudSearchIndex(Object.fromEntries(entries));
     } catch {
-      // silently fail
+      setCloudSearchIndex({});
     }
   }
 
-  async function checkWebAiStatus() {
-    if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
-      try {
-        const res = await (window as any).assistantAPI.invokeTool("ai:web-status", {}) as any;
-        if (res?.ok) {
-          setWebAiStatus(res.connected ? "connected" : "disconnected");
-          setWebAiProvider(res.provider || null);
-        }
-      } catch {
+  async function checkWebAiStatus(forceRefresh = false) {
+    if (typeof window === "undefined" || !window.assistantAPI?.invokeTool) {
+      setWebAiStatus("disconnected");
+      return;
+    }
+
+    try {
+      const result = (await window.assistantAPI.invokeTool("ai:web-status", {
+        forceRefresh,
+      })) as {
+        connected?: boolean;
+        provider?: string | null;
+        reason?: string | null;
+      };
+
+      if (result.connected) {
+        setWebAiStatus("connected");
+      } else if (result.reason === "expired") {
+        setWebAiStatus("expired");
+      } else {
         setWebAiStatus("disconnected");
       }
-    } else {
+
+      setWebAiProvider(result.provider || null);
+      setWebAiReason(result.reason || null);
+    } catch {
       setWebAiStatus("disconnected");
+      setWebAiProvider(null);
+      setWebAiReason("status_check_failed");
     }
   }
 
   async function connectWebAi() {
-    if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
-      try {
-        await (window as any).assistantAPI.invokeTool("ai:web-login", { provider: "chatgpt" });
-        setTimeout(checkWebAiStatus, 3000);
-      } catch {
-        // ignore
-      }
+    if (typeof window === "undefined" || !window.assistantAPI?.invokeTool) {
+      return;
+    }
+
+    setWebAiStatus("checking");
+    try {
+      await window.assistantAPI.invokeTool("ai:web-login", {
+        provider: "chatgpt",
+      });
+      await checkWebAiStatus(true);
+    } catch {
+      setWebAiStatus("disconnected");
     }
   }
 
   function handleLoginSuccess(user: AuthUser, token: string) {
     setAuthUser(user);
-    localStorage.setItem("jarvis_auth_user", JSON.stringify(user));
-    fetchCloudThreads(token);
+    setProfileDraftName(user.name || user.email.split("@")[0] || "");
+    setProfileAutoSync(user.settings?.autoSync ?? true);
+    setProfilePreferWebAi(user.settings?.preferWebAi ?? true);
+    void hydrateCloudIndex(token);
   }
 
-  function handleLogout() {
+  async function handleLogout() {
     setAuthUser(null);
     setCloudThreads([]);
-    localStorage.removeItem("jarvis_auth_token");
-    localStorage.removeItem("jarvis_auth_user");
+    setCloudSearchIndex({});
+    setProfileOpen(false);
+    await clearAuthSession();
   }
 
-  function startNewChat() {
-    void aui.threads().switchToNewThread();
+  async function handleSaveProfile() {
+    if (!authUser) {
+      return;
+    }
+
+    const nextUser: AuthUser = {
+      ...authUser,
+      name:
+        profileDraftName.trim() ||
+        authUser.email.split("@")[0] ||
+        "Jarvis User",
+      settings: {
+        autoSync: profileAutoSync,
+        preferWebAi: profilePreferWebAi,
+      },
+    };
+
+    setAuthUser(nextUser);
+    await updateStoredAuthUser(nextUser);
+    setProfileOpen(false);
   }
 
-  function switchToThread(threadId: string) {
-    void aui.threads().switchToThread(threadId);
+  async function startNewChat() {
+    await aui.threads().switchToNewThread();
   }
 
-  const dummyProjects = [
-    { name: "History", icon: <FileTextIcon className="size-4 text-muted-foreground" /> },
-    { name: "Civics", icon: <FileTextIcon className="size-4 text-muted-foreground" /> },
-    { name: "The Book Thief", icon: <FileTextIcon className="size-4 text-blue-500" /> },
-    { name: "Spanish", icon: <FileTextIcon className="size-4 text-muted-foreground" /> },
-    { name: "Jarvis", icon: <FolderIcon className="size-4 text-muted-foreground" /> },
-  ];
+  async function switchToThread(threadId: string) {
+    await aui.threads().switchToThread(threadId);
+  }
 
-  const displayChats = allThreads.length > 0
-    ? allThreads.slice(0, 8).map(t => ({ title: t.title || "새 채팅", id: t.id, active: t.id === threadsState.mainThreadId }))
-    : [];
+  function handleCreateProject() {
+    const trimmed = newProjectName.trim();
+    if (!trimmed) {
+      return;
+    }
 
-  const userDisplayName = authUser
-    ? authUser.email.split("@")[0]
-    : "Dezire";
+    const nextProject: SidebarProject = {
+      id: crypto.randomUUID(),
+      name: trimmed,
+      createdAt: Date.now(),
+    };
 
-  const userSubLabel = authUser ? "로그인됨 ✓" : "Plus";
+    setProjects((prev) => [nextProject, ...prev]);
+    setSelectedProjectId(nextProject.id);
+    setNewProjectName("");
+    setProjectDialogOpen(false);
+  }
+
+  async function loadLauncherApps() {
+    if (
+      launcherApps.length > 0 ||
+      typeof window === "undefined" ||
+      !window.assistantAPI?.invokeTool
+    ) {
+      return;
+    }
+
+    setLauncherLoading(true);
+    try {
+      const result = (await window.assistantAPI.invokeTool("apps:list", {
+        limit: 80,
+      })) as {
+        data?: { apps?: LauncherApp[] };
+      };
+
+      setLauncherApps(result.data?.apps || []);
+    } catch {
+      setLauncherApps([]);
+    } finally {
+      setLauncherLoading(false);
+    }
+  }
+
+  async function openLauncher() {
+    setLauncherOpen(true);
+    await loadLauncherApps();
+  }
+
+  async function handleOpenApp(appName: string) {
+    if (typeof window === "undefined" || !window.assistantAPI?.invokeTool) {
+      return;
+    }
+
+    await window.assistantAPI.invokeTool("app:open", {
+      appName,
+    });
+    setLauncherOpen(false);
+  }
+
+  const userDisplayName =
+    authUser?.name?.trim() || authUser?.email?.split("@")[0] || "Guest";
+  const userSubLabel = authUser
+    ? authUser.settings?.autoSync
+      ? "동기화 활성화됨"
+      : "로컬 프로필"
+    : "로그인 필요";
 
   return (
     <>
@@ -229,155 +714,472 @@ export function ThreadListSidebar({
         downloadUrl={downloadUrl}
       />
 
+      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+        <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>새 프로젝트 만들기</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              빈 프로젝트로 시작하고 이후 대화를 묶어 관리할 수 있어요.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newProjectName}
+            onChange={(event) => setNewProjectName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                handleCreateProject();
+              }
+            }}
+            placeholder="예: Jarvis Desktop v1.3.16"
+            className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setProjectDialogOpen(false)}
+            >
+              취소
+            </Button>
+            <Button
+              className="bg-white text-black hover:bg-zinc-200"
+              onClick={handleCreateProject}
+            >
+              만들기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+        <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>글로벌 채팅 검색</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              로컬 인덱스와 클라우드 기록에서 키워드를 바로 찾아줘요.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="예: 업데이트 배너, Web AI, 프로젝트"
+            className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500"
+          />
+          <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+            {searchResults.length > 0 ? (
+              searchResults.map((result) => (
+                <button
+                  key={result.id}
+                  type="button"
+                  onClick={() => {
+                    if (result.source === "local") {
+                      void switchToThread(result.threadId);
+                      setSearchOpen(false);
+                    }
+                  }}
+                  className={cn(
+                    "w-full rounded-xl border px-4 py-3 text-left transition-colors",
+                    result.source === "local"
+                      ? "border-white/10 bg-white/5 hover:bg-white/10"
+                      : "border-emerald-500/20 bg-emerald-500/10",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate font-medium text-sm">
+                      {result.title}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-[11px]",
+                        result.source === "local"
+                          ? "bg-zinc-800 text-zinc-300"
+                          : "bg-emerald-950/70 text-emerald-300",
+                      )}
+                    >
+                      {result.source === "local" ? "로컬" : "클라우드"}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-400">{result.snippet}</p>
+                </button>
+              ))
+            ) : (
+              <div className="rounded-xl border border-white/10 border-dashed bg-white/5 px-4 py-8 text-center text-sm text-zinc-400">
+                {deferredSearchQuery
+                  ? "일치하는 대화가 아직 없어요."
+                  : "검색어를 입력하면 저장된 대화를 바로 찾아볼 수 있어요."}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={launcherOpen} onOpenChange={setLauncherOpen}>
+        <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>생산성 앱 런처</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              macOS에 설치된 주요 앱을 바로 열 수 있어요.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={launcherQuery}
+            onChange={(event) => setLauncherQuery(event.target.value)}
+            placeholder="Chrome, VS Code, iTerm2..."
+            className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500"
+          />
+          <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+            {launcherLoading ? (
+              <div className="col-span-full rounded-xl border border-white/10 bg-white/5 px-4 py-8 text-center text-sm text-zinc-400">
+                설치된 앱 목록을 불러오는 중...
+              </div>
+            ) : launcherQuickApps.length > 0 ? (
+              launcherQuickApps.map((app) => (
+                <button
+                  key={app.path || app.name}
+                  type="button"
+                  onClick={() => void handleOpenApp(app.name)}
+                  className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left transition-colors hover:bg-white/10"
+                >
+                  <div className="flex items-center gap-3">
+                    <MonitorIcon className="size-4 text-zinc-400" />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-sm">{app.name}</p>
+                      <p className="truncate text-xs text-zinc-500">
+                        {app.path}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="col-span-full rounded-xl border border-white/10 border-dashed bg-white/5 px-4 py-8 text-center text-sm text-zinc-400">
+                검색 결과가 없어요.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>프로필 편집</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              표시 이름과 기본 동작을 저장해 다음 실행에서도 그대로 유지해요.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label
+                htmlFor={profileNameInputId}
+                className="font-medium text-xs text-zinc-400"
+              >
+                표시 이름
+              </label>
+              <Input
+                id={profileNameInputId}
+                value={profileDraftName}
+                onChange={(event) => setProfileDraftName(event.target.value)}
+                placeholder="이름을 입력하세요"
+                className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500"
+              />
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>클라우드 대화 동기화 유지</span>
+                <input
+                  type="checkbox"
+                  checked={profileAutoSync}
+                  onChange={(event) => setProfileAutoSync(event.target.checked)}
+                  className="size-4 accent-white"
+                />
+              </label>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>가능하면 Web AI 우선 사용</span>
+                <input
+                  type="checkbox"
+                  checked={profilePreferWebAi}
+                  onChange={(event) =>
+                    setProfilePreferWebAi(event.target.checked)
+                  }
+                  className="size-4 accent-white"
+                />
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProfileOpen(false)}>
+              닫기
+            </Button>
+            <Button
+              className="bg-white text-black hover:bg-zinc-200"
+              onClick={() => void handleSaveProfile()}
+            >
+              저장
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Sidebar
         {...props}
-        className="border-r-0 bg-[#171717] text-[#ececec] [--sidebar-width:260px]"
+        className="border-r-0 bg-[#171717] text-[#ececec] [--sidebar-width:280px]"
       >
         <SidebarHeader className="border-none px-3 pt-3 pb-0">
-          {/* Web AI Connection Status Banner */}
           <button
             type="button"
-            onClick={webAiStatus !== "connected" ? connectWebAi : undefined}
-            className={cn(
-              "mb-1 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors w-full text-left",
+            onClick={
               webAiStatus === "connected"
-                ? "bg-emerald-950/60 text-emerald-400 cursor-default"
-                : webAiStatus === "checking"
-                  ? "bg-zinc-800/60 text-zinc-500 cursor-default"
-                  : "bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/60 hover:text-white cursor-pointer"
+                ? undefined
+                : () => void connectWebAi()
+            }
+            className={cn(
+              "mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left font-medium text-xs transition-colors",
+              webAiStatus === "connected" &&
+                "bg-emerald-950/60 text-emerald-400",
+              webAiStatus === "checking" && "bg-zinc-800/60 text-zinc-500",
+              webAiStatus === "disconnected" &&
+                "bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/60 hover:text-white",
+              webAiStatus === "expired" &&
+                "bg-amber-950/60 text-amber-300 hover:bg-amber-900/60",
             )}
           >
             {webAiStatus === "connected" ? (
               <Link2Icon className="size-3.5 shrink-0" />
+            ) : webAiStatus === "expired" ? (
+              <ShieldAlertIcon className="size-3.5 shrink-0" />
             ) : (
               <Link2OffIcon className="size-3.5 shrink-0" />
             )}
             <span className="flex-1 truncate">
               {webAiStatus === "connected"
-                ? `Web AI 연결됨 (${webAiProvider || "ChatGPT"})`
+                ? `Web AI 연결됨 (${webAiProvider || "chatgpt"})`
                 : webAiStatus === "checking"
                   ? "Web AI 상태 확인 중..."
-                  : "Web AI 연결 안 됨 — 클릭하여 연결"}
+                  : webAiStatus === "expired"
+                    ? "Web AI 세션 만료됨 — 다시 연결"
+                    : "Web AI 연결 안 됨 — 클릭하여 연결"}
             </span>
-            {webAiStatus !== "connected" && webAiStatus !== "checking" && (
+            {webAiStatus !== "connected" && (
               <SparklesIcon className="size-3 shrink-0 text-zinc-500" />
             )}
           </button>
 
+          {webAiReason && webAiStatus === "expired" && (
+            <p className="mb-2 px-1 text-[11px] text-amber-300/80">
+              세션 토큰이 만료된 상태라 백그라운드에서 다시 연결이 필요해.
+            </p>
+          )}
+
           <div className="flex flex-col gap-0.5">
             <Button
               variant="ghost"
-              onClick={startNewChat}
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121] transition-colors"
+              onClick={() => void startNewChat()}
+              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
             >
               <EditIcon className="size-4.5" />
-              <span className="text-[15px] font-medium">새 채팅</span>
+              <span className="font-medium text-[15px]">새 채팅</span>
             </Button>
 
             <Button
               variant="ghost"
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121] transition-colors"
+              onClick={() => setSearchOpen(true)}
+              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
             >
               <SearchIcon className="size-4.5" />
-              <span className="text-[15px] font-medium">채팅 검색</span>
+              <span className="font-medium text-[15px]">채팅 검색</span>
             </Button>
 
             <Button
               variant="ghost"
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121] transition-colors"
-            >
-              <BrainCircuitIcon className="size-4.5" />
-              <span className="text-[15px] font-medium">Codex</span>
-            </Button>
-
-            <Button
-              variant="ghost"
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121] transition-colors"
+              onClick={() => void openLauncher()}
+              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
             >
               <MoreHorizontalIcon className="size-4.5" />
-              <span className="text-[15px] font-medium">더 보기</span>
+              <span className="font-medium text-[15px]">더 보기</span>
             </Button>
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="px-3 py-2 scrollbar-none">
-          <div className="mt-4 mb-1 px-3">
-            <p className="text-xs font-semibold text-muted-foreground/80">프로젝트</p>
+        <SidebarContent className="scrollbar-none px-3 py-2">
+          <div className="mt-4 mb-1 flex items-center justify-between px-3">
+            <p className="font-semibold text-muted-foreground/80 text-xs">
+              프로젝트
+            </p>
+            {selectedProject && (
+              <button
+                type="button"
+                onClick={() => setSelectedProjectId(null)}
+                className="text-[11px] text-zinc-500 hover:text-zinc-300"
+              >
+                전체 보기
+              </button>
+            )}
           </div>
 
           <div className="flex flex-col gap-0.5">
             <Button
               variant="ghost"
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-5 hover:bg-[#212121] transition-colors"
+              onClick={() => setProjectDialogOpen(true)}
+              className="flex items-center justify-start gap-3 rounded-lg px-3 py-5 hover:bg-[#212121]"
             >
               <FolderPlusIcon className="size-4.5" />
-              <span className="text-sm font-medium">새 프로젝트</span>
+              <span className="font-medium text-sm">새 프로젝트</span>
             </Button>
 
-            {dummyProjects.map((p, idx) => (
-              <Button
-                key={idx}
-                variant="ghost"
-                className="flex items-center justify-start gap-3 rounded-lg px-3 py-5 hover:bg-[#212121] transition-colors"
-              >
-                {p.icon}
-                <span className="text-sm font-medium">{p.name}</span>
-              </Button>
-            ))}
+            {projects.length > 0 ? (
+              projects.map((project) => {
+                const chatCount = Object.values(threadMetaById).filter(
+                  (meta) => meta.projectId === project.id,
+                ).length;
 
-            <Button
-              variant="ghost"
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-5 hover:bg-[#212121] transition-colors"
-            >
-              <MoreHorizontalIcon className="size-4.5" />
-              <span className="text-sm font-medium">더 보기</span>
-            </Button>
+                return (
+                  <Button
+                    key={project.id}
+                    variant="ghost"
+                    onClick={() =>
+                      setSelectedProjectId((current) =>
+                        current === project.id ? null : project.id,
+                      )
+                    }
+                    className={cn(
+                      "flex items-center justify-start gap-3 rounded-lg px-3 py-5 transition-colors hover:bg-[#212121]",
+                      selectedProjectId === project.id && "bg-[#252525]",
+                    )}
+                  >
+                    <FolderIcon className="size-4.5 text-zinc-400" />
+                    <span className="flex-1 truncate text-left font-medium text-sm">
+                      {project.name}
+                    </span>
+                    <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400">
+                      {chatCount}
+                    </span>
+                  </Button>
+                );
+              })
+            ) : (
+              <div className="rounded-xl border border-white/10 border-dashed bg-white/5 px-4 py-5 text-sm text-zinc-400">
+                아직 프로젝트가 없어요. 새 프로젝트를 만들어 흐름을 분리해두자.
+              </div>
+            )}
           </div>
 
           <div className="mt-6 mb-1 px-3">
-            <p className="text-xs font-semibold text-muted-foreground/80">최근</p>
+            <p className="font-semibold text-muted-foreground/80 text-xs">
+              최근 {selectedProject ? `· ${selectedProject.name}` : ""}
+            </p>
           </div>
 
           <div className="flex flex-col gap-0.5">
-            {displayChats.length > 0 ? displayChats.map((chat) => (
-              <Button
-                key={chat.id}
-                variant="ghost"
-                onClick={() => switchToThread(chat.id)}
-                className={cn(
-                  "group relative flex items-center justify-start rounded-lg px-3 py-5 transition-colors overflow-hidden",
-                  chat.active ? "bg-[#2f2f2f] text-white" : "hover:bg-[#212121]"
-                )}
-              >
-                <span className="text-sm font-medium truncate flex-1 text-left">{chat.title}</span>
-              </Button>
-            )) : (
-              <p className="px-3 py-2 text-xs text-muted-foreground">
-                {authUser ? "클라우드에서 동기화됨" : "새 채팅을 시작하세요"}
-              </p>
+            {displayThreads.length > 0 ? (
+              displayThreads.map((thread) => (
+                <Button
+                  key={thread.id}
+                  variant="ghost"
+                  onClick={() => void switchToThread(thread.id)}
+                  className={cn(
+                    "group relative flex items-center justify-start overflow-hidden rounded-lg px-3 py-5 text-left transition-colors",
+                    thread.id === threadsState.mainThreadId
+                      ? "bg-[#2f2f2f] text-white"
+                      : "hover:bg-[#212121]",
+                  )}
+                >
+                  <span className="flex-1 truncate font-medium text-sm">
+                    {thread.title || "새 채팅"}
+                  </span>
+                </Button>
+              ))
+            ) : (
+              <div className="rounded-xl border border-white/10 border-dashed bg-white/5 px-4 py-5 text-sm text-zinc-400">
+                {selectedProject
+                  ? "선택한 프로젝트에 아직 연결된 대화가 없어요."
+                  : authUser
+                    ? `클라우드 스레드 ${cloudThreads.length}개를 확인했고, 로컬 대화는 새로 시작하면 자동으로 색인돼요.`
+                    : "새 채팅을 시작하면 여기에서 바로 이어볼 수 있어요."}
+              </div>
             )}
           </div>
+
+          {authUser && (
+            <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+              <div className="flex items-center gap-2 font-medium text-emerald-300 text-sm">
+                <BadgeCheckIcon className="size-4" />
+                <span>동기화 상태</span>
+              </div>
+              <p className="mt-2 text-emerald-100/80 text-xs">
+                클라우드 스레드 {cloudThreads.length}개와 로컬 인덱스{" "}
+                {Object.keys(localThreadIndex).length}개를 검색 대상으로 유지
+                중이야.
+              </p>
+            </div>
+          )}
         </SidebarContent>
 
-        <SidebarFooter className="border-none px-3 pb-3 pt-2">
-          <Button
-            variant="ghost"
-            onClick={() => authUser ? handleLogout() : setLoginOpen(true)}
-            className="flex items-center justify-start gap-3 rounded-xl px-2 py-6 hover:bg-[#212121] transition-colors w-full group"
-          >
-            <div className="flex size-8 items-center justify-center rounded-full bg-zinc-700 overflow-hidden shrink-0 text-white text-sm font-bold">
-              {userDisplayName.charAt(0).toUpperCase()}
-            </div>
-            <div className="flex flex-col items-start overflow-hidden text-left flex-1">
-              <span className="text-sm font-medium text-white truncate">{userDisplayName}</span>
-              <span className={cn("text-xs truncate", authUser ? "text-emerald-400" : "text-muted-foreground")}>
-                {userSubLabel}
-              </span>
-            </div>
+        <SidebarFooter className="border-none px-3 pt-2 pb-3">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (authUser) {
+                  setProfileDraftName(
+                    authUser.name || authUser.email.split("@")[0] || "",
+                  );
+                  setProfileAutoSync(authUser.settings?.autoSync ?? true);
+                  setProfilePreferWebAi(authUser.settings?.preferWebAi ?? true);
+                  setProfileOpen(true);
+                } else {
+                  setLoginOpen(true);
+                }
+              }}
+              className="flex flex-1 items-center justify-start gap-3 rounded-xl px-2 py-6 hover:bg-[#212121]"
+            >
+              <div className="flex size-8 items-center justify-center rounded-full bg-zinc-700 font-bold text-sm text-white">
+                {userDisplayName.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col items-start text-left">
+                <span className="truncate font-medium text-sm text-white">
+                  {userDisplayName}
+                </span>
+                <span
+                  className={cn(
+                    "truncate text-xs",
+                    authUser ? "text-emerald-400" : "text-muted-foreground",
+                  )}
+                >
+                  {userSubLabel}
+                </span>
+              </div>
+              <UserRoundIcon className="size-4 text-zinc-500" />
+            </Button>
+
             {authUser && (
-              <LogOutIcon className="size-3.5 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => void handleLogout()}
+                className="shrink-0 rounded-xl text-zinc-500 hover:bg-[#212121] hover:text-white"
+                title="로그아웃"
+              >
+                <LogOutIcon className="size-4" />
+              </Button>
             )}
-          </Button>
+          </div>
+
+          <div className="mt-2 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-zinc-400">
+            <span className="inline-flex items-center gap-1">
+              <RocketIcon className="size-3.5" />
+              Web AI 직접 요청 + 로컬 검색 인덱스 적용됨
+            </span>
+            <button
+              type="button"
+              onClick={() => void checkWebAiStatus(true)}
+              className="inline-flex items-center gap-1 text-zinc-500 hover:text-white"
+            >
+              <RefreshCwIcon className="size-3.5" />
+              새로고침
+            </button>
+          </div>
         </SidebarFooter>
       </Sidebar>
     </>
