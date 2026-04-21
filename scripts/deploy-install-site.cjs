@@ -93,7 +93,7 @@ const args = [
   String(commitDirty),
 ];
 
-if (branch !== "main") {
+if (branch) {
   args.push("--branch", branch);
 }
 
