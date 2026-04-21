@@ -3101,6 +3101,17 @@ class AssistantService {
   }
 
   async executeRoute(cleanInput, route) {
+    // 로그인 진행 중에는 자동화 동작이 간섭하지 않도록 제한합니다.
+    if (unofficialAI.isLoggingIn && ["browser", "app_action", "browser_login"].includes(route.route)) {
+      return {
+        reply: detectReplyLanguage(cleanInput) === "ko"
+          ? "현재 로그인 창이 열려 있어 자동화 동작을 수행할 수 없습니다. 로그인을 완료하거나 창을 닫은 후 다시 시도해 주세요."
+          : "Automation actions are disabled while the login window is open. Please complete the login or close the window and try again.",
+        actions: [],
+        provider: "local-lock"
+      };
+    }
+
     // 사용자의 입력 의도(Route)에 따라 적절한 핸들러를 호출합니다.
     switch (route.route) {
       case "system_briefing":

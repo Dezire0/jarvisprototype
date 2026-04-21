@@ -810,7 +810,7 @@ async function dispatchTool(tool, payload = {}) {
       };
     }
     case "ai:web-login": {
-      const token = await unofficialAI.requireLogin();
+      const token = await unofficialAI.requireLogin(payload.provider || "chatgpt");
       return {
         ok: !!token,
         tool,

@@ -16,6 +16,7 @@ class UnofficialAIProvider {
     this.accessToken = null;
     this.loginWindow = null;
     this.deviceId = crypto.randomUUID();
+    this.isLoggingIn = false;
   }
 
   /**
@@ -24,18 +25,20 @@ class UnofficialAIProvider {
   async getAccessToken() {
     if (this.accessToken) return this.accessToken;
 
+    const chatgptSession = session.fromPartition("persist:chatgpt");
+
     // Plan-based extraction: check for the session token cookie directly
-    const cookies = await session.defaultSession.cookies.get({ name: "__Secure-next-auth.session-token" });
+    const cookies = await chatgptSession.cookies.get({ name: "__Secure-next-auth.session-token" });
     if (cookies.length > 0) {
       console.log("Extracted session token from cookie.");
-      // Note: The cookie itself isn't the accessToken used in headers, 
-      // but api/auth/session uses it to return the accessToken.
-      // If we wanted to use the cookie directly for auth, we'd need a different API approach.
-      // But let's follow the request to use api/auth/session while ensuring we have the cookie.
     }
 
     return new Promise((resolve, reject) => {
-      const request = net.request("https://chatgpt.com/api/auth/session");
+      const request = net.request({
+        url: "https://chatgpt.com/api/auth/session",
+        session: chatgptSession,
+        useSessionCookies: true
+      });
       
       request.on("response", (response) => {
         let data = "";
@@ -59,43 +62,89 @@ class UnofficialAIProvider {
 
   /**
    * Opens a window for the user to log in manually.
+   * @param {string} provider 'chatgpt' | 'gemini'
    */
-  async requireLogin() {
+  async requireLogin(provider = "chatgpt") {
     return new Promise((resolve) => {
       if (this.loginWindow) {
         this.loginWindow.focus();
         return;
       }
 
+      this.isLoggingIn = true;
+      const isGemini = provider === "gemini";
+      const targetUrl = isGemini ? "https://gemini.google.com/app" : "https://chatgpt.com";
+      const title = isGemini 
+        ? "Jarvis 연동을 위한 Gemini 로그인 (완료 시 창이 자동으로 닫힙니다)"
+        : "Jarvis 연동을 위한 ChatGPT 로그인 (완료 시 창이 자동으로 닫힙니다)";
+
       this.loginWindow = new BrowserWindow({
         width: 800,
         height: 800,
-        title: "Jarvis 연동을 위한 ChatGPT 로그인 (완료 시 창이 자동으로 닫힙니다)",
+        title: title,
         autoHideMenuBar: true,
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
-          partition: "persist:chatgpt" // Must match default session if we want to share cookies
+          partition: "persist:chatgpt" // Share partition for simplicity
         }
       });
 
-      this.loginWindow.loadURL("https://chatgpt.com");
+      this.loginWindow.loadURL(targetUrl);
 
-      // Monitor navigations to see when they hit the main chat interface
-      this.loginWindow.webContents.on("did-navigate", async (event, url) => {
-        if (url === "https://chatgpt.com/" || url.startsWith("https://chatgpt.com/c/")) {
-          // They logged in!
+      // SPA 네비게이션도 감지하기 위해 did-navigate-in-page 사용
+      const checkLogin = async (event, url) => {
+        if (isGemini) {
+          if (url.startsWith("https://gemini.google.com/app")) {
+            const chatgptSession = session.fromPartition("persist:chatgpt");
+            const cookies = await chatgptSession.cookies.get({ url: "https://gemini.google.com", name: "__Secure-1PSID" });
+            if (cookies.length > 0) {
+              this.loginWindow?.close();
+              resolve(cookies[0].value);
+            }
+          }
+        } else {
+          if (url === "https://chatgpt.com/" || url.startsWith("https://chatgpt.com/c/")) {
+            const token = await this.getAccessToken();
+            if (token) {
+              this.loginWindow?.close();
+              resolve(token);
+            }
+          }
+        }
+      };
+
+      this.loginWindow.webContents.on("did-navigate", checkLogin);
+      this.loginWindow.webContents.on("did-navigate-in-page", checkLogin);
+
+      // 추가적으로 주기적으로 토큰 확인
+      const pollInterval = setInterval(async () => {
+        if (!this.loginWindow) {
+          clearInterval(pollInterval);
+          return;
+        }
+        if (isGemini) {
+          const chatgptSession = session.fromPartition("persist:chatgpt");
+          const cookies = await chatgptSession.cookies.get({ url: "https://gemini.google.com", name: "__Secure-1PSID" });
+          if (cookies.length > 0) {
+            clearInterval(pollInterval);
+            this.loginWindow?.close();
+            resolve(cookies[0].value);
+          }
+        } else {
           const token = await this.getAccessToken();
           if (token) {
-            this.loginWindow.close();
-            this.loginWindow = null;
+            clearInterval(pollInterval);
+            this.loginWindow?.close();
             resolve(token);
           }
         }
-      });
+      }, 3000);
 
       this.loginWindow.on("closed", () => {
+        clearInterval(pollInterval);
         this.loginWindow = null;
+        this.isLoggingIn = false;
         resolve(this.accessToken); // might be null if they closed without logging in
       });
     });
