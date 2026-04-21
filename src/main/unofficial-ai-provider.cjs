@@ -525,19 +525,37 @@ class UnofficialAIProvider {
     const script = `
       (async function() {
         try {
-          const textarea = document.querySelector('#prompt-textarea');
-          if (!textarea) return { error: "Chat input not found. Might need login." };
+          // 입력창이 렌더링될 때까지 최대 5초 대기 (Polling)
+          let textarea = null;
+          for (let i = 0; i < 50; i++) {
+            textarea = document.querySelector('#prompt-textarea') || 
+                       document.querySelector('div[contenteditable="true"]') ||
+                       document.querySelector('textarea');
+            if (textarea) break;
+            await new Promise(r => setTimeout(r, 100));
+          }
 
-          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-          nativeInputValueSetter.call(textarea, ${escapedPrompt});
+          if (!textarea) return { error: "Chat input not found after 5 seconds. Might need login or Cloudflare blocked." };
+
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set ||
+                                         Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'innerText')?.set;
+          
+          if (nativeInputValueSetter) {
+            nativeInputValueSetter.call(textarea, ${escapedPrompt});
+          } else {
+            textarea.value = ${escapedPrompt};
+            textarea.innerText = ${escapedPrompt};
+          }
           textarea.dispatchEvent(new Event('input', { bubbles: true }));
 
-          await new Promise((resolve) => setTimeout(resolve, 180));
-          const sendBtn = document.querySelector('button[data-testid="send-button"]');
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          const sendBtn = document.querySelector('button[data-testid="send-button"]') ||
+                          document.querySelector('button[aria-label="Send message"]') ||
+                          document.querySelector('button.absolute.bottom-1.5');
           if (sendBtn && !sendBtn.disabled) {
             sendBtn.click();
           } else {
-            textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+            textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, ctrlKey: true }));
           }
 
           return await new Promise((resolve) => {

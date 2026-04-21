@@ -26,7 +26,16 @@ const chat = async (options) => {
     }
   } catch (err) {
     console.error("Unofficial AI failed, falling back to official API:", err.message);
-    return await officialChat(options);
+    const fallbackResponse = await officialChat(options);
+    const warningPrefix = `[⚠️ Web AI 연결 실패로 로컬 모델(Gemma)이 대신 답변합니다: ${err.message}]\n\n`;
+    
+    if (typeof fallbackResponse === "string") {
+      return warningPrefix + fallbackResponse;
+    } else if (fallbackResponse && typeof fallbackResponse.text === "string") {
+      fallbackResponse.text = warningPrefix + fallbackResponse.text;
+      return fallbackResponse;
+    }
+    return fallbackResponse;
   }
 };
 
