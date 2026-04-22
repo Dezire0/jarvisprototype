@@ -4856,7 +4856,15 @@ class AssistantService {
   }
 
   async handleGeneral(input) {
-    const preferredLang = this.settings.getPreferredLanguage();
+    let user = null;
+    let token = null;
+    try {
+      const rawUser = piiManager.get("auth.user");
+      token = piiManager.get("auth.token");
+      if (rawUser) user = JSON.parse(rawUser);
+    } catch (e) {}
+
+    const preferredLang = user?.settings?.language || "auto";
     const language = preferredLang === "auto" ? detectReplyLanguage(input) : preferredLang;
 
     let reply = "";
@@ -4887,10 +4895,6 @@ class AssistantService {
     const messages = [...recentHistory, { role: "user", content: input }];
 
     try {
-      const rawUser = piiManager.get("auth.user");
-      const token = piiManager.get("auth.token");
-      let user = null;
-      try { if (rawUser) user = JSON.parse(rawUser); } catch(e) {}
 
       if (!token || !user) {
         return {
