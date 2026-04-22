@@ -7,12 +7,14 @@ export type AuthSettings = {
   autoSync?: boolean;
   preferWebAi?: boolean;
   language?: "auto" | "ko" | "en";
+  geminiKey?: string;
 };
 
 export type AuthUser = {
   id: string;
   email: string;
   name?: string | null;
+  plan?: "free" | "pro";
   settings?: AuthSettings;
 };
 

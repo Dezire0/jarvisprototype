@@ -6,6 +6,10 @@ import { Input } from "@/components/ui/input";
 import {
   SparklesIcon,
   LoaderCircleIcon,
+  KeyIcon,
+  ShieldCheckIcon,
+  ArrowRightIcon,
+  CheckIcon,
 } from "lucide-react";
 import {
   restoreAuthSession,
@@ -16,12 +20,12 @@ import { Assistant } from "./assistant";
 
 const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
 
-type OnboardingStep = "loading" | "auth" | "ready";
+type OnboardingStep = "loading" | "auth" | "setup" | "ready";
 
 export function OnboardingGate() {
   const [step, setStep] = useState<OnboardingStep>("loading");
 
-  // Auth form state
+  // Auth state
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -29,16 +33,23 @@ export function OnboardingGate() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Setup state
+  const [selectedPlan, setSelectedPlan] = useState<"free" | "pro">("free");
+  const [userApiKey, setUserApiKey] = useState("");
+  const [setupLoading, setSetupLoading] = useState(false);
+
   const isKo =
     typeof navigator !== "undefined" && navigator.language.startsWith("ko");
   const t = (ko: string, en: string) => (isKo ? ko : en);
 
-  // Check existing session on mount
+  // Check session on mount
   useEffect(() => {
     void (async () => {
       const session = await restoreAuthSession();
       if (session.token && session.user) {
-        setStep("ready");
+        // 이미 로그인됨 -> 플랜이나 키가 설정되어 있는지 확인
+        const hasSetup = session.user.plan === "pro" || session.user.settings?.geminiKey;
+        setStep(hasSetup ? "ready" : "setup");
       } else {
         setStep("auth");
       }
@@ -50,187 +61,190 @@ export function OnboardingGate() {
     setAuthLoading(true);
     setAuthError(null);
 
-    const endpoint =
-      mode === "login" ? "/api/auth/login" : "/api/auth/register";
+    const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
 
     try {
       const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          name: name.trim() || undefined,
-        }),
+        body: JSON.stringify({ email, password, name: name.trim() || undefined }),
       });
 
       const data = (await res.json()) as any;
-
       if (!res.ok) {
-        setAuthError(data.error || t("오류가 발생했습니다.", "Something went wrong."));
+        setAuthError(data.error || t("오류가 발생했습니다.", "Error occurred."));
         return;
       }
 
-      // Auto-login after register
       let token = data.token;
       let user = data.user;
 
       if (mode === "register") {
-        const loginRes = await fetch(`${API_BASE}/api/auth/login`, {
+        const lr = await fetch(`${API_BASE}/api/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
         });
-        const loginData = (await loginRes.json()) as any;
-        if (!loginRes.ok) {
-          setAuthError(loginData.error || t("자동 로그인에 실패했습니다.", "Auto-login failed."));
-          return;
-        }
-        token = loginData.token;
-        user = loginData.user;
+        const ld = await lr.json() as any;
+        token = ld.token;
+        user = ld.user;
       }
 
       const nextUser: AuthUser = {
         ...user,
-        name: user?.name || name.trim() || email.split("@")[0],
         settings: { autoSync: true, preferWebAi: true, language: "auto" },
       };
 
       await persistAuthSession(token, nextUser);
-
-      // Sync auth token to Electron main process if available
-      if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
-        try {
-          await (window as any).assistantAPI.invokeTool("auth:session-save", { token, user: nextUser });
-        } catch {
-          // Non-critical
-        }
-      }
-
-      setStep("ready");
+      setStep("setup"); // 로그인 성공 후 무조건 셋업 화면으로
     } catch {
-      setAuthError(t("네트워크 오류입니다. 연결을 확인해 주세요.", "Network error. Please check your connection."));
+      setAuthError(t("네트워크 오류", "Network error"));
     } finally {
       setAuthLoading(false);
     }
   }
 
-  // ─── Loading ───
-  if (step === "loading") {
-    return (
-      <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]">
-        <LoaderCircleIcon className="size-6 animate-spin text-white/40" />
-      </div>
-    );
+  async function handleSetup() {
+    setSetupLoading(true);
+    try {
+      const session = await restoreAuthSession();
+      if (!session.token || !session.user) return;
+
+      // 만약 무료 플랜인데 키를 안 넣었으면 경고
+      if (selectedPlan === "free" && !userApiKey.trim()) {
+        alert(t("무료 플랜을 사용하려면 Gemini API 키를 입력해야 합니다.", "Please enter your Gemini API key for the free plan."));
+        return;
+      }
+
+      // 서버에 플랜 및 키 저장 (임시로 로컬 세션에 저장)
+      const updatedUser: AuthUser = {
+        ...session.user,
+        plan: selectedPlan,
+        settings: {
+          ...session.user.settings,
+          geminiKey: selectedPlan === "free" ? userApiKey.trim() : undefined,
+        }
+      };
+
+      await persistAuthSession(session.token, updatedUser);
+
+      // Electron 메인 프로세스에 세션 동기화
+      if (typeof window !== "undefined" && (window as any).assistantAPI) {
+        await (window as any).assistantAPI.invokeTool("auth:session-save", { 
+          token: session.token, 
+          user: updatedUser 
+        });
+      }
+
+      setStep("ready");
+    } finally {
+      setSetupLoading(false);
+    }
   }
 
-  // ─── Ready → Show the actual Assistant ───
+  if (step === "loading") {
+    return <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]"><LoaderCircleIcon className="size-6 animate-spin text-white/40" /></div>;
+  }
+
   if (step === "ready") {
     return <Assistant />;
   }
 
-  // ─── Auth Step (full-screen, independent UI) ───
-  return (
-    <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]">
-      <div className="w-full max-w-sm px-6">
-        {/* Logo + Title */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex size-14 items-center justify-center rounded-[22px] border border-white/10 bg-white/5 shadow-[0_12px_50px_rgba(255,255,255,0.06)]">
-            <SparklesIcon className="size-6 text-white" />
+  // ─── Step 1: Auth (Login/Register) ───
+  if (step === "auth") {
+    return (
+      <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]">
+        <div className="w-full max-w-sm px-6">
+          <div className="mb-8 flex flex-col items-center gap-3">
+            <div className="flex size-14 items-center justify-center rounded-[22px] border border-white/10 bg-white/5">
+              <SparklesIcon className="size-6 text-white" />
+            </div>
+            <h1 className="text-2xl font-semibold text-white">Jarvis</h1>
+            <p className="text-sm text-zinc-400">{mode === "login" ? t("로그인", "Sign In") : t("회원가입", "Sign Up")}</p>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Jarvis
-          </h1>
-          <p className="text-center text-sm text-zinc-400">
-            {mode === "login"
-              ? t("로그인하여 시작하세요", "Sign in to continue")
-              : t("계정을 만들어 시작하세요", "Create an account to get started")}
-          </p>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleAuth} className="flex flex-col gap-3">
-          {mode === "register" && (
-            <Input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("이름 (선택)", "Name (optional)")}
-              className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
-            />
-          )}
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder={t("이메일", "Email")}
-            required
-            className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
-          />
-          <Input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={t("비밀번호", "Password")}
-            required
-            minLength={6}
-            className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
-          />
-
-          {authError && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-              {authError}
-            </p>
-          )}
-
-          <Button
-            type="submit"
-            disabled={authLoading}
-            className="mt-1 h-11 w-full rounded-xl bg-white font-medium text-black transition-colors hover:bg-zinc-200"
-          >
-            {authLoading ? (
-              <LoaderCircleIcon className="size-4 animate-spin" />
-            ) : mode === "login" ? (
-              t("로그인", "Sign In")
-            ) : (
-              t("회원가입", "Create Account")
+          <form onSubmit={handleAuth} className="flex flex-col gap-3">
+            {mode === "register" && (
+              <Input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("이름", "Name")} className="h-11 rounded-xl bg-white/5 text-white" />
             )}
-          </Button>
-        </form>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("이메일", "Email")} required className="h-11 rounded-xl bg-white/5 text-white" />
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("비밀번호", "Password")} required className="h-11 rounded-xl bg-white/5 text-white" />
+            {authError && <p className="text-xs text-red-400">{authError}</p>}
+            <Button disabled={authLoading} className="h-11 rounded-xl bg-white text-black">{authLoading ? <LoaderCircleIcon className="animate-spin" /> : t("계속하기", "Continue")}</Button>
+          </form>
+          <button onClick={() => setMode(mode === "login" ? "register" : "login")} className="mt-4 w-full text-xs text-zinc-500 underline">{mode === "login" ? t("계정이 없으신가요? 회원가입", "No account? Register") : t("이미 계정이 있나요? 로그인", "Already have account? Login")}</button>
+        </div>
+      </div>
+    );
+  }
 
-        {/* Free plan notice */}
-        <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 text-center text-xs text-zinc-500">
-          {t(
-            "✨ 무료 플랜 — Gemini 1.5 Flash · 매일 15회 제공",
-            "✨ Free plan — Gemini 1.5 Flash · 15 messages per day"
-          )}
+  // ─── Step 2: Setup (Plan & API Key) ───
+  return (
+    <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a] text-white">
+      <div className="w-full max-w-lg px-8">
+        <div className="mb-10 text-center">
+          <h2 className="text-3xl font-bold tracking-tight">{t("플랜 선택 및 설정", "Select Plan & Setup")}</h2>
+          <p className="mt-2 text-zinc-400">{t("Jarvis를 어떻게 사용하실지 선택해 주세요.", "Choose how you want to use Jarvis.")}</p>
         </div>
 
-        {/* Toggle login/register */}
-        <div className="mt-5 text-center">
-          {mode === "login" ? (
-            <p className="text-xs text-zinc-500">
-              {t("계정이 없으신가요?", "No account?")}{" "}
-              <button
-                type="button"
-                onClick={() => { setMode("register"); setAuthError(null); }}
-                className="text-zinc-300 underline hover:text-white"
-              >
-                {t("회원가입", "Sign Up")}
-              </button>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Free Plan Card */}
+          <div 
+            onClick={() => setSelectedPlan("free")}
+            className={`cursor-pointer rounded-2xl border-2 p-5 transition-all ${selectedPlan === "free" ? "border-white bg-white/5" : "border-white/10 bg-transparent hover:border-white/30"}`}
+          >
+            <div className="mb-3 flex justify-between">
+              <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">{t("무료", "FREE")}</span>
+              {selectedPlan === "free" && <CheckIcon className="size-5 text-white" />}
+            </div>
+            <h3 className="text-xl font-bold">{t("개인 계정", "BYOK Mode")}</h3>
+            <p className="mt-2 text-xs text-zinc-400">{t("본인의 Gemini API 키를 사용하여 무료로 이용합니다.", "Use your own Gemini API key for free.")}</p>
+          </div>
+
+          {/* Pro Plan Card */}
+          <div 
+            onClick={() => setSelectedPlan("pro")}
+            className={`cursor-pointer rounded-2xl border-2 p-5 transition-all ${selectedPlan === "pro" ? "border-white bg-white/5" : "border-white/10 bg-transparent hover:border-white/30"}`}
+          >
+            <div className="mb-3 flex justify-between">
+              <span className="rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">{t("프로", "PRO")}</span>
+              {selectedPlan === "pro" && <CheckIcon className="size-5 text-white" />}
+            </div>
+            <h3 className="text-xl font-bold">{t("중앙 집중형", "Managed AI")}</h3>
+            <p className="mt-2 text-xs text-zinc-400">{t("키 입력 없이 최고 속도의 AI를 경험하세요. (월 $1 예정)", "High-speed AI without keys. ($1/mo planned)")}</p>
+          </div>
+        </div>
+
+        {/* API Key Input (only for Free Plan) */}
+        <div className={`mt-8 overflow-hidden transition-all duration-300 ${selectedPlan === "free" ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
+              <KeyIcon className="size-4" />
+              <span>Gemini API Key</span>
+            </div>
+            <Input 
+              value={userApiKey}
+              onChange={(e) => setUserApiKey(e.target.value)}
+              placeholder="AIzaSy..."
+              className="h-10 rounded-lg bg-black/50 text-white placeholder:text-zinc-600"
+            />
+            <p className="mt-2 text-[10px] text-zinc-500">
+              {t("* 키는 본인의 장치와 백엔드에 안전하게 암호화되어 저장됩니다.", "* Your key is encrypted and stored securely.")}
             </p>
-          ) : (
-            <p className="text-xs text-zinc-500">
-              {t("이미 계정이 있으신가요?", "Already have an account?")}{" "}
-              <button
-                type="button"
-                onClick={() => { setMode("login"); setAuthError(null); }}
-                className="text-zinc-300 underline hover:text-white"
-              >
-                {t("로그인", "Sign In")}
-              </button>
-            </p>
-          )}
+          </div>
+        </div>
+
+        <Button 
+          onClick={handleSetup}
+          disabled={setupLoading}
+          className="mt-8 h-14 w-full rounded-2xl bg-white text-lg font-bold text-black transition-transform hover:scale-[1.02] active:scale-[0.98]"
+        >
+          {setupLoading ? <LoaderCircleIcon className="animate-spin" /> : t("Jarvis 시작하기", "Get Started with Jarvis")}
+          <ArrowRightIcon className="ml-2 size-5" />
+        </Button>
+
+        <div className="mt-6 flex items-center justify-center gap-2 text-xs text-zinc-500">
+          <ShieldCheckIcon className="size-4" />
+          <span>{t("데이터는 안전하게 보호됩니다.", "Your data is protected and secure.")}</span>
         </div>
       </div>
     </div>

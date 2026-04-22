@@ -4887,11 +4887,12 @@ class AssistantService {
     const messages = [...recentHistory, { role: "user", content: input }];
 
     try {
-      const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
-      const token = this.getAuthToken ? this.getAuthToken() : null;
+      const rawUser = piiManager.get("auth.user");
+      const token = piiManager.get("auth.token");
+      let user = null;
+      try { if (rawUser) user = JSON.parse(rawUser); } catch(e) {}
 
-      if (!token) {
-        // 로그인하지 않은 경우 — 로그인 유도
+      if (!token || !user) {
         return {
           reply: language === "ko"
             ? "Jarvis를 사용하려면 먼저 로그인이 필요합니다. 앱 상단의 프로필 버튼에서 로그인해 주세요."
@@ -4901,33 +4902,77 @@ class AssistantService {
         };
       }
 
-      const res = await fetch(`${API_BASE}/api/ai/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ messages, systemPrompt, language })
-      });
+      const plan = user.plan || "free";
+      const userGeminiKey = user.settings?.geminiKey || "";
 
-      if (res.status === 429) {
-        const errData = await res.json().catch(() => ({}));
+      if (plan === "free" && !userGeminiKey) {
         return {
           reply: language === "ko"
-            ? (errData.message || "오늘의 무료 사용량(30회)을 모두 사용했습니다. 내일 자정에 초기화됩니다.")
-            : (errData.messageEn || "You've used all 30 free messages today. Resets at midnight."),
-          actions: [this.makeAction("require_pro_subscription", "billing")],
+            ? "무료 플랜을 사용하려면 설정에서 Gemini API 키를 등록해야 합니다. 앱을 다시 시작하여 셋업을 완료해주세요."
+            : "Please enter your Gemini API key in the setup screen to use the free plan. Restart the app to complete setup.",
+          actions: [],
           provider: "system"
         };
       }
 
+      let res;
+      if (plan === "pro") {
+        const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
+        res = await fetch(`${API_BASE}/api/ai/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ messages, systemPrompt, language })
+        });
+      } else {
+        // Free plan -> Call Google Gemini API directly with user's key to hit Google's rate limits
+        const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+        const MODEL = "gemini-1.5-flash"; // Free tier model
+        
+        const contents = messages.map(msg => ({
+          role: msg.role === "assistant" ? "model" : "user",
+          parts: [{ text: msg.content }]
+        }));
+        
+        const systemInstruction = { parts: [{ text: systemPrompt }] };
+
+        res = await fetch(`${GEMINI_API_BASE}/models/${MODEL}:generateContent?key=${userGeminiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents,
+            systemInstruction,
+            generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+          })
+        });
+      }
+
       if (!res.ok) {
-        throw new Error(`Backend error: ${res.status}`);
+        if (res.status === 429) {
+           return {
+             reply: language === "ko"
+               ? "구글 API 무료 호출 한도(Rate Limit)를 모두 사용하셨습니다. 끊김 없는 초고속 AI를 위해 Jarvis Managed AI(Pro 플랜)로 업그레이드 하시는 건 어떨까요? ✨"
+               : "You've reached the Google API free rate limit. Upgrade to Jarvis Managed AI (Pro) for uninterrupted high-speed access! ✨",
+             actions: [this.makeAction("require_pro_subscription", "billing")],
+             provider: "system"
+           };
+        }
+        
+        const errText = await res.text().catch(() => "");
+        throw new Error(`API error: ${res.status} ${errText}`);
       }
 
       const data = await res.json();
-      reply = data.reply || "";
-      provider = `jarvis-cloud-${data.model || "gemini-2.0-flash"}`;
+      
+      if (plan === "pro") {
+        reply = data.reply || "";
+        provider = `jarvis-cloud-${data.model || "gemini-2.0-flash"}`;
+      } else {
+        reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        provider = "gemini-1.5-flash-direct";
+      }
 
       // 자율 행동 판단 (Action Detection)
       if (typeof reply === "string") {
