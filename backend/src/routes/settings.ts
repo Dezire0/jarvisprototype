@@ -3,11 +3,12 @@ import { jwt } from "hono/jwt";
 import { drizzle } from "drizzle-orm/d1";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
-import { encryptApiKey, decryptApiKey } from "../crypto";
 
-const settings = new Hono<{ Bindings: { DB: D1Database; JWT_SECRET: string }; Variables: { jwtPayload: { id: string } } }>();
+type Bindings = { DB: D1Database; JWT_SECRET: string };
+type Variables = { jwtPayload: { id: string } };
 
-// JWT auth required for all settings routes
+const settings = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
 settings.use("/*", (c, next) => {
   const jwtMiddleware = jwt({
     secret: c.env.JWT_SECRET || "fallback-secret",
@@ -16,62 +17,56 @@ settings.use("/*", (c, next) => {
   return jwtMiddleware(c, next);
 });
 
-// GET /api/settings/gemini-key — Retrieve stored Gemini API key
-settings.get("/gemini-key", async (c) => {
+// GET /api/settings/plan — Get user's current plan
+settings.get("/plan", async (c) => {
   const payload = c.get("jwtPayload");
   const db = drizzle(c.env.DB);
 
   const userList = await db.select().from(users).where(eq(users.id, payload.id));
   const user = userList[0];
 
-  if (!user) {
-    return c.json({ error: "User not found" }, 404);
-  }
+  if (!user) return c.json({ error: "User not found" }, 404);
 
-  const decrypted = user.geminiApiKeyEncrypted
-    ? await decryptApiKey(user.geminiApiKeyEncrypted, c.env.JWT_SECRET || "fallback-secret")
-    : "";
+  return c.json({ success: true, plan: user.plan });
+});
+
+// GET /api/settings/profile — Get user profile
+settings.get("/profile", async (c) => {
+  const payload = c.get("jwtPayload");
+  const db = drizzle(c.env.DB);
+
+  const userList = await db.select().from(users).where(eq(users.id, payload.id));
+  const user = userList[0];
+
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const usedToday = user.lastMessageDate === today ? user.dailyMessageCount : 0;
 
   return c.json({
     success: true,
-    hasKey: Boolean(decrypted),
-    // Return masked key for display, full key for use
-    maskedKey: decrypted ? `${decrypted.slice(0, 6)}...${decrypted.slice(-4)}` : null,
-    key: decrypted || null,
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    plan: user.plan,
+    usage: {
+      today: usedToday,
+      limit: user.plan === "pro" ? null : 30,
+    },
   });
 });
 
-// POST /api/settings/gemini-key — Save Gemini API key
-settings.post("/gemini-key", async (c) => {
-  const payload = c.get("jwtPayload");
-  const { key } = await c.req.json();
-  const db = drizzle(c.env.DB);
-
-  if (!key || typeof key !== "string" || key.trim().length < 10) {
-    return c.json({ error: "A valid API key is required" }, 400);
-  }
-
-  const encrypted = await encryptApiKey(key.trim(), c.env.JWT_SECRET || "fallback-secret");
-
-  await db
-    .update(users)
-    .set({ geminiApiKeyEncrypted: encrypted })
-    .where(eq(users.id, payload.id));
-
-  return c.json({ success: true, message: "Gemini API key saved" });
-});
-
-// DELETE /api/settings/gemini-key — Remove Gemini API key
-settings.delete("/gemini-key", async (c) => {
+// PATCH /api/settings/profile — Update user name
+settings.patch("/profile", async (c) => {
   const payload = c.get("jwtPayload");
   const db = drizzle(c.env.DB);
+  const { name } = await c.req.json<{ name?: string }>();
 
-  await db
-    .update(users)
-    .set({ geminiApiKeyEncrypted: null })
-    .where(eq(users.id, payload.id));
+  if (!name?.trim()) return c.json({ error: "Name is required" }, 400);
 
-  return c.json({ success: true, message: "Gemini API key removed" });
+  await db.update(users).set({ name: name.trim() }).where(eq(users.id, payload.id));
+
+  return c.json({ success: true });
 });
 
 export default settings;

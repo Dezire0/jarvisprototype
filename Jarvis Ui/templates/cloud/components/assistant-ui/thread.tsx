@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 import type { FC } from "react";
 
-import { GeminiKeySetup } from "@/components/jarvis/gemini-key-setup";
+
 
 const WELCOME_PROMPTS = [
   {
@@ -356,9 +356,6 @@ const AssistantMessage: FC = () => {
                 return <Reasoning {...part} />;
               }
               if (part.type === "tool-call") {
-                if (part.toolName === "require_gemini_key") {
-                  return <GeminiKeySetup key={part.toolCallId} />;
-                }
                 return part.toolUI ?? <ToolFallback {...part} />;
               }
               return null;

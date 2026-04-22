@@ -5,7 +5,12 @@ export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash"),
-  geminiApiKeyEncrypted: text("gemini_api_key_encrypted"),
+  name: text("name"),
+  // Plan: "free" | "pro"
+  plan: text("plan").notNull().default("free"),
+  // Daily rate limiting for free plan
+  dailyMessageCount: integer("daily_message_count").notNull().default(0),
+  lastMessageDate: text("last_message_date").default(""),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
 

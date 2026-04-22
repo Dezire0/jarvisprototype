@@ -4858,85 +4858,138 @@ class AssistantService {
   async handleGeneral(input) {
     const preferredLang = this.settings.getPreferredLanguage();
     const language = preferredLang === "auto" ? detectReplyLanguage(input) : preferredLang;
-    const tier = chooseChatModelTier(input, this.getRecentHistory());
 
-    // Gemini 키가 없어도 차단하지 않음 — 자동으로 로컬 모델(느린 모드)로 폴백됩니다.
-    
     let reply = "";
-    
-    // 웹 AI 연결 상태를 먼저 확인하여 UI 라벨을 결정합니다.
-    const connectedProvider = await unofficialAI.isConnected();
-    let provider = connectedProvider ? `web-${connectedProvider}` : "local-chat";
+    let provider = "jarvis-cloud";
 
-    const langInstruction = preferredLang === "ko" 
+    const langInstruction = preferredLang === "ko"
       ? "무조건 한국어로만 대답하세요. 영어 질문이 들어와도 한국어로 번역해서 답변하세요."
       : preferredLang === "en"
         ? "Respond in English ONLY. Even if the user speaks Korean, reply in English."
-        : `${buildLanguageName(language)}로만 응답하세요.`;
+        : language === "ko"
+          ? "한국어로 응답하세요."
+          : "Respond in English.";
+
+    const systemPrompt = [
+      "당신은 유능하고 친절한 AI 비서 Jarvis입니다.",
+      langInstruction,
+      "만약 유튜브, 네이버, 구글 검색 등 웹사이트 작업이 필요하면 답변 맨 끝에 [ACTION: BROWSE] 검색어 또는 URL 형식을 포함하세요.",
+      "만약 컴퓨터에 설치된 로컬 앱(예: 메모장, 계산기, 크롬 등)을 실행해야 한다면 [ACTION: OPEN_APP] 앱이름 형식을 포함하세요.",
+      "만약 앱을 설치해야 하는 경우 [ACTION: INSTALL_APP] 앱이름 형식을 포함하세요.",
+      "일상적인 대화라면 풍부하고 친절하게 답변하세요."
+    ].join("\n");
+
+    // Build conversation history for context
+    const recentHistory = this.getRecentHistory().slice(-10).map(h => ({
+      role: h.role || "user",
+      content: h.content || h.text || ""
+    }));
+    const messages = [...recentHistory, { role: "user", content: input }];
 
     try {
-        reply = await this.replyWithModel(
-          input,
-          [
-            "대화를 자연스럽게 이어가세요.",
-            langInstruction,
-            "당신은 유능하고 친절한 AI 비서 Jarvis입니다.",
-            "만약 유튜브, 네이버, 구글 검색 등 웹사이트 작업이 필요하면 답변 맨 끝에 [ACTION: BROWSE] 검색어 또는 URL 형식을 포함하세요.",
-            "만약 컴퓨터에 설치된 로컬 앱(예: 메모장, 계산기, 크롬 앱 자체 등)을 실행해야 한다면 [ACTION: OPEN_APP] 앱이름 형식을 포함하세요.",
-            "일상적인 대화라면 풍부하고 친절하게 답변하세요."
-          ].join("\n"),
-          {
-            tier
-          }
-        );
-      
+      const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
+      const token = this.getAuthToken ? this.getAuthToken() : null;
+
+      if (!token) {
+        // 로그인하지 않은 경우 — 로그인 유도
+        return {
+          reply: language === "ko"
+            ? "Jarvis를 사용하려면 먼저 로그인이 필요합니다. 앱 상단의 프로필 버튼에서 로그인해 주세요."
+            : "Please log in to use Jarvis. Click the profile button in the sidebar to sign in.",
+          actions: [],
+          provider: "system"
+        };
+      }
+
+      const res = await fetch(`${API_BASE}/api/ai/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ messages, systemPrompt, language })
+      });
+
+      if (res.status === 429) {
+        const errData = await res.json().catch(() => ({}));
+        return {
+          reply: language === "ko"
+            ? (errData.message || "오늘의 무료 사용량(30회)을 모두 사용했습니다. 내일 자정에 초기화됩니다.")
+            : (errData.messageEn || "You've used all 30 free messages today. Resets at midnight."),
+          actions: [this.makeAction("require_pro_subscription", "billing")],
+          provider: "system"
+        };
+      }
+
+      if (!res.ok) {
+        throw new Error(`Backend error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      reply = data.reply || "";
+      provider = `jarvis-cloud-${data.model || "gemini-2.0-flash"}`;
+
       // 자율 행동 판단 (Action Detection)
-      if (typeof reply === 'string') {
+      if (typeof reply === "string") {
         const browseMatch = reply.match(/\[ACTION: BROWSE\]\s*(.*)/i);
         const openMatch = reply.match(/\[ACTION: OPEN_APP\]\s*(.*)/i);
+        const installMatch = reply.match(/\[ACTION: INSTALL_APP\]\s*(.*)/i);
 
         if (browseMatch) {
           const query = browseMatch[1].trim();
-          const cleanReply = reply.replace(/\[ACTION: BROWSE\].*/i, '').trim();
+          const cleanReply = reply.replace(/\[ACTION: BROWSE\].*/i, "").trim();
           const browserResult = await this.handleBrowser(query);
           return {
             ...browserResult,
             reply: cleanReply ? `${cleanReply}\n\n${browserResult.reply}` : browserResult.reply,
-            provider: `web-${connectedProvider}-autonomous`
+            provider: `${provider}-autonomous`
+          };
+        }
+
+        if (installMatch) {
+          const appName = installMatch[1].trim();
+          const cleanReply = reply.replace(/\[ACTION: INSTALL_APP\].*/i, "").trim();
+          // 설치 페이지로 브라우저 이동
+          const installResult = await this.handleBrowser(`${appName} 공식 사이트 다운로드 페이지`);
+          return {
+            ...installResult,
+            reply: cleanReply
+              ? `${cleanReply}\n\n${language === "ko" ? `${appName}의 설치 페이지로 이동했습니다.` : `Navigating to the ${appName} installation page.`}`
+              : (language === "ko" ? `${appName}이(가) 설치되어 있지 않아 설치 페이지를 열었습니다.` : `${appName} is not installed. Opening the download page.`),
+            provider: `${provider}-autonomous`
           };
         }
 
         if (openMatch) {
           const appName = openMatch[1].trim();
-          const cleanReply = reply.replace(/\[ACTION: OPEN_APP\].*/i, '').trim();
-          const appResult = await this.handleAppOpen(input, { appName });
-          return {
-            ...appResult,
-            reply: cleanReply ? `${cleanReply}\n\n${appResult.reply}` : appResult.reply,
-            provider: `web-${connectedProvider}-autonomous`
-          };
+          const cleanReply = reply.replace(/\[ACTION: OPEN_APP\].*/i, "").trim();
+          try {
+            const appResult = await this.handleAppOpen(input, { appName });
+            return {
+              ...appResult,
+              reply: cleanReply ? `${cleanReply}\n\n${appResult.reply}` : appResult.reply,
+              provider: `${provider}-autonomous`
+            };
+          } catch (appErr) {
+            // 앱이 없는 경우 자동으로 설치 페이지로 이동
+            const installResult = await this.handleBrowser(`${appName} 다운로드 공식 사이트`);
+            return {
+              ...installResult,
+              reply: language === "ko"
+                ? `${appName}이(가) 설치되어 있지 않습니다. 설치 페이지를 열었습니다.`
+                : `${appName} is not installed. Opening the download page for you.`,
+              provider: `${provider}-autonomous`
+            };
+          }
         }
       }
 
-      // 웹 AI가 아니었을 때만 Ollama 티어 라벨로 교체
-      if (!connectedProvider) {
-        provider = getTierProviderLabel(tier);
-      }
     } catch (err) {
-      // 429 에러(한도 초과) 발생 시 프로 구독 유도
-      if (err.message?.includes("429") || err.message?.includes("quota") || err.message?.includes("Rate limit") || err.message?.includes("Resource has been exhausted")) {
-        return {
-          reply: language === "ko"
-            ? "현재 사용 중인 무료 플랜의 호출 한도가 초과되었습니다. 끊김 없는 초고속 모드를 위해 'Jarvis Pro' 구독을 추천드려요!"
-            : "You've reached the free tier rate limit. Upgrade to 'Jarvis Pro' for uninterrupted high-speed access!",
-          provider: "system",
-          actions: [this.makeAction("require_pro_subscription", "billing")]
-        };
-      }
-
-      console.error("General chat failed:", err.message);
-      reply = `[🚨 Web AI 응답 실패]\n\nChatGPT로부터 답변을 가져오는 데 실패했습니다. (원인: ${err.message})\n\n연결 상태를 확인하거나 잠시 후 다시 시도해 주세요.`;
-      provider = "web-ai-error";
+      console.error("Jarvis cloud AI failed:", err.message);
+      reply = language === "ko"
+        ? `[⚠️ 연결 오류]\n\n서버에 연결하지 못했습니다. (${err.message})\n\n인터넷 연결을 확인해 주세요.`
+        : `[⚠️ Connection Error]\n\nCould not reach the server. (${err.message})\n\nPlease check your internet connection.`;
+      provider = "error";
     }
 
     return {
@@ -4945,6 +4998,7 @@ class AssistantService {
       provider
     };
   }
+
 
   async handleInput(input) {
     const cleanInput = normalizeWhitespace(input);
