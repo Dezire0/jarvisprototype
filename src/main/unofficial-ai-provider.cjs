@@ -535,29 +535,29 @@ class UnofficialAIProvider {
             await new Promise(r => setTimeout(r, 100));
           }
 
-          if (!textarea) return { error: "Chat input not found after 5 seconds. Might need login or Cloudflare blocked." };
-
-          if (textarea.tagName === 'TEXTAREA') {
-            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-            if (nativeInputValueSetter) {
-              nativeInputValueSetter.call(textarea, ${escapedPrompt});
-            } else {
-              textarea.value = ${escapedPrompt};
-            }
-          } else {
-            // contenteditable div 인 경우
-            textarea.innerHTML = ${escapedPrompt}.replace(/\\n/g, '<br>');
-          }
+          if (!textarea) return { error: "Chat input not found after 5 seconds." };
+          
+          // Clear and set value
+          textarea.value = ${escapedPrompt};
           textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          textarea.dispatchEvent(new Event('change', { bubbles: true }));
 
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          const sendBtn = document.querySelector('button[data-testid="send-button"]') ||
-                          document.querySelector('button[aria-label="Send message"]') ||
-                          document.querySelector('button.absolute.bottom-1.5');
+          // Wait a moment for the Send button to enable
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          const findSendButton = () => {
+            return document.querySelector('button[data-testid="send-button"]') ||
+                   document.querySelector('button[aria-label="Send message"]') ||
+                   document.querySelector('button.absolute.bottom-1.5');
+          };
+
+          const sendBtn = findSendButton();
           if (sendBtn && !sendBtn.disabled) {
             sendBtn.click();
           } else {
-            textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, ctrlKey: true }));
+            // Fallback: Try Enter key multiple times
+            const enter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, ctrlKey: true });
+            textarea.dispatchEvent(enter);
           }
 
           return await new Promise((resolve) => {
@@ -566,17 +566,22 @@ class UnofficialAIProvider {
             const interval = setInterval(() => {
               checkCount += 1;
               const assistants = document.querySelectorAll('div[data-message-author-role="assistant"]');
-              const sendBtnNow = document.querySelector('button[data-testid="send-button"]');
+              const sendBtnNow = findSendButton();
 
               if (assistants.length > 0) {
-                lastText = assistants[assistants.length - 1].innerText;
+                const currentText = assistants[assistants.length - 1].innerText;
+                if (currentText !== lastText) {
+                  lastText = currentText;
+                }
               }
 
-              const isDone = sendBtnNow && !sendBtnNow.disabled && checkCount > 50;
+              // Generation is done when send button is enabled again
+              // We wait at least 10 checks (200ms) to ensure it started
+              const isDone = sendBtnNow && !sendBtnNow.disabled && checkCount > 5;
               if (isDone) {
                 clearInterval(interval);
                 resolve({ text: lastText });
-              } else if (checkCount > 2000) {
+              } else if (checkCount > 1500) { // 30 seconds timeout
                 clearInterval(interval);
                 resolve({ text: lastText || "Timeout", timeout: true });
               }
