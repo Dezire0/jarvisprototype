@@ -66,7 +66,7 @@ export function OnboardingGate() {
   // Check session on mount + Auto-wipe on version change
   useEffect(() => {
     void (async () => {
-      const CURRENT_VERSION = "1.5.6";
+      const CURRENT_VERSION = "1.5.7";
       const lastVersion = localStorage.getItem("jarvis_last_version");
 
       // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기

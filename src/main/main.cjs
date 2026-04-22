@@ -1,7 +1,8 @@
 const { loadProjectEnv } = require("./project-env.cjs");
-
 loadProjectEnv();
 
+const path = require("node:path");
+const fs = require("node:fs/promises");
 const electronBinary = require("electron");
 const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell, protocol } = electronBinary;
 
@@ -448,7 +449,7 @@ function createSettingsWindow() {
     show: true,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
-    title: "Jarvis Desktop v1.5.6 (Migration & DeepLink)",
+    title: "Jarvis Desktop v1.5.7 (Startup Fix)",
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,
