@@ -122,6 +122,20 @@ export function OnboardingGate() {
         return;
       }
 
+      // 서버 DB에 플랜 업데이트 요청
+      try {
+        await fetch("https://jarvis-backend.a01044622139.workers.dev/api/auth/plan", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.token}`
+          },
+          body: JSON.stringify({ plan: selectedPlan })
+        });
+      } catch (err) {
+        console.error("Failed to update plan on server", err);
+      }
+
       // 서버에 플랜 및 키 저장 (임시로 로컬 세션에 저장)
       const updatedUser: AuthUser = {
         ...session.user,

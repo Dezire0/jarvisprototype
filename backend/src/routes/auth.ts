@@ -68,4 +68,35 @@ auth.post("/login", async (c) => {
   });
 });
 
+import { jwt } from "hono/jwt";
+
+auth.put("/plan", async (c) => {
+  // Use jwt middleware manually since it's not applied globally to /auth
+  const token = c.req.header("Authorization")?.replace("Bearer ", "");
+  if (!token) return c.json({ error: "Unauthorized" }, 401);
+  
+  let payload;
+  try {
+    const { verify } = await import("hono/jwt");
+    payload = await verify(token, c.env.JWT_SECRET || "fallback-secret");
+  } catch (e) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const { plan } = await c.req.json();
+  if (plan !== "free" && plan !== "pro") {
+    return c.json({ error: "Invalid plan" }, 400);
+  }
+
+  const db = drizzle(c.env.DB);
+  try {
+    await db.update(users)
+      .set({ plan })
+      .where(eq(users.id, payload.id as string));
+    return c.json({ success: true, plan });
+  } catch (error) {
+    return c.json({ error: "Failed to update plan" }, 500);
+  }
+});
+
 export default auth;
