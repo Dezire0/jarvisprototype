@@ -29,6 +29,11 @@ const updateBannerMessage = document.getElementById("updateBannerMessage");
 const updateBannerDetail = document.getElementById("updateBannerDetail");
 const updateBannerPrimaryButton = document.getElementById("updateBannerPrimaryButton");
 const updateBannerLaterButton = document.getElementById("updateBannerLaterButton");
+const planModal = document.getElementById("planModal");
+const planModalBackdrop = document.getElementById("planModalBackdrop");
+const planModalCloseButton = document.getElementById("planModalCloseButton");
+const planModalCopy = document.getElementById("planModalCopy");
+const planModalStatus = document.getElementById("planModalStatus");
 const ttsProviderEn = document.getElementById("ttsProviderEn");
 const ttsProviderKo = document.getElementById("ttsProviderKo");
 const elevenlabsApiKey = document.getElementById("elevenlabsApiKey");
@@ -1140,6 +1145,29 @@ function updateTtsSummary(status, settings) {
   ].join(" / ");
 }
 
+function showPlanModal(payload = {}) {
+  if (!planModal) {
+    return;
+  }
+
+  const user = payload.user || {};
+  const plan = String(user.plan || "free");
+  planModal.hidden = false;
+  planModalCopy.textContent = user.email
+    ? `${user.email} 계정으로 로그인되었어요. 아래에서 무료와 유료 플랜 차이를 확인할 수 있어요.`
+    : "로그인은 완료되었고, 아래에서 무료와 유료 플랜 차이를 확인할 수 있어요.";
+  planModalStatus.textContent =
+    plan === "pro"
+      ? "현재 계정은 유료 플랜이에요. 제한이 거의 없고 더 강한 모델을 사용할 수 있어요."
+      : "현재 계정은 무료 플랜이에요. 0 USD로 시작하지만 사용량 한도가 있어요.";
+}
+
+function hidePlanModal() {
+  if (planModal) {
+    planModal.hidden = true;
+  }
+}
+
 function populateTtsSettings(payload = {}) {
   const settings = payload.settings || {};
   const eleven = settings.elevenlabs || {};
@@ -1789,6 +1817,12 @@ updateBannerPrimaryButton?.addEventListener("click", () => {
   };
 
   void handleUpdateBannerAction(state);
+});
+planModalBackdrop?.addEventListener("click", hidePlanModal);
+planModalCloseButton?.addEventListener("click", hidePlanModal);
+
+window.assistantAPI.onEvent("auth:callback", (payload) => {
+  showPlanModal(payload || {});
 });
 
 window.addEventListener("beforeunload", () => {

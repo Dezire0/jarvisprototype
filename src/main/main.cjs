@@ -50,6 +50,7 @@ let updaterService;
 let popupStateCache = null;
 let popupDragState = null;
 let assistantMuted = false;
+let pendingAuthCallback = null;
 const POPUP_ENABLED = String(process.env.JARVIS_POPUP_ENABLED || "0").trim() === "1";
 const DESKTOP_UI_MODE = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").trim().toLowerCase() === "next"
   ? "next"
@@ -366,7 +367,9 @@ function handleDeepLink(url) {
       const token = parsedUrl.searchParams.get("token");
       const userRaw = parsedUrl.searchParams.get("user");
       if (token && userRaw) {
-        settingsWindow?.webContents.send("auth:callback", { token, user: JSON.parse(userRaw) });
+        const payload = { token, user: JSON.parse(userRaw) };
+        pendingAuthCallback = payload;
+        settingsWindow?.webContents.send("auth:callback", payload);
         if (settingsWindow?.isMinimized()) settingsWindow.restore();
         settingsWindow?.focus();
       }
@@ -449,7 +452,7 @@ function createSettingsWindow() {
     show: true,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
-    title: "Jarvis Desktop v1.6.0 (Deep Link Bridge Fix)",
+    title: "Jarvis Desktop v1.6.1 (Login & Plan Fix)",
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,
@@ -546,6 +549,10 @@ function createSettingsWindow() {
   settingsWindow.webContents.on("did-finish-load", () => {
     console.log("Jarvis Desktop window finished loading.");
     broadcastMuteState("bootstrap");
+    if (pendingAuthCallback) {
+      settingsWindow?.webContents.send("auth:callback", pendingAuthCallback);
+      pendingAuthCallback = null;
+    }
   });
 
   settingsWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl) => {

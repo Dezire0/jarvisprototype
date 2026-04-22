@@ -768,6 +768,105 @@ textarea {
   color: var(--muted);
 }
 
+.plan-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.plan-modal[hidden] {
+  display: none;
+}
+
+.plan-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 8, 12, 0.72);
+  backdrop-filter: blur(14px);
+}
+
+.plan-modal__card {
+  position: relative;
+  z-index: 1;
+  width: min(920px, 100%);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(18, 20, 24, 0.98), rgba(11, 13, 16, 0.98));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  padding: 24px;
+}
+
+.plan-modal__header {
+  margin-bottom: 18px;
+}
+
+.plan-modal__copy,
+.plan-modal__footer p {
+  color: var(--muted);
+}
+
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.plan-card {
+  border-radius: 22px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.plan-card--free {
+  background: linear-gradient(180deg, rgba(34, 38, 44, 0.95), rgba(18, 20, 24, 0.95));
+}
+
+.plan-card--pro {
+  background: linear-gradient(180deg, rgba(23, 32, 29, 0.96), rgba(12, 16, 14, 0.96));
+  border-color: rgba(160, 255, 199, 0.24);
+}
+
+.plan-card__tag {
+  display: inline-flex;
+  margin-bottom: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-strong);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.plan-card__price {
+  margin: 8px 0 12px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.plan-card__body,
+.plan-card__list {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.plan-card__list {
+  margin: 14px 0 0;
+  padding-left: 18px;
+}
+
+.plan-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+}
+
 .update-banner {
   position: fixed;
   inset: 0;
@@ -850,6 +949,15 @@ textarea {
 }
 
 @media (max-width: 720px) {
+  .plan-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-modal__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .update-banner__card {
     grid-template-columns: 1fr;
   }

@@ -178,7 +178,7 @@ auth.get("/google-callback", async (c) => {
     );
 
     // 5. Redirect back to App (Deep Link)
-    const frontendUrl = "jarvis-desktop://auth"; 
+    const frontendUrl = "jarvis-desktop://auth";
     
     const userJson = encodeURIComponent(JSON.stringify({ id: user.id, email: user.email, plan: user.plan }));
     

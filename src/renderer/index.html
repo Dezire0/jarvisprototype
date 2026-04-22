@@ -380,6 +380,54 @@
       </aside>
     </main>
 
+    <div class="plan-modal" id="planModal" hidden aria-live="polite">
+      <div class="plan-modal__backdrop" id="planModalBackdrop"></div>
+      <section class="plan-modal__card" role="dialog" aria-modal="true" aria-labelledby="planModalTitle">
+        <div class="plan-modal__header">
+          <p class="eyebrow">Account Plan</p>
+          <h2 id="planModalTitle">플랜을 선택하세요</h2>
+          <p class="plan-modal__copy" id="planModalCopy">
+            로그인은 완료되었고, 이제 무료 플랜과 유료 플랜의 차이를 확인할 수 있어요.
+          </p>
+        </div>
+
+        <div class="plan-grid">
+          <article class="plan-card plan-card--free">
+            <div class="plan-card__tag">Free</div>
+            <h3>무료 버전</h3>
+            <p class="plan-card__price">0 USD</p>
+            <p class="plan-card__body">
+              시작하기에는 충분하지만, 일일 메시지/작업 한도와 일부 고급 모델 사용 제한이 있어요.
+            </p>
+            <ul class="plan-card__list">
+              <li>0달러로 시작</li>
+              <li>정해진 사용 한도</li>
+              <li>기본 모델 중심</li>
+            </ul>
+          </article>
+
+          <article class="plan-card plan-card--pro">
+            <div class="plan-card__tag">Pro</div>
+            <h3>유료 버전</h3>
+            <p class="plan-card__price">Unlimited-ish</p>
+            <p class="plan-card__body">
+              거의 제한 없이 더 많은 사용량을 쓸 수 있고, 더 강한 모델과 빠른 응답을 선택할 수 있어요.
+            </p>
+            <ul class="plan-card__list">
+              <li>사용량 제한이 크게 완화</li>
+              <li>더 좋은 모델 선택 가능</li>
+              <li>작업량 많은 사용자에게 적합</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="plan-modal__footer">
+          <p id="planModalStatus">Google 로그인 정보를 확인하는 중이에요.</p>
+          <button type="button" id="planModalCloseButton">닫기</button>
+        </div>
+      </section>
+    </div>
+
     <div class="update-banner" id="updateBanner" hidden aria-live="polite">
       <div class="update-banner__backdrop" id="updateBannerBackdrop"></div>
       <section class="update-banner__card" role="dialog" aria-modal="true" aria-labelledby="updateBannerTitle">
