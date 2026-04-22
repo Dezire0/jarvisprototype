@@ -201,8 +201,8 @@ export function OnboardingGate() {
         {/* Free plan notice */}
         <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 text-center text-xs text-zinc-500">
           {t(
-            "🎉 무료 플랜 — 매일 30회 AI 대화 제공",
-            "🎉 Free plan — 30 AI messages per day included"
+            "✨ 무료 플랜 — Gemini 1.5 Flash · 매일 15회 제공",
+            "✨ Free plan — Gemini 1.5 Flash · 15 messages per day"
           )}
         </div>
 

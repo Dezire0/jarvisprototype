@@ -4,8 +4,14 @@ import { drizzle } from "drizzle-orm/d1";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
 
-const FREE_DAILY_LIMIT = 30;
-const GEMINI_MODEL = "gemini-2.0-flash";
+// ── Plan config ──────────────────────────────────────────
+const FREE_DAILY_MSG_LIMIT = 15;            // 무료: 일 15회 메시지
+const FREE_MODEL = "gemini-1.5-flash";      // 무료: Gemini 1.5 Flash
+
+const PRO_DAILY_TOKEN_LIMIT = 200_000;      // 유료: 일 200k 토큰
+const PRO_MODEL = "gemini-2.0-flash";       // 유료: Gemini 2.0 Flash
+// ─────────────────────────────────────────────────────────
+
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 type Bindings = {
@@ -20,7 +26,6 @@ type Variables = {
 
 const ai = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// JWT auth required for all AI routes
 ai.use("/*", (c, next) => {
   const jwtMiddleware = jwt({
     secret: c.env.JWT_SECRET || "fallback-secret",
@@ -29,71 +34,86 @@ ai.use("/*", (c, next) => {
   return jwtMiddleware(c, next);
 });
 
-// GET /api/ai/usage — Return today's usage and limit
+// GET /api/ai/usage — 오늘 사용량 조회
 ai.get("/usage", async (c) => {
   const payload = c.get("jwtPayload");
   const db = drizzle(c.env.DB);
 
   const userList = await db.select().from(users).where(eq(users.id, payload.id));
   const user = userList[0];
-
   if (!user) return c.json({ error: "User not found" }, 404);
 
   const today = new Date().toISOString().slice(0, 10);
-  const count = user.lastMessageDate === today ? user.dailyMessageCount : 0;
+  const isToday = user.lastMessageDate === today;
+  const usedMessages = isToday ? user.dailyMessageCount : 0;
+  const usedTokens = isToday ? user.dailyTokenCount : 0;
+
+  if (user.plan === "pro") {
+    return c.json({
+      success: true,
+      plan: "pro",
+      model: PRO_MODEL,
+      tokensUsed: usedTokens,
+      tokenLimit: PRO_DAILY_TOKEN_LIMIT,
+      tokensRemaining: Math.max(0, PRO_DAILY_TOKEN_LIMIT - usedTokens),
+    });
+  }
 
   return c.json({
     success: true,
-    plan: user.plan,
-    used: count,
-    limit: user.plan === "pro" ? null : FREE_DAILY_LIMIT,
-    remaining: user.plan === "pro" ? null : Math.max(0, FREE_DAILY_LIMIT - count),
-    resetAt: "자정 (KST)",
+    plan: "free",
+    model: FREE_MODEL,
+    messagesUsed: usedMessages,
+    messageLimit: FREE_DAILY_MSG_LIMIT,
+    messagesRemaining: Math.max(0, FREE_DAILY_MSG_LIMIT - usedMessages),
   });
 });
 
-// POST /api/ai/chat — Proxy request to Gemini using operator's central API key
+// POST /api/ai/chat — 중앙 Gemini 프록시
 ai.post("/chat", async (c) => {
   const payload = c.get("jwtPayload");
   const db = drizzle(c.env.DB);
 
-  // 1. Load user
   const userList = await db.select().from(users).where(eq(users.id, payload.id));
   const user = userList[0];
-
   if (!user) return c.json({ error: "User not found" }, 404);
 
-  // 2. Rate limit check for free plan
-  if (user.plan !== "pro") {
-    const today = new Date().toISOString().slice(0, 10);
-    const currentCount = user.lastMessageDate === today ? user.dailyMessageCount : 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const isToday = user.lastMessageDate === today;
+  const currentMsgCount = isToday ? user.dailyMessageCount : 0;
+  const currentTokenCount = isToday ? user.dailyTokenCount : 0;
 
-    if (currentCount >= FREE_DAILY_LIMIT) {
-      return c.json(
-        {
-          error: "rate_limit_exceeded",
-          message:
-            "오늘의 무료 사용량(30회)을 모두 사용했습니다. 내일 자정에 초기화되거나 Pro 플랜으로 업그레이드하세요.",
-          messageEn:
-            "You've used all 30 free messages today. Resets at midnight or upgrade to Pro.",
-          remaining: 0,
-          limit: FREE_DAILY_LIMIT,
-        },
-        429
-      );
-    }
+  // ── 플랜별 Rate limit 체크 ──────────────────────────────
+  const isPro = user.plan === "pro";
+  const model = isPro ? PRO_MODEL : FREE_MODEL;
 
-    // 3. Increment counter
-    await db
-      .update(users)
-      .set({
-        dailyMessageCount: currentCount + 1,
-        lastMessageDate: today,
-      })
-      .where(eq(users.id, payload.id));
+  if (!isPro && currentMsgCount >= FREE_DAILY_MSG_LIMIT) {
+    return c.json(
+      {
+        error: "rate_limit_exceeded",
+        message: `오늘의 무료 사용량(${FREE_DAILY_MSG_LIMIT}회)을 모두 사용했습니다. 내일 자정에 초기화되거나 Pro 플랜으로 업그레이드하세요.`,
+        messageEn: `You've used all ${FREE_DAILY_MSG_LIMIT} free messages today. Resets at midnight or upgrade to Pro.`,
+        remaining: 0,
+        limit: FREE_DAILY_MSG_LIMIT,
+      },
+      429
+    );
   }
 
-  // 4. Get request body
+  if (isPro && currentTokenCount >= PRO_DAILY_TOKEN_LIMIT) {
+    return c.json(
+      {
+        error: "rate_limit_exceeded",
+        message: `오늘의 Pro 플랜 토큰 한도(${PRO_DAILY_TOKEN_LIMIT.toLocaleString()}토큰)에 도달했습니다. 내일 자정에 초기화됩니다.`,
+        messageEn: `You've reached today's Pro token limit (${PRO_DAILY_TOKEN_LIMIT.toLocaleString()} tokens). Resets at midnight.`,
+        tokensRemaining: 0,
+        tokenLimit: PRO_DAILY_TOKEN_LIMIT,
+      },
+      429
+    );
+  }
+
+  // ── 요청 본문 파싱 ───────────────────────────────────────
   const body = await c.req.json<{
     messages: Array<{ role: string; content: string }>;
     systemPrompt?: string;
@@ -104,12 +124,12 @@ ai.post("/chat", async (c) => {
     return c.json({ error: "messages array is required" }, 400);
   }
 
-  // 5. Build Gemini request
   const apiKey = c.env.GEMINI_API_KEY;
   if (!apiKey) {
     return c.json({ error: "Service not configured. Contact administrator." }, 503);
   }
 
+  // ── Gemini 요청 빌드 ─────────────────────────────────────
   const contents = body.messages.map((msg) => ({
     role: msg.role === "assistant" ? "model" : "user",
     parts: [{ text: msg.content }],
@@ -118,14 +138,11 @@ ai.post("/chat", async (c) => {
   const systemInstruction = body.systemPrompt
     ? { parts: [{ text: body.systemPrompt }] }
     : {
-        parts: [
-          {
-            text:
-              body.language === "ko"
-                ? "당신은 유능하고 친절한 AI 비서 Jarvis입니다. 한국어로만 응답하세요."
-                : "You are a capable and friendly AI assistant named Jarvis. Respond in English only.",
-          },
-        ],
+        parts: [{
+          text: body.language === "ko"
+            ? "당신은 유능하고 친절한 AI 비서 Jarvis입니다. 한국어로만 응답하세요."
+            : "You are a capable and friendly AI assistant named Jarvis. Respond in English only.",
+        }],
       };
 
   const geminiPayload = {
@@ -133,15 +150,15 @@ ai.post("/chat", async (c) => {
     systemInstruction,
     generationConfig: {
       temperature: 0.7,
-      maxOutputTokens: 2048,
+      maxOutputTokens: isPro ? 8192 : 2048,
     },
   };
 
-  // 6. Call Gemini
+  // ── Gemini API 호출 ──────────────────────────────────────
   let geminiRes: Response;
   try {
     geminiRes = await fetch(
-      `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/models/${model}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -154,29 +171,40 @@ ai.post("/chat", async (c) => {
 
   if (!geminiRes.ok) {
     const errBody = await geminiRes.json().catch(() => ({}));
-    // Handle quota exceeded from Google's side
     if (geminiRes.status === 429) {
-      return c.json(
-        {
-          error: "rate_limit_exceeded",
-          message: "서비스 사용량이 일시적으로 초과되었습니다. 잠시 후 다시 시도해주세요.",
-          messageEn: "Service is temporarily overloaded. Please try again in a moment.",
-        },
-        429
-      );
+      return c.json({
+        error: "rate_limit_exceeded",
+        message: "서비스 사용량이 일시적으로 초과되었습니다. 잠시 후 다시 시도해주세요.",
+        messageEn: "Service is temporarily overloaded. Please try again in a moment.",
+      }, 429);
     }
     return c.json({ error: "Gemini API error", detail: errBody }, geminiRes.status as any);
   }
 
   const geminiData = await geminiRes.json<any>();
-  const text =
-    geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+  // ── 사용량 업데이트 ───────────────────────────────────────
+  // token count from Gemini response (usageMetadata)
+  const tokensUsed: number =
+    (geminiData?.usageMetadata?.totalTokenCount as number) ?? 0;
+
+  await db.update(users).set({
+    dailyMessageCount: currentMsgCount + 1,
+    dailyTokenCount: currentTokenCount + tokensUsed,
+    lastMessageDate: today,
+  }).where(eq(users.id, payload.id));
 
   return c.json({
     success: true,
     reply: text,
-    model: GEMINI_MODEL,
+    model,
     plan: user.plan,
+    tokensUsed,
+    ...(isPro
+      ? { tokensRemaining: Math.max(0, PRO_DAILY_TOKEN_LIMIT - currentTokenCount - tokensUsed) }
+      : { messagesRemaining: Math.max(0, FREE_DAILY_MSG_LIMIT - currentMsgCount - 1) }
+    ),
   });
 });
 

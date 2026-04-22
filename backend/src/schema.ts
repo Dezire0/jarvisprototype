@@ -8,8 +8,9 @@ export const users = sqliteTable("users", {
   name: text("name"),
   // Plan: "free" | "pro"
   plan: text("plan").notNull().default("free"),
-  // Daily rate limiting for free plan
+  // Daily rate limiting
   dailyMessageCount: integer("daily_message_count").notNull().default(0),
+  dailyTokenCount: integer("daily_token_count").notNull().default(0),
   lastMessageDate: text("last_message_date").default(""),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
