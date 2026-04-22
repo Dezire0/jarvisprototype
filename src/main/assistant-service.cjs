@@ -4906,8 +4906,18 @@ class AssistantService {
         };
       }
 
-      const plan = user.plan || "free";
+      const plan = user.plan;
       const userGeminiKey = user.settings?.geminiKey || "";
+
+      if (!plan) {
+        return {
+          reply: language === "ko"
+            ? "플랜 설정이 완료되지 않았습니다. 앱을 다시 시작하여 플랜을 선택해 주세요."
+            : "Setup is not complete. Please restart the app and select a plan.",
+          actions: [],
+          provider: "system"
+        };
+      }
 
       if (plan === "free" && !userGeminiKey) {
         return {
@@ -4933,7 +4943,7 @@ class AssistantService {
       } else {
         // Free plan -> Call Google Gemini API directly with user's key to hit Google's rate limits
         const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-        const MODEL = "gemini-1.5-flash"; // Free tier model
+        const MODEL = "gemini-1.5-flash-latest"; // Fixed: Using latest to avoid 404
         
         const contents = messages.map(msg => ({
           role: msg.role === "assistant" ? "model" : "user",

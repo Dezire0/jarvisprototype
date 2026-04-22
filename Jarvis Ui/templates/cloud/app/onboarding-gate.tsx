@@ -47,9 +47,15 @@ export function OnboardingGate() {
     void (async () => {
       const session = await restoreAuthSession();
       if (session.token && session.user) {
-        // 이미 로그인됨 -> 플랜이나 키가 설정되어 있는지 확인
-        const hasSetup = session.user.plan === "pro" || session.user.settings?.geminiKey;
-        setStep(hasSetup ? "ready" : "setup");
+        // 이미 로그인됨 -> 플랜이 명시적으로 설정되어 있는지 확인 (구버전 세션 방지)
+        const user = session.user as any;
+        const hasSetup = user.plan === "pro" || (user.plan === "free" && user.settings?.geminiKey);
+        
+        if (hasSetup) {
+          setStep("ready");
+        } else {
+          setStep("setup");
+        }
       } else {
         setStep("auth");
       }
