@@ -4889,19 +4889,6 @@ class AssistantService {
             tier
           }
         );
-    } catch (error) {
-      // 429 에러(한도 초과) 발생 시 프로 구독 유도
-      if (error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("Rate limit")) {
-        return {
-          reply: language === "ko"
-            ? "현재 사용 중인 무료 플랜의 호출 한도가 초과되었습니다. 끊김 없는 초고속 모드를 위해 'Jarvis Pro' 구독을 추천드려요!"
-            : "You've reached the free tier rate limit. Upgrade to 'Jarvis Pro' for uninterrupted high-speed access!",
-          provider: "system",
-          actions: [this.makeAction("require_pro_subscription", "billing")]
-        };
-      }
-      throw error;
-    }
       
       // 자율 행동 판단 (Action Detection)
       if (typeof reply === 'string') {
@@ -4936,6 +4923,17 @@ class AssistantService {
         provider = getTierProviderLabel(tier);
       }
     } catch (err) {
+      // 429 에러(한도 초과) 발생 시 프로 구독 유도
+      if (err.message?.includes("429") || err.message?.includes("quota") || err.message?.includes("Rate limit") || err.message?.includes("Resource has been exhausted")) {
+        return {
+          reply: language === "ko"
+            ? "현재 사용 중인 무료 플랜의 호출 한도가 초과되었습니다. 끊김 없는 초고속 모드를 위해 'Jarvis Pro' 구독을 추천드려요!"
+            : "You've reached the free tier rate limit. Upgrade to 'Jarvis Pro' for uninterrupted high-speed access!",
+          provider: "system",
+          actions: [this.makeAction("require_pro_subscription", "billing")]
+        };
+      }
+
       console.error("General chat failed:", err.message);
       reply = `[🚨 Web AI 응답 실패]\n\nChatGPT로부터 답변을 가져오는 데 실패했습니다. (원인: ${err.message})\n\n연결 상태를 확인하거나 잠시 후 다시 시도해 주세요.`;
       provider = "web-ai-error";
