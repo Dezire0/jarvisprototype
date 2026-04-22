@@ -449,7 +449,7 @@ function createSettingsWindow() {
     show: true,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
-    title: "Jarvis Desktop v1.5.8 (Stability Release)",
+    title: "Jarvis Desktop v1.5.9 (Privacy & Migration)",
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,

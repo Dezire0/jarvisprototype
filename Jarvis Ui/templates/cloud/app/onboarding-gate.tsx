@@ -39,7 +39,7 @@ import {
 } from "@/components/jarvis/auth-session";
 import { Assistant } from "./assistant";
 
-const API_BASE = "https://jarvis-auth-service.a01044622139.workers.dev";
+const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
 
 type OnboardingStep = "loading" | "auth" | "setup" | "ready";
 
@@ -67,7 +67,7 @@ export function OnboardingGate() {
   useEffect(() => {
     void (async () => {
       try {
-        const CURRENT_VERSION = "1.5.8";
+        const CURRENT_VERSION = "1.5.9";
         const lastVersion = localStorage.getItem("jarvis_last_version");
 
         // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
