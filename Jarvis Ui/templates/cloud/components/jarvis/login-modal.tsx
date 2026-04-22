@@ -71,6 +71,7 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
           settings: {
             autoSync: true,
             preferWebAi: true,
+            language: "auto",
           },
         } satisfies AuthUser;
         await persistAuthSession(loginData.token, nextUser);
@@ -82,6 +83,7 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
           settings: {
             autoSync: true,
             preferWebAi: true,
+            language: "auto",
           },
         } satisfies AuthUser;
         await persistAuthSession(data.token, nextUser);

@@ -6,6 +6,7 @@ const AUTH_USER_KEY = "jarvis_auth_user";
 export type AuthSettings = {
   autoSync?: boolean;
   preferWebAi?: boolean;
+  language?: "auto" | "ko" | "en";
 };
 
 export type AuthUser = {

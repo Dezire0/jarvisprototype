@@ -106,7 +106,7 @@ export function OnboardingGate() {
       const nextUser: AuthUser = {
         ...user,
         name: user?.name || name.trim() || email.split("@")[0],
-        settings: { autoSync: true, preferWebAi: true },
+        settings: { autoSync: true, preferWebAi: true, language: "auto" },
       };
 
       await persistAuthSession(token, nextUser);
