@@ -128,9 +128,9 @@ export function OnboardingGate() {
         return;
       }
 
-      // 서버 DB에 플랜 업데이트 요청
+      // 서버 DB에 플랜 업데이트 요청 (강력한 동기화)
       try {
-        await fetch("https://jarvis-backend.a01044622139.workers.dev/api/auth/plan", {
+        const planRes = await fetch("https://jarvis-backend.a01044622139.workers.dev/api/auth/plan", {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -138,11 +138,19 @@ export function OnboardingGate() {
           },
           body: JSON.stringify({ plan: selectedPlan })
         });
-      } catch (err) {
-        console.error("Failed to update plan on server", err);
+        
+        if (!planRes.ok) {
+          const errData = await planRes.json().catch(() => ({}));
+          throw new Error(errData.error || "Failed to update plan on server");
+        }
+        console.log("Plan updated on server successfully:", selectedPlan);
+      } catch (err: any) {
+        setSetupLoading(false);
+        alert(t("서버 플랜 업데이트에 실패했습니다: ", "Failed to sync plan with server: ") + err.message);
+        return;
       }
 
-      // 서버에 플랜 및 키 저장 (임시로 로컬 세션에 저장)
+      // 서버에 플랜 및 키 저장 (로컬 세션에도 저장)
       const updatedUser: AuthUser = {
         ...session.user,
         plan: selectedPlan,

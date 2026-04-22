@@ -156,7 +156,9 @@ ai.post("/chat", async (c) => {
 
   // ── Gemini API 호출 ──────────────────────────────────────
   let geminiRes: Response;
-  const actualModel = model === "gemini-1.5-flash" ? "gemini-1.5-flash-latest" : model;
+  // Google v1beta prefers 'gemini-1.5-flash' or specific versions like 'gemini-1.5-flash-002'.
+  // Using 'gemini-1.5-flash' is the most standard.
+  const actualModel = model === "gemini-1.5-flash-latest" ? "gemini-1.5-flash" : model;
   try {
     geminiRes = await fetch(
       `${GEMINI_API_BASE}/models/${actualModel}:generateContent?key=${apiKey}`,
