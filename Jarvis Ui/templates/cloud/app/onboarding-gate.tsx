@@ -3,12 +3,14 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   SparklesIcon,
   LoaderCircleIcon,
   KeyIcon,
   ArrowRightIcon,
   CheckCircle2Icon,
+  ExternalLinkIcon,
 } from "lucide-react";
 import {
   restoreAuthSession,
@@ -21,6 +23,22 @@ const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
 
 type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
 
+export function OnboardingGate() {
+  const [step, setStep] = useState<OnboardingStep>("loading");
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+
+  // Auth form state
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // API key form state
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
 
   const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
@@ -119,7 +137,7 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
         setStep("api-key");
       }
     } catch {
-      setAuthError("네트워크 오류입니다. 연결을 확인해 주세요.");
+      setAuthError(t("네트워크 오류입니다. 연결을 확인해 주세요.", "Network error. Please check your connection."));
     } finally {
       setAuthLoading(false);
     }
@@ -143,7 +161,7 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
       const data = (await res.json()) as any;
 
       if (!res.ok) {
-        setApiKeyError(data.error || "저장에 실패했습니다.");
+        setApiKeyError(data.error || t("저장에 실패했습니다.", "Failed to save key."));
         return;
       }
 
@@ -160,7 +178,7 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
 
       setStep("ready");
     } catch {
-      setApiKeyError("네트워크 오류입니다.");
+      setApiKeyError(t("네트워크 오류입니다.", "Network error."));
     } finally {
       setApiKeyLoading(false);
     }
@@ -206,31 +224,37 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
 
           <form onSubmit={handleAuth} className="flex flex-col gap-3">
             {mode === "register" && (
+              <div className="space-y-1">
+                <Input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t("이름 (선택)", "Name (Optional)")}
+                  className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
+                />
+              </div>
+            )}
+            <div className="space-y-1">
               <Input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t("이름 (선택)", "Name (Optional)")}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={t("이메일", "Email")}
+                required
                 className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
               />
-            )}
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={t("이메일", "Email")}
-              required
-              className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
-            />
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={t("비밀번호", "Password")}
-              required
-              minLength={6}
-              className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
-            />
+            </div>
+            <div className="space-y-1">
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={t("비밀번호", "Password")}
+                required
+                minLength={6}
+                className="h-11 rounded-xl border-white/10 bg-white/5 text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
+              />
+            </div>
 
             {authError && (
               <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
@@ -253,9 +277,9 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
             </Button>
           </form>
 
-          <p className="mt-5 text-center text-xs text-zinc-500">
+          <div className="mt-5 text-center">
             {mode === "login" ? (
-              <>
+              <p className="text-xs text-zinc-500">
                 {t("계정이 없으신가요?", "No account?")}{" "}
                 <button
                   type="button"
@@ -267,9 +291,9 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
                 >
                   {t("회원가입", "Sign Up")}
                 </button>
-              </>
+              </p>
             ) : (
-              <>
+              <p className="text-xs text-zinc-500">
                 {t("이미 계정이 있으신가요?", "Already have an account?")}{" "}
                 <button
                   type="button"
@@ -281,9 +305,9 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
                 >
                   {t("로그인", "Login")}
                 </button>
-              </>
+              </p>
             )}
-          </p>
+          </div>
         </div>
       </div>
     );
@@ -309,15 +333,13 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
 
           {/* Key input */}
           <div className="flex flex-col gap-3">
-            <div className="flex gap-2">
-              <Input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={t("Gemini API 키를 입력하세요", "Paste your Gemini API key")}
-                className="h-11 flex-1 rounded-xl border-white/10 bg-white/5 text-sm text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
-              />
-            </div>
+            <Input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={t("Gemini API 키를 입력하세요", "Paste your Gemini API key")}
+              className="h-11 w-full rounded-xl border-white/10 bg-white/5 text-sm text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
+            />
 
             <a
               href="https://aistudio.google.com/app/apikey"
@@ -359,7 +381,6 @@ type OnboardingStep = "loading" | "auth" | "api-key" | "ready";
             </button>
           </div>
 
-          {/* Info box */}
           <div className="mt-6 rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center text-xs text-zinc-500">
             <p>{t("API 키는 서버에 암호화되어 안전하게 보관됩니다.", "API keys are encrypted and stored safely.")}</p>
           </div>

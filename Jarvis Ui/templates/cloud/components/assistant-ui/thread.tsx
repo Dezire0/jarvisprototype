@@ -64,6 +64,7 @@ const WELCOME_PROMPTS = [
 export const Thread: FC = () => {
   const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
   const t = (ko: string, en: string) => (isKo ? ko : en);
+
   return (
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root @container flex h-full flex-col overflow-hidden rounded-[32px] border border-border/70 bg-background shadow-[0_32px_120px_rgba(0,0,0,0.18)]"
@@ -127,6 +128,9 @@ const ThreadScrollToBottom: FC = () => {
 };
 
 const ThreadWelcome: FC = () => {
+  const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
+  const t = (ko: string, en: string) => (isKo ? ko : en);
+
   return (
     <div className="aui-thread-welcome-root mx-auto my-auto flex w-full max-w-(--thread-max-width) grow flex-col">
       <div className="aui-thread-welcome-center flex w-full grow flex-col items-center justify-center">
@@ -150,6 +154,8 @@ const ThreadWelcome: FC = () => {
 };
 
 const ThreadSuggestions: FC = () => {
+  const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
+
   return (
     <div className="aui-thread-welcome-suggestions grid w-full gap-3 pb-4 @md:grid-cols-2">
       {WELCOME_PROMPTS.map((item) => (
