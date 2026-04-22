@@ -16,9 +16,11 @@ app.get("/", (c) => {
 import auth from "./routes/auth";
 import chat from "./routes/chat";
 import speech from "./routes/speech";
+import settings from "./routes/settings";
 
 app.route("/api/auth", auth);
 app.route("/api/chat", chat);
 app.route("/api/speech", speech);
+app.route("/api/settings", settings);
 
 export default app;

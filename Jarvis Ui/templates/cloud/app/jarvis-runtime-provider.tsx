@@ -16,6 +16,7 @@ type TransportMessage = {
   createdAt: string;
   status?: "running" | "complete";
   provider?: string;
+  actions?: any[];
 };
 
 type TransportState = {
@@ -37,6 +38,35 @@ const threadsStore = new Map<
   }
 >();
 
+const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
+
+async function syncToCloud(threadId: string, title?: string, messages?: any[]) {
+  if (typeof window === "undefined") return;
+  const token = window.localStorage.getItem("jarvis_auth_token");
+  if (!token) return;
+
+  try {
+    await fetch(`${API_BASE}/api/chat/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        threadId,
+        title,
+        messages: messages?.map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content?.[0]?.text || m.text || ""
+        }))
+      }),
+    });
+  } catch (err) {
+    console.error("Failed to sync to cloud:", err);
+  }
+}
+
 const threadListAdapter: RemoteThreadListAdapter = {
   async list() {
     return {
@@ -56,6 +86,8 @@ const threadListAdapter: RemoteThreadListAdapter = {
       status: "regular",
     });
 
+    void syncToCloud(remoteId, "New Chat");
+
     return { remoteId, externalId: undefined };
   },
 
@@ -64,6 +96,7 @@ const threadListAdapter: RemoteThreadListAdapter = {
 
     if (thread) {
       thread.title = title;
+      void syncToCloud(remoteId, title);
     }
   },
 
@@ -101,7 +134,7 @@ const threadListAdapter: RemoteThreadListAdapter = {
     };
   },
 
-  async generateTitle(_remoteId, messages) {
+  async generateTitle(remoteId, messages) {
     return createAssistantStream((controller) => {
       const firstUserMessage = messages.find((message) => message.role === "user");
       const content = firstUserMessage?.content
@@ -110,7 +143,11 @@ const threadListAdapter: RemoteThreadListAdapter = {
         .join(" ")
         .trim();
 
-      controller.appendText(content ? content.slice(0, 50) : "New Chat");
+      const title = content ? content.slice(0, 50) : "New Chat";
+      controller.appendText(title);
+      
+      // Sync title to cloud after generation
+      void syncToCloud(remoteId, title, messages);
     });
   },
 };
@@ -129,6 +166,12 @@ function toThreadMessages(state: TransportState) {
             type: "text" as const,
             text: message.text || "",
           },
+          ...(message.actions || []).map((action) => ({
+            type: "tool-call" as const,
+            toolCallId: `call-${action.type}-${Date.now()}`,
+            toolName: action.type,
+            args: action,
+          })),
         ],
         status:
           message.status === "running"

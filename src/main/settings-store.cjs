@@ -68,7 +68,8 @@ function createDefaultSettings() {
       google: {
         ...DEFAULT_TTS_SETTINGS.google
       }
-    }
+    },
+    geminiApiKeyEncrypted: ""
   };
 }
 
@@ -338,6 +339,16 @@ class SettingsStore {
     this.cache = next;
     await this.writeCache();
     return this.getTtsSettingsView();
+  }
+
+  getGeminiApiKey() {
+    return this.decryptSecret(this.cache.geminiApiKeyEncrypted) || process.env.GEMINI_API_KEY || "";
+  }
+
+  async updateGeminiApiKey(key = "") {
+    this.cache.geminiApiKeyEncrypted = this.encryptSecret(String(key).trim());
+    await this.writeCache();
+    return { success: true };
   }
 }
 

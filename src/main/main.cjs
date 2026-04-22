@@ -14,7 +14,7 @@ const { DesktopUiServer } = require("./desktop-ui-server.cjs");
 const { ExtensionsService } = require("./extensions-service.cjs");
 const { FileService } = require("./file-service.cjs");
 const { GameService } = require("./game-service.cjs");
-const { getTierProviderLabel } = require("./ollama-service.cjs");
+const { getTierProviderLabel, setExternalApiKeyProvider } = require("./ollama-service.cjs");
 const { MemoryStore } = require("./memory-store.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
@@ -92,6 +92,11 @@ async function createServices() {
   await memory.load();
   const settings = new SettingsStore({ app });
   await settings.load();
+
+  setExternalApiKeyProvider((provider) => {
+    if (provider === "gemini") return settings.getGeminiApiKey();
+    return null;
+  });
   const extensions = new ExtensionsService({ app });
   await extensions.load();
   const browser = new BrowserService({
@@ -147,7 +152,8 @@ async function createServices() {
     memory,
     obs,
     screen: screenService,
-    tts
+    tts,
+    settings
   });
 
   assistantTransportServer = createAssistantTransportServer({
@@ -164,7 +170,8 @@ async function createServices() {
         memory,
         obs,
         screen: screenService,
-        tts
+        tts,
+        settings
       });
     }
   });
@@ -1061,6 +1068,32 @@ ipcMain.handle("assistant:save-tts-settings", async (_event, payload) => {
     settings,
     status
   };
+});
+
+ipcMain.handle("assistant:get-gemini-status", async () => {
+  const { services: liveServices } = ensureReadyServices();
+  const key = liveServices.settings.getGeminiApiKey();
+  return {
+    configured: Boolean(key),
+    model: "gemini-2.0-flash"
+  };
+});
+
+ipcMain.handle("settings:update", async (event, newSettings) => {
+  const { services: liveServices } = ensureReadyServices();
+  if (newSettings.preferredLanguage) {
+    liveServices.settings.setPreferredLanguage(newSettings.preferredLanguage);
+  }
+  if (newSettings.isPro !== undefined) {
+    liveServices.settings.setIsPro(newSettings.isPro);
+  }
+  return { success: true };
+});
+
+ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
+  const { services: liveServices } = ensureReadyServices();
+  await liveServices.settings.updateGeminiApiKey(payload.key);
+  return { success: true };
 });
 
 ipcMain.handle("assistant:invoke-tool", async (_event, request) => {

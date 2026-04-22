@@ -40,30 +40,30 @@ import {
 } from "lucide-react";
 import type { FC } from "react";
 
+import { GeminiKeySetup } from "@/components/jarvis/gemini-key-setup";
+
 const WELCOME_PROMPTS = [
   {
-    title: "Plan my priorities",
-    description: "지금 해야 할 일을 우선순위로 정리해 줘",
-    prompt: "지금 내가 제일 먼저 해야 할 일을 우선순위로 정리해줘",
+    title: { ko: "오늘 할 일 정리", en: "Plan my day" },
+    prompt: { ko: "지금 내가 제일 먼저 해야 할 일을 우선순위로 정리해줘", en: "Help me prioritize my tasks for today" },
   },
   {
-    title: "Open a workspace",
-    description: "앱 열기와 사이트 진입을 빠르게 시작",
-    prompt: "크롬 열고 Gmail과 Notion을 한 번에 열어줘",
+    title: { ko: "작업 환경 열기", en: "Open workspace" },
+    prompt: { ko: "크롬 열고 Gmail과 Notion을 한 번에 열어줘", en: "Open Chrome, Gmail, and Notion together" },
   },
   {
-    title: "Brief the screen",
-    description: "현재 화면에서 중요한 내용만 짧게 요약",
-    prompt: "지금 화면에서 중요한 것만 짧게 설명해줘",
+    title: { ko: "화면 브리핑", en: "Brief the screen" },
+    prompt: { ko: "지금 화면에서 중요한 것만 짧게 설명해줘", en: "Summarize the important parts of my current screen" },
   },
   {
-    title: "Play focus music",
-    description: "유튜브에서 집중용 음악 재생",
-    prompt: "유튜브 열고 집중할 때 들을 음악 재생해줘",
+    title: { ko: "집중용 음악", en: "Focus music" },
+    prompt: { ko: "유튜브 열고 집중할 때 들을 음악 재생해줘", en: "Play some focus music on YouTube" },
   },
 ];
 
 export const Thread: FC = () => {
+  const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
+  const t = (ko: string, en: string) => (isKo ? ko : en);
   return (
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root @container flex h-full flex-col overflow-hidden rounded-[32px] border border-border/70 bg-background shadow-[0_32px_120px_rgba(0,0,0,0.18)]"
@@ -89,8 +89,7 @@ export const Thread: FC = () => {
           <ThreadScrollToBottom />
           <Composer />
           <p className="text-center text-[11px] text-muted-foreground">
-            Jarvis can make mistakes. Verify important actions before relying on
-            them.
+            {t("자비스는 실수를 할 수 있습니다. 중요한 정보는 확인해 주세요.", "Jarvis can make mistakes. Verify important information.")}
           </p>
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
@@ -138,11 +137,10 @@ const ThreadWelcome: FC = () => {
             </Avatar.Fallback>
           </Avatar.Root>
           <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both font-semibold text-3xl tracking-tight duration-200">
-            How can I help you today?
+            {t("오늘 무엇을 도와드릴까요?", "How can I help you?")}
           </h1>
           <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-base text-muted-foreground delay-75 duration-200 md:text-lg">
-            Jarvis can plan, browse, automate desktop tasks, and keep multi-step
-            work moving in one thread.
+            {t("자비스는 브라우징, 자동화, 정보 분석을 돕는 AI 비서입니다.", "Jarvis can plan, browse, and automate your tasks.")}
           </p>
         </div>
       </div>
@@ -156,10 +154,9 @@ const ThreadSuggestions: FC = () => {
     <div className="aui-thread-welcome-suggestions grid w-full gap-3 pb-4 @md:grid-cols-2">
       {WELCOME_PROMPTS.map((item) => (
         <WelcomePromptCard
-          key={item.title}
-          title={item.title}
-          description={item.description}
-          prompt={item.prompt}
+          key={item.title.en}
+          title={isKo ? item.title.ko : item.title.en}
+          prompt={isKo ? item.prompt.ko : item.prompt.en}
         />
       ))}
     </div>
@@ -168,9 +165,8 @@ const ThreadSuggestions: FC = () => {
 
 const WelcomePromptCard: FC<{
   title: string;
-  description: string;
   prompt: string;
-}> = ({ title, description, prompt }) => {
+}> = ({ title, prompt }) => {
   const aui = useAui();
   const isRunning = useAuiState((state) => state.thread.isRunning);
 
@@ -184,10 +180,10 @@ const WelcomePromptCard: FC<{
       type="button"
       onClick={runPrompt}
       disabled={isRunning}
-      className="aui-thread-welcome-suggestion h-auto w-full rounded-[24px] border border-border/70 bg-card/70 px-5 py-4 text-left shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+      className="aui-thread-welcome-suggestion flex h-auto w-full items-center justify-between rounded-[24px] border border-border/70 bg-card/70 px-5 py-5 text-left shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
     >
-      <p className="font-medium text-foreground">{title}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      <p className="font-medium text-[15px] text-foreground">{title}</p>
+      <ArrowUpIcon className="size-4 text-muted-foreground/50" />
     </button>
   );
 };
@@ -354,6 +350,9 @@ const AssistantMessage: FC = () => {
                 return <Reasoning {...part} />;
               }
               if (part.type === "tool-call") {
+                if (part.toolName === "require_gemini_key") {
+                  return <GeminiKeySetup key={part.toolCallId} />;
+                }
                 return part.toolUI ?? <ToolFallback {...part} />;
               }
               return null;

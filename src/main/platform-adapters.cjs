@@ -1957,6 +1957,22 @@ function createAutomationAdapter({ screen } = {}) {
           skipped: true,
           reason: "Action is part of the scaffold but not wired yet."
         };
+      },
+      async typeText(text) {
+        return insertTextIntoFrontAppMac(text);
+      },
+      async clickCoordinate(x, y) {
+        return clickScreenPointMac(x, y);
+      },
+      async runShellCommand(command) {
+        const { exec } = require("child_process");
+        const { promisify } = require("util");
+        const execAsync = promisify(exec);
+        const { stdout } = await execAsync(command);
+        return stdout.trim();
+      },
+      async getActiveApp() {
+        return getFrontmostAppMac();
       }
     };
   }
@@ -1968,7 +1984,7 @@ function createAutomationAdapter({ screen } = {}) {
       },
       async describeCurrentContext() {
         return {
-          appName: "",
+          appName: "Windows Desktop",
           windowTitle: ""
         };
       },
@@ -2001,6 +2017,25 @@ function createAutomationAdapter({ screen } = {}) {
           skipped: true,
           reason: "App automation is not wired for Windows yet."
         };
+      },
+      async typeText(text) {
+        // Windows implementation placeholder using powershell sendkeys
+        const { exec } = require("child_process");
+        exec(`powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${text.replace(/'/g, "''")}')"`);
+      },
+      async clickCoordinate(x, y) {
+        // Windows implementation placeholder
+        throw new Error("clickCoordinate is not implemented for Windows yet.");
+      },
+      async runShellCommand(command) {
+        const { exec } = require("child_process");
+        const { promisify } = require("util");
+        const execAsync = promisify(exec);
+        const { stdout } = await execAsync(command);
+        return stdout.trim();
+      },
+      async getActiveApp() {
+        return "Windows App";
       }
     };
   }
@@ -2037,7 +2072,11 @@ function createAutomationAdapter({ screen } = {}) {
       }
 
       return unsupported(action.type);
-    }
+    },
+    async typeText() { throw new Error("Not implemented"); },
+    async clickCoordinate() { throw new Error("Not implemented"); },
+    async runShellCommand() { throw new Error("Not implemented"); },
+    async getActiveApp() { return "Linux App"; }
   };
 }
 

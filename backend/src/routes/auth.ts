@@ -60,7 +60,12 @@ auth.post("/login", async (c) => {
     c.env.JWT_SECRET || "fallback-secret"
   );
 
-  return c.json({ success: true, token, user: { id: user.id, email: user.email } });
+  return c.json({
+    success: true,
+    token,
+    user: { id: user.id, email: user.email },
+    hasGeminiKey: Boolean(user.geminiApiKeyEncrypted),
+  });
 });
 
 export default auth;

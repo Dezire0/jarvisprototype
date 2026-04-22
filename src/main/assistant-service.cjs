@@ -2421,7 +2421,7 @@ function buildRouteFallback(input) {
 }
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, screen, tts }) {
+  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, screen, tts, settings }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
@@ -2433,6 +2433,7 @@ class AssistantService {
     this.obs = obs;
     this.screen = screen;
     this.tts = tts;
+    this.settings = settings;
     this.history = [];
     this.lastActiveApp = "";
     this.lastMemoryFingerprint = "";
@@ -4140,10 +4141,11 @@ class AssistantService {
   /**
    * Build the observation message sent to the AI at each ReAct step.
    */
-  buildReActObservation(state, stepNum, errorMessage = "") {
+  async buildReActObservation(state, stepNum, errorMessage = "") {
+    const activeApp = await this.automation.getActiveApp();
     const lines = [
       `=== Step ${stepNum} Observation ===`,
-      `Active OS App: ${osAutomation.getActiveApp()}`,
+      `Active OS App: ${activeApp}`,
       `URL: ${state.url}`,
       `Title: ${state.title || "(untitled)"}`,
     ];
@@ -4201,16 +4203,16 @@ class AssistantService {
           // Otherwise, we would prompt the user. For now, simulate missing PII.
           return { state: await this.browser.observe(), error: `Missing PII for ${action.field}. Please ask user to set it.` };
         case "os_type":
-          osAutomation.typeText(action.text);
+          await this.automation.typeText(action.text);
           return { state: await this.browser.observe(), error: null };
         case "os_app":
-          osAutomation.openApplication(action.name);
+          await this.automation.execute({ type: "open_app", target: action.name });
           return { state: await this.browser.observe(), error: null };
         case "os_click":
-          osAutomation.clickCoordinate(action.x, action.y);
+          await this.automation.clickCoordinate(action.x, action.y);
           return { state: await this.browser.observe(), error: null };
         case "os_cmd":
-          const output = osAutomation.runShellCommand(action.command);
+          const output = await this.automation.runShellCommand(action.command);
           return { state: { ...await this.browser.observe(), cmd_output: output }, error: null };
         case "done":
           return { state: null, error: null };
@@ -4280,7 +4282,7 @@ class AssistantService {
 
     // ReAct Loop
     for (let step = 1; step <= maxSteps; step++) {
-      const observation = this.buildReActObservation(state, step, lastError);
+      const observation = await this.buildReActObservation(state, step, lastError);
       lastError = "";
 
       // Build the user prompt for this step
@@ -4298,7 +4300,8 @@ class AssistantService {
           tier: "fast",
           model: FAST_PLANNER_MODEL,
           history: agentHistory.slice(-8),  // Keep last 4 exchanges
-          userPrompt
+          userPrompt,
+          localOnly: true // ReAct loop is faster and safer on local models
         });
       } catch {
         finalSummary = language === "ko"
@@ -4360,7 +4363,7 @@ class AssistantService {
             `Actions taken: ${actions.map(a => a.type).join(" → ")}`,
             finalState.visibleText ? `Visible text:\n${finalState.visibleText.slice(0, 2000)}` : ""
           ].join("\n\n"),
-          { tier: "fast", includeHistory: false }
+          { tier: "fast", includeHistory: false, localOnly: true }
         );
       } catch {
         reply = language === "ko"
@@ -4853,29 +4856,52 @@ class AssistantService {
   }
 
   async handleGeneral(input) {
-    const language = detectReplyLanguage(input);
+    const preferredLang = this.settings.getPreferredLanguage();
+    const language = preferredLang === "auto" ? detectReplyLanguage(input) : preferredLang;
     const tier = chooseChatModelTier(input, this.getRecentHistory());
+
+    // Gemini 키가 없어도 차단하지 않음 — 자동으로 로컬 모델(느린 모드)로 폴백됩니다.
+    
     let reply = "";
     
     // 웹 AI 연결 상태를 먼저 확인하여 UI 라벨을 결정합니다.
     const connectedProvider = await unofficialAI.isConnected();
     let provider = connectedProvider ? `web-${connectedProvider}` : "local-chat";
 
+    const langInstruction = preferredLang === "ko" 
+      ? "무조건 한국어로만 대답하세요. 영어 질문이 들어와도 한국어로 번역해서 답변하세요."
+      : preferredLang === "en"
+        ? "Respond in English ONLY. Even if the user speaks Korean, reply in English."
+        : `${buildLanguageName(language)}로만 응답하세요.`;
+
     try {
-      reply = await this.replyWithModel(
-        input,
-        [
-          "대화를 자연스럽게 이어가세요.",
-          `${buildLanguageName(language)}로만 응답하세요.`,
-          "당신은 유능하고 친절한 AI 비서 Jarvis입니다.",
-          "만약 브라우저 검색이나 웹 작업이 필요하다고 판단되면 답변 맨 끝에 [ACTION: BROWSE] 검색어 형식을 포함하세요.",
-          "만약 특정 앱을 실행해야 한다면 [ACTION: OPEN_APP] 앱이름 형식을 포함하세요.",
-          "일상적인 대화라면 풍부하고 친절하게 답변하세요."
-        ].join("\n"),
-        {
-          tier
-        }
-      );
+        reply = await this.replyWithModel(
+          input,
+          [
+            "대화를 자연스럽게 이어가세요.",
+            langInstruction,
+            "당신은 유능하고 친절한 AI 비서 Jarvis입니다.",
+            "만약 유튜브, 네이버, 구글 검색 등 웹사이트 작업이 필요하면 답변 맨 끝에 [ACTION: BROWSE] 검색어 또는 URL 형식을 포함하세요.",
+            "만약 컴퓨터에 설치된 로컬 앱(예: 메모장, 계산기, 크롬 앱 자체 등)을 실행해야 한다면 [ACTION: OPEN_APP] 앱이름 형식을 포함하세요.",
+            "일상적인 대화라면 풍부하고 친절하게 답변하세요."
+          ].join("\n"),
+          {
+            tier
+          }
+        );
+    } catch (error) {
+      // 429 에러(한도 초과) 발생 시 프로 구독 유도
+      if (error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("Rate limit")) {
+        return {
+          reply: language === "ko"
+            ? "현재 사용 중인 무료 플랜의 호출 한도가 초과되었습니다. 끊김 없는 초고속 모드를 위해 'Jarvis Pro' 구독을 추천드려요!"
+            : "You've reached the free tier rate limit. Upgrade to 'Jarvis Pro' for uninterrupted high-speed access!",
+          provider: "system",
+          actions: [this.makeAction("require_pro_subscription", "billing")]
+        };
+      }
+      throw error;
+    }
       
       // 자율 행동 판단 (Action Detection)
       if (typeof reply === 'string') {

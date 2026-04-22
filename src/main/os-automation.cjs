@@ -9,16 +9,25 @@ const { execSync } = require("child_process");
 class OSAutomation {
   constructor() {
     this.isMac = process.platform === "darwin";
+    this.isWin = process.platform === "win32";
   }
 
   _runAppleScript(script) {
-    if (!this.isMac) throw new Error("OSAutomation currently only supports macOS.");
+    if (!this.isMac) throw new Error("OSAutomation currently only supports macOS for AppleScript.");
     try {
-      // Escape double quotes inside the script
       const escapedScript = script.replace(/"/g, '\\"');
       return execSync(`osascript -e "${escapedScript}"`).toString().trim();
     } catch (err) {
       throw new Error(`AppleScript execution failed: ${err.message}`);
+    }
+  }
+
+  _runPowerShell(command) {
+    if (!this.isWin) throw new Error("OSAutomation currently only supports Windows for PowerShell.");
+    try {
+      return execSync(`powershell -Command "${command}"`).toString().trim();
+    } catch (err) {
+      throw new Error(`PowerShell execution failed: ${err.message}`);
     }
   }
 

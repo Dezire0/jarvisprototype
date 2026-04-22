@@ -1,4 +1,4 @@
-import { Assistant } from "./assistant";
+import { OnboardingGate } from "./onboarding-gate";
 import { DownloadLanding } from "./download-landing";
 
 export default function Home() {
@@ -9,5 +9,5 @@ export default function Home() {
     return <DownloadLanding />;
   }
 
-  return <Assistant />;
+  return <OnboardingGate />;
 }

@@ -35,7 +35,17 @@ function pickFirstNonEmpty(...values) {
   return "";
 }
 
+let externalApiKeyProvider = null;
+
+function setExternalApiKeyProvider(fn) {
+  externalApiKeyProvider = fn;
+}
+
 function getGeminiApiKey() {
+  if (externalApiKeyProvider) {
+    const key = externalApiKeyProvider("gemini");
+    if (key) return key;
+  }
   return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim();
 }
 
@@ -119,7 +129,7 @@ function resolveProviderForTier(tier = "complex", requestedProvider = "") {
 
 function defaultModelForProvider(provider = "ollama") {
   if (provider === "gemini") {
-    return process.env.GEMINI_LLM_MODEL || "gemini-2.5-flash";
+    return process.env.GEMINI_LLM_MODEL || "gemini-2.0-flash";
   }
 
   if (provider === "openai-compatible") {
@@ -569,6 +579,7 @@ module.exports = {
   buildBasePrompt,
   detectLanguageCode,
   getTierProviderLabel,
+  setExternalApiKeyProvider,
   listInstalledModels,
   normalizeOpenAICompatibleUrl,
   normalizeProvider,

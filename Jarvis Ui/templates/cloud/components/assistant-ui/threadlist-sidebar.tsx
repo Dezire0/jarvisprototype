@@ -249,7 +249,12 @@ export function ThreadListSidebar({
   const [profileDraftName, setProfileDraftName] = useState("");
   const [profileAutoSync, setProfileAutoSync] = useState(true);
   const [profilePreferWebAi, setProfilePreferWebAi] = useState(true);
+  const [profileLanguage, setProfileLanguage] = useState<"auto" | "ko" | "en">("auto");
   const profileNameInputId = useId();
+
+  const isKo = profileLanguage === "ko" || (profileLanguage === "auto" && typeof navigator !== "undefined" && navigator.language.startsWith("ko"));
+
+  const t = (ko: string, en: string) => (isKo ? ko : en);
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const allThreads = threadsState.threadItems.filter(
@@ -286,6 +291,7 @@ export function ThreadListSidebar({
         );
         setProfileAutoSync(session.user.settings?.autoSync ?? true);
         setProfilePreferWebAi(session.user.settings?.preferWebAi ?? true);
+        setProfileLanguage(session.user.settings?.language || "auto");
       }
       if (session.token) {
         void hydrateCloudIndex(session.token);
@@ -618,11 +624,20 @@ export function ThreadListSidebar({
       settings: {
         autoSync: profileAutoSync,
         preferWebAi: profilePreferWebAi,
+        language: profileLanguage,
       },
     };
 
     setAuthUser(nextUser);
     await updateStoredAuthUser(nextUser);
+
+    // Sync to Electron Settings
+    if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
+      await (window as any).assistantAPI.invokeTool("settings:update", {
+        preferredLanguage: profileLanguage,
+      });
+    }
+
     setProfileOpen(false);
   }
 
@@ -694,12 +709,12 @@ export function ThreadListSidebar({
   }
 
   const userDisplayName =
-    authUser?.name?.trim() || authUser?.email?.split("@")[0] || "로그인이 필요합니다";
+    authUser?.name?.trim() || authUser?.email?.split("@")[0] || t("로그인이 필요합니다", "Login Required");
   const userSubLabel = authUser
     ? authUser.settings?.autoSync
-      ? "동기화 활성화됨"
-      : "로컬 프로필"
-    : "Plus Membership";
+      ? t("동기화 활성화됨", "Sync Enabled")
+      : t("로컬 프로필", "Local Profile")
+    : t("플러스 멤버십", "Plus Membership");
 
   return (
     <>
@@ -719,10 +734,7 @@ export function ThreadListSidebar({
       <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
         <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>새 프로젝트 만들기</DialogTitle>
-            <DialogDescription className="text-zinc-400">
-              빈 프로젝트로 시작하고 이후 대화를 묶어 관리할 수 있어요.
-            </DialogDescription>
+            <DialogTitle>{t("새 프로젝트 만들기", "Create New Project")}</DialogTitle>
           </DialogHeader>
           <Input
             value={newProjectName}
@@ -732,7 +744,7 @@ export function ThreadListSidebar({
                 handleCreateProject();
               }
             }}
-            placeholder="예: Jarvis Desktop v1.3.16"
+            placeholder={t("프로젝트 이름", "Project Name")}
             className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500"
           />
           <DialogFooter>
@@ -740,13 +752,13 @@ export function ThreadListSidebar({
               variant="outline"
               onClick={() => setProjectDialogOpen(false)}
             >
-              취소
+              {t("취소", "Cancel")}
             </Button>
             <Button
               className="bg-white text-black hover:bg-zinc-200"
               onClick={handleCreateProject}
             >
-              만들기
+              {t("만들기", "Create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -755,10 +767,7 @@ export function ThreadListSidebar({
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
         <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>글로벌 채팅 검색</DialogTitle>
-            <DialogDescription className="text-zinc-400">
-              로컬 인덱스와 클라우드 기록에서 키워드를 바로 찾아줘요.
-            </DialogDescription>
+            <DialogTitle>{t("글로벌 채팅 검색", "Global Chat Search")}</DialogTitle>
           </DialogHeader>
           <Input
             value={searchQuery}
@@ -797,7 +806,7 @@ export function ThreadListSidebar({
                           : "bg-emerald-950/70 text-emerald-300",
                       )}
                     >
-                      {result.source === "local" ? "로컬" : "클라우드"}
+                      {result.source === "local" ? t("로컬", "Local") : t("클라우드", "Cloud")}
                     </span>
                   </div>
                   <p className="mt-2 text-xs text-zinc-400">{result.snippet}</p>
@@ -1041,7 +1050,7 @@ export function ThreadListSidebar({
                     }}
                     className="mt-6 w-full text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
                   >
-                    연결 해제하기
+                    {t("연결 해제하기", "Disconnect")}
                   </Button>
                 )}
               </div>
@@ -1061,33 +1070,33 @@ export function ThreadListSidebar({
               className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
             >
               <EditIcon className="size-4.5" />
-              <span className="font-medium text-[15px]">새 채팅</span>
+              <span className="font-medium text-[15px]">{t("새 채팅", "New Chat")}</span>
             </Button>
-
-            <Button
-              variant="ghost"
-              onClick={() => setSearchOpen(true)}
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
-            >
-              <SearchIcon className="size-4.5" />
-              <span className="font-medium text-[15px]">채팅 검색</span>
-            </Button>
-
-            <Button
-              variant="ghost"
-              onClick={() => void openLauncher()}
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
-            >
-              <MoreHorizontalIcon className="size-4.5" />
-              <span className="font-medium text-[15px]">더 보기</span>
-            </Button>
+ 
+             <Button
+               variant="ghost"
+               onClick={() => setSearchOpen(true)}
+               className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
+             >
+               <SearchIcon className="size-4.5" />
+               <span className="font-medium text-[15px]">{t("채팅 검색", "Search")}</span>
+             </Button>
+ 
+             <Button
+               variant="ghost"
+               onClick={() => void openLauncher()}
+               className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
+             >
+               <MoreHorizontalIcon className="size-4.5" />
+               <span className="font-medium text-[15px]">{t("더 보기", "More")}</span>
+             </Button>
           </div>
         </SidebarHeader>
 
         <SidebarContent className="scrollbar-none px-3 py-2">
           <div className="mt-4 mb-1 flex items-center justify-between px-3">
-            <p className="font-semibold text-muted-foreground/80 text-xs">
-              프로젝트
+            <p className="font-semibold text-muted-foreground/80 text-xs uppercase tracking-wider">
+              {t("프로젝트", "Projects")}
             </p>
             {selectedProject && (
               <button
@@ -1095,7 +1104,7 @@ export function ThreadListSidebar({
                 onClick={() => setSelectedProjectId(null)}
                 className="text-[11px] text-zinc-500 hover:text-zinc-300"
               >
-                전체 보기
+                {t("전체 보기", "View All")}
               </button>
             )}
           </div>
@@ -1107,7 +1116,7 @@ export function ThreadListSidebar({
               className="flex items-center justify-start gap-3 rounded-lg px-3 py-5 hover:bg-[#212121]"
             >
               <FolderPlusIcon className="size-4.5" />
-              <span className="font-medium text-sm">새 프로젝트</span>
+              <span className="font-medium text-sm">{t("새 프로젝트", "New Project")}</span>
             </Button>
 
             {projects.length > 0 ? (
@@ -1141,15 +1150,15 @@ export function ThreadListSidebar({
                 );
               })
             ) : (
-              <div className="rounded-xl border border-white/10 border-dashed bg-white/5 px-4 py-5 text-sm text-zinc-400">
-                아직 프로젝트가 없어요. 새 프로젝트를 만들어 흐름을 분리해두자.
+              <div className="mx-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-5 text-center text-xs text-zinc-500">
+                {t("프로젝트가 없습니다.", "No projects yet.")}
               </div>
             )}
           </div>
 
           <div className="mt-6 mb-1 px-3">
-            <p className="font-semibold text-muted-foreground/80 text-xs">
-              최근 {selectedProject ? `· ${selectedProject.name}` : ""}
+            <p className="font-semibold text-muted-foreground/80 text-xs uppercase tracking-wider">
+              {t("최근 대화", "Recent")} {selectedProject ? `· ${selectedProject.name}` : ""}
             </p>
           </div>
 
@@ -1168,32 +1177,23 @@ export function ThreadListSidebar({
                   )}
                 >
                   <span className="flex-1 truncate font-medium text-sm">
-                    {thread.title || "새 채팅"}
+                    {thread.title || t("새 채팅", "New Chat")}
                   </span>
                 </Button>
               ))
             ) : (
-              <div className="rounded-xl border border-white/10 border-dashed bg-white/5 px-4 py-5 text-sm text-zinc-400">
-                {selectedProject
-                  ? "선택한 프로젝트에 아직 연결된 대화가 없어요."
-                  : authUser
-                    ? `클라우드 스레드 ${cloudThreads.length}개를 확인했고, 로컬 대화는 새로 시작하면 자동으로 색인돼요.`
-                    : "새 채팅을 시작하면 여기에서 바로 이어볼 수 있어요."}
+              <div className="mx-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-5 text-center text-xs text-zinc-500">
+                {t("대화 기록이 없습니다.", "No recent threads.")}
               </div>
             )}
           </div>
 
           {authUser && (
-            <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-              <div className="flex items-center gap-2 font-medium text-emerald-300 text-sm">
-                <BadgeCheckIcon className="size-4" />
-                <span>동기화 상태</span>
+            <div className="mt-6 rounded-2xl border border-emerald-500/10 bg-emerald-500/[0.03] p-4">
+              <div className="flex items-center gap-2 font-medium text-emerald-500/80 text-[11px] uppercase tracking-tight">
+                <BadgeCheckIcon className="size-3.5" />
+                <span>{t("동기화 활성화됨", "Cloud Sync Active")}</span>
               </div>
-              <p className="mt-2 text-emerald-100/80 text-xs">
-                클라우드 스레드 {cloudThreads.length}개와 로컬 인덱스{" "}
-                {Object.keys(localThreadIndex).length}개를 검색 대상으로 유지
-                중이야.
-              </p>
             </div>
           )}
         </SidebarContent>
@@ -1241,26 +1241,59 @@ export function ThreadListSidebar({
                 size="icon-sm"
                 onClick={() => void handleLogout()}
                 className="shrink-0 rounded-xl text-zinc-500 hover:bg-[#212121] hover:text-white"
-                title="로그아웃"
+                title={t("로그아웃", "Logout")}
               >
                 <LogOutIcon className="size-4" />
               </Button>
             )}
           </div>
 
-          <div className="mt-2 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-zinc-400">
-            <span className="inline-flex items-center gap-1">
-              <RocketIcon className="size-3.5" />
-              Web AI 직접 요청 + 로컬 검색 인덱스 적용됨
-            </span>
-            <button
-              type="button"
-              onClick={() => void checkWebAiStatus(true)}
-              className="inline-flex items-center gap-1 text-zinc-500 hover:text-white"
-            >
-              <RefreshCwIcon className="size-3.5" />
-              새로고침
-            </button>
+          <div className="mt-2 flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="flex items-center justify-between text-[11px] text-zinc-400">
+              <span className="inline-flex items-center gap-1">
+                <MonitorIcon className="size-3.5" />
+                {t("언어 모드", "Language")}
+              </span>
+              <div className="flex gap-1">
+                {(["auto", "ko", "en"] as const).map((lang) => (
+                  <button
+                    key={lang}
+                    onClick={() => {
+                      setProfileLanguage(lang);
+                      void (async () => {
+                        if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
+                          await (window as any).assistantAPI.invokeTool("settings:update", {
+                            preferredLanguage: lang,
+                          });
+                        }
+                      })();
+                    }}
+                    className={cn(
+                      "rounded px-1.5 py-0.5 uppercase transition-colors",
+                      profileLanguage === lang 
+                        ? "bg-white text-black font-bold" 
+                        : "hover:bg-white/10"
+                    )}
+                  >
+                    {lang === "auto" ? t("자동", "Auto") : lang}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-zinc-400">
+              <span className="inline-flex items-center gap-1">
+                <RocketIcon className="size-3.5" />
+                {t("새로고침", "Refresh Status")}
+              </span>
+              <button
+                type="button"
+                onClick={() => void checkWebAiStatus(true)}
+                className="inline-flex items-center gap-1 text-zinc-500 hover:text-white"
+              >
+                <RefreshCwIcon className="size-3.5" />
+              </button>
+            </div>
           </div>
         </SidebarFooter>
       </Sidebar>
