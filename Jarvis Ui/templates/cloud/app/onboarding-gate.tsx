@@ -66,79 +66,78 @@ export function OnboardingGate() {
   // Check session on mount + Auto-wipe on version change
   useEffect(() => {
     void (async () => {
-      const CURRENT_VERSION = "1.5.7";
-      const lastVersion = localStorage.getItem("jarvis_last_version");
+      try {
+        const CURRENT_VERSION = "1.5.8";
+        const lastVersion = localStorage.getItem("jarvis_last_version");
 
-      // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
-      if (lastVersion !== CURRENT_VERSION) {
-        console.log("Version changed! Auto-wiping all session data...");
-        
-        // 1. 브라우저 캐시 삭제
-        localStorage.clear();
-        
-        // 2. Electron 저장소 삭제 (zombie session 방지)
-        try {
-          const { clearAuthSession } = await import("@/components/jarvis/auth-session");
-          await clearAuthSession();
-        } catch (e) {
-          console.error("Failed to clear electron session:", e);
-        }
-
-        localStorage.setItem("jarvis_last_version", CURRENT_VERSION);
-      }
-
-      // URL 파라미터에서 토큰 확인 (구글 로그인 콜백 대응)
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlToken = urlParams.get("token");
-      const urlUserRaw = urlParams.get("user");
-
-      if (urlToken && urlUserRaw) {
-        try {
-          const urlUser = JSON.parse(decodeURIComponent(urlUserRaw));
-          await persistAuthSession(urlToken, urlUser);
-          // URL 파라미터 제거 (깔끔한 UI를 위해)
-          window.history.replaceState({}, document.title, window.location.pathname);
+        // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
+        if (lastVersion !== CURRENT_VERSION) {
+          console.log("Version changed! Auto-wiping all session data...");
           
-          const isValidPlan = urlUser.plan === "pro" || urlUser.plan === "free";
-          if (isValidPlan) {
-            setStep("ready");
-          } else {
-            setStep("setup");
+          // 1. 브라우저 캐시 삭제
+          localStorage.clear();
+          
+          // 2. Electron 저장소 삭제 (zombie session 방지)
+          try {
+            const { clearAuthSession } = await import("@/components/jarvis/auth-session");
+            await clearAuthSession();
+          } catch (e) {
+            console.error("Failed to clear electron session:", e);
           }
-          return;
-        } catch (e) {
-          console.error("Failed to parse user from URL", e);
-        }
-      }
 
-      // Listen for deep link callbacks from Electron main process
-      if (typeof window !== "undefined" && (window as any).assistantAPI) {
-        const removeListener = (window as any).assistantAPI.onEvent("auth:callback", async (data: any) => {
-          console.log("Received auth callback from deep link:", data);
-          if (data.token && data.user) {
-            await persistAuthSession(data.token, data.user);
-            const isValidPlan = data.user.plan === "pro" || data.user.plan === "free";
+          localStorage.setItem("jarvis_last_version", CURRENT_VERSION);
+        }
+
+        // URL 파라미터에서 토큰 확인 (구글 로그인 콜백 대응)
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlToken = urlParams.get("token");
+        const urlUserRaw = urlParams.get("user");
+
+        if (urlToken && urlUserRaw) {
+          try {
+            const urlUser = JSON.parse(decodeURIComponent(urlUserRaw));
+            await persistAuthSession(urlToken, urlUser);
+            // URL 파라미터 제거 (깔끔한 UI를 위해)
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            const isValidPlan = urlUser.plan === "pro" || urlUser.plan === "free";
             if (isValidPlan) {
               setStep("ready");
             } else {
               setStep("setup");
             }
+            return;
+          } catch (e) {
+            console.error("Failed to parse user from URL", e);
           }
-        });
-        // Component will unmount soon anyway during this gate flow, but it's good practice
-      }
+        }
 
-      try {
+        // Listen for deep link callbacks from Electron main process
+        if (typeof window !== "undefined" && (window as any).assistantAPI) {
+          (window as any).assistantAPI.onEvent("auth:callback", async (data: any) => {
+            console.log("Received auth callback from deep link:", data);
+            if (data.token && data.user) {
+              await persistAuthSession(data.token, data.user);
+              const isValidPlan = data.user.plan === "pro" || data.user.plan === "free";
+              if (isValidPlan) {
+                setStep("ready");
+              } else {
+                setStep("setup");
+              }
+            }
+          });
+        }
+
         const session = await restoreAuthSession();
         if (session.token && session.user) {
           const user = session.user as any;
           const isValidPlan = user.plan === "pro" || user.plan === "free";
-          const hasSetup = user.plan === "pro" || (user.plan === "free" && user.settings?.geminiKey);
+          // hasSetup logic remains same
+          const hasSetup = user.plan === "pro" || (user.plan === "free" && (user.geminiApiKeyEncrypted || user.settings?.geminiKey));
           
           if (isValidPlan && hasSetup) {
             setStep("ready");
           } else {
-            // 데이터가 꼬여있으면(구버전) 아예 세션 초기화 후 재인증 유도
             if (!isValidPlan) {
               localStorage.clear();
               setStep("auth");
@@ -150,7 +149,8 @@ export function OnboardingGate() {
           setStep("auth");
         }
       } catch (err) {
-        console.error("Critical error during session restoration:", err);
+        console.error("Critical onboarding initialization error:", err);
+        // 어떤 에러가 나도 로딩에 멈추지 않고 로그인 화면으로 보냄
         setStep("auth");
       }
     })();
