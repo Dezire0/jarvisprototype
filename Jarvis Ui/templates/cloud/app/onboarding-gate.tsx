@@ -42,9 +42,19 @@ export function OnboardingGate() {
     typeof navigator !== "undefined" && navigator.language.startsWith("ko");
   const t = (ko: string, en: string) => (isKo ? ko : en);
 
-  // Check session on mount
+  // Check session on mount + Auto-wipe on version change
   useEffect(() => {
     void (async () => {
+      const CURRENT_VERSION = "1.5.0";
+      const lastVersion = localStorage.getItem("jarvis_last_version");
+
+      // 버전이 바뀌었으면(업데이트됨) 로컬 데이터 싹 밀기
+      if (lastVersion !== CURRENT_VERSION) {
+        console.log("Version changed! Auto-wiping local storage...");
+        localStorage.clear();
+        localStorage.setItem("jarvis_last_version", CURRENT_VERSION);
+      }
+
       const session = await restoreAuthSession();
       if (session.token && session.user) {
         const user = session.user as any;
