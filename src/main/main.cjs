@@ -410,13 +410,34 @@ function createSettingsWindow() {
     show: true,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
-    title: "Jarvis Desktop v1.5.3 (Final Clean)",
+    title: "Jarvis Desktop v1.5.4 (Premium UI)",
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
+
+  // macOS에서 복사/붙여넣기 단축키 활성화
+  if (process.platform === "darwin") {
+    const { Menu } = require("electron");
+    const template = [
+      {
+        label: "Edit",
+        submenu: [
+          { role: "undo" },
+          { role: "redo" },
+          { type: "separator" },
+          { role: "cut" },
+          { role: "copy" },
+          { role: "paste" },
+          { role: "selectall" }
+        ]
+      }
+    ];
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+  }
 
   const desktopUrl = getDesktopUiUrl();
 
