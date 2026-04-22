@@ -4909,10 +4909,10 @@ class AssistantService {
       if (!connectedProvider) {
         provider = getTierProviderLabel(tier);
       }
-    } catch (_error) {
-      console.error("General chat failed:", _error.message);
-      reply = buildLocalChatReply(input, this.getRecentHistory());
-      provider = "local-fallback";
+    } catch (err) {
+      console.error("General chat failed:", err.message);
+      reply = `[🚨 Web AI 응답 실패]\n\nChatGPT로부터 답변을 가져오는 데 실패했습니다. (원인: ${err.message})\n\n연결 상태를 확인하거나 잠시 후 다시 시도해 주세요.`;
+      provider = "web-ai-error";
     }
 
     return {
