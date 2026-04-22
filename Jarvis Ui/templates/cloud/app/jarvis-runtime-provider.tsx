@@ -40,7 +40,7 @@ const threadsStore = new Map<
 
 const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
 
-async function syncToCloud(threadId: string, title?: string, messages?: any[]) {
+async function syncToCloud(threadId: string, title?: string, messages?: readonly any[]) {
   if (typeof window === "undefined") return;
   const token = window.localStorage.getItem("jarvis_auth_token");
   if (!token) return;
@@ -171,6 +171,7 @@ function toThreadMessages(state: TransportState) {
             toolCallId: `call-${action.type}-${Date.now()}`,
             toolName: action.type,
             args: action,
+            argsText: JSON.stringify(action),
           })),
         ],
         status:
