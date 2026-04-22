@@ -3,14 +3,12 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   SparklesIcon,
   LoaderCircleIcon,
   KeyIcon,
   ArrowRightIcon,
   CheckCircle2Icon,
-  ExternalLinkIcon,
 } from "lucide-react";
 import {
   restoreAuthSession,
@@ -341,14 +339,16 @@ export function OnboardingGate() {
               className="h-11 w-full rounded-xl border-white/10 bg-white/5 text-sm text-white placeholder:text-zinc-500 focus-visible:ring-white/20"
             />
 
-            <a
-              href="https://aistudio.google.com/app/apikey"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-center text-xs text-blue-400 underline hover:text-blue-300"
-            >
-              {t("→ Google AI Studio에서 무료 키 발급받기", "→ Get Free API Key from Google AI Studio")}
-            </a>
+            <div className="mt-1 text-center">
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-400 underline hover:text-blue-300"
+              >
+                {t("→ Google AI Studio에서 무료 키 발급받기", "→ Get Free API Key from Google AI Studio")}
+              </a>
+            </div>
 
             {apiKeyError && (
               <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
