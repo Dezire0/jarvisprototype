@@ -27,7 +27,6 @@ import { Input } from "@/components/ui/input";
 import {
   SparklesIcon,
   LoaderCircleIcon,
-  KeyIcon,
   ShieldCheckIcon,
   ArrowRightIcon,
   CheckIcon,
@@ -38,6 +37,12 @@ import {
   type AuthUser,
 } from "@/components/jarvis/auth-session";
 import { Assistant } from "./assistant";
+const {
+  markPlanConfirmed,
+  resolveFreshAuthStep,
+  resolveRestoredSessionStep,
+  selectInitialPlan,
+} = require("../lib/onboarding-flow.cjs");
 
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
 
@@ -56,18 +61,60 @@ export function OnboardingGate() {
 
   // Setup state
   const [selectedPlan, setSelectedPlan] = useState<"free" | "pro">("free");
-  const [userApiKey, setUserApiKey] = useState("");
   const [setupLoading, setSetupLoading] = useState(false);
 
   const isKo =
     typeof navigator !== "undefined" && navigator.language.startsWith("ko");
   const t = (ko: string, en: string) => (isKo ? ko : en);
+  const selectedPlanLabel = selectedPlan === "free" ? t("무료", "Free") : t("유료", "Paid");
+  const planCards = {
+    free: {
+      title: t("무료", "Free"),
+      price: "$0",
+      summary: t(
+        "0달러로 시작하지만 하루 사용량 한도가 있는 플랜입니다.",
+        "Start at $0 with a daily usage limit."
+      ),
+      details: t(
+        "가볍게 시작하기 좋은 플랜이에요. 기본 모델과 정해진 무료 한도로 대화를 이어갈 수 있습니다.",
+        "A good starting plan with the standard model and a fixed free usage allowance."
+      ),
+      features: [
+        t("하루 15회 메시지", "15 messages per day"),
+        t("기본 모델 사용", "Standard model access"),
+        t("가벼운 질문과 짧은 작업에 적합", "Best for lighter chats and short tasks"),
+      ],
+    },
+    pro: {
+      title: t("유료", "Paid"),
+      price: "$1",
+      summary: t(
+        "거의 제한 없이 더 넉넉한 사용량과 더 강한 모델을 쓰는 플랜입니다.",
+        "Use roomier limits and a stronger model for $1."
+      ),
+      details: t(
+        "긴 대화나 반복 사용이 많다면 유료 플랜이 더 안정적이에요. 더 빠른 응답과 더 넓은 작업량을 기대할 수 있습니다.",
+        "Paid is better for longer chats and heavier usage, with faster responses and more room to work."
+      ),
+      features: [
+        t("훨씬 넉넉한 사용량", "Much roomier usage"),
+        t("더 빠르고 강한 모델", "Faster and stronger model"),
+        t("긴 작업과 멀티턴 대화에 유리", "Better for long tasks and multi-turn chats"),
+      ],
+    },
+  } as const;
+
+  function syncSelectedPlan(user?: Partial<AuthUser> | null) {
+    setSelectedPlan(selectInitialPlan(user || {}));
+  }
+
+  const currentPlan = planCards[selectedPlan];
 
   // Check session on mount + Auto-wipe on version change
   useEffect(() => {
     void (async () => {
       try {
-        const CURRENT_VERSION = "1.6.1";
+        const CURRENT_VERSION = "1.6.2";
         const lastVersion = localStorage.getItem("jarvis_last_version");
 
         // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
@@ -96,16 +143,19 @@ export function OnboardingGate() {
         if (urlToken && urlUserRaw) {
           try {
             const urlUser = JSON.parse(decodeURIComponent(urlUserRaw));
-            await persistAuthSession(urlToken, urlUser);
+            const nextUser: AuthUser = {
+              ...urlUser,
+              settings: {
+                ...(urlUser.settings || {}),
+                planConfirmed: false,
+              },
+            };
+            await persistAuthSession(urlToken, nextUser);
+            syncSelectedPlan(nextUser);
             // URL 파라미터 제거 (깔끔한 UI를 위해)
             window.history.replaceState({}, document.title, window.location.pathname);
-            
-            const isValidPlan = urlUser.plan === "pro" || urlUser.plan === "free";
-            if (isValidPlan) {
-              setStep("ready");
-            } else {
-              setStep("setup");
-            }
+
+            setStep(resolveFreshAuthStep(nextUser));
             return;
           } catch (e) {
             console.error("Failed to parse user from URL", e);
@@ -117,34 +167,25 @@ export function OnboardingGate() {
           (window as any).assistantAPI.onEvent("auth:callback", async (data: any) => {
             console.log("Received auth callback from deep link:", data);
             if (data.token && data.user) {
-              await persistAuthSession(data.token, data.user);
-              const isValidPlan = data.user.plan === "pro" || data.user.plan === "free";
-              if (isValidPlan) {
-                setStep("ready");
-              } else {
-                setStep("setup");
-              }
+              const nextUser: AuthUser = {
+                ...data.user,
+                settings: {
+                  ...(data.user.settings || {}),
+                  planConfirmed: false,
+                },
+              };
+              await persistAuthSession(data.token, nextUser);
+              syncSelectedPlan(nextUser);
+              setStep(resolveFreshAuthStep(nextUser));
             }
           });
         }
 
         const session = await restoreAuthSession();
         if (session.token && session.user) {
-          const user = session.user as any;
-          const isValidPlan = user.plan === "pro" || user.plan === "free";
-          // hasSetup logic remains same
-          const hasSetup = user.plan === "pro" || (user.plan === "free" && (user.geminiApiKeyEncrypted || user.settings?.geminiKey));
-          
-          if (isValidPlan && hasSetup) {
-            setStep("ready");
-          } else {
-            if (!isValidPlan) {
-              localStorage.clear();
-              setStep("auth");
-            } else {
-              setStep("setup");
-            }
-          }
+          const user = session.user as AuthUser;
+          syncSelectedPlan(user);
+          setStep(resolveRestoredSessionStep(user));
         } else {
           setStep("auth");
         }
@@ -192,18 +233,18 @@ export function OnboardingGate() {
 
       const nextUser: AuthUser = {
         ...user,
-        plan: user.plan, // 서버에서 받은 플랜 정보 (없으면 undefined)
-        settings: { autoSync: true, preferWebAi: true, language: "auto" },
+        plan: user.plan,
+        settings: {
+          autoSync: true,
+          preferWebAi: true,
+          language: "auto",
+          planConfirmed: false,
+        },
       };
 
       await persistAuthSession(token, nextUser);
-
-      // 이미 서버에 플랜이 등록된 유저라면 즉시 준비 완료, 아니면 셋업 화면으로
-      if (nextUser.plan === "pro" || (nextUser.plan === "free" && user.hasGeminiKey)) {
-        setStep("ready");
-      } else {
-        setStep("setup");
-      }
+      syncSelectedPlan(nextUser);
+      setStep(resolveFreshAuthStep(nextUser));
     } catch {
       setAuthError(t("네트워크 오류", "Network error"));
     } finally {
@@ -216,12 +257,6 @@ export function OnboardingGate() {
     try {
       const session = await restoreAuthSession();
       if (!session.token || !session.user) return;
-
-      // 만약 무료 플랜인데 키를 안 넣었으면 경고
-      if (selectedPlan === "free" && !userApiKey.trim()) {
-        alert(t("무료 플랜을 사용하려면 Gemini API 키를 입력해야 합니다.", "Please enter your Gemini API key for the free plan."));
-        return;
-      }
 
       // 서버 DB에 플랜 업데이트 요청 (강력한 동기화)
       try {
@@ -245,26 +280,9 @@ export function OnboardingGate() {
         return;
       }
 
-      // 서버에 플랜 및 키 저장 (로컬 세션에도 저장)
-      const updatedUser: AuthUser = {
-        ...session.user,
-        plan: selectedPlan,
-        settings: {
-          ...session.user.settings,
-          geminiKey: selectedPlan === "free" ? userApiKey.trim() : undefined,
-        }
-      };
+      const updatedUser = markPlanConfirmed(session.user, selectedPlan) as AuthUser;
 
       await persistAuthSession(session.token, updatedUser);
-
-      // Electron 메인 프로세스에 세션 동기화
-      if (typeof window !== "undefined" && (window as any).assistantAPI) {
-        await (window as any).assistantAPI.invokeTool("auth:session-save", { 
-          token: session.token, 
-          user: updatedUser 
-        });
-      }
-
       setStep("ready");
     } finally {
       setSetupLoading(false);
@@ -329,159 +347,113 @@ export function OnboardingGate() {
     );
   }
 
-  // ─── Step 2: Setup (Plan & API Key) ───
+  // ─── Step 2: Setup (Plan Selection) ───
   return (
     <div className="flex min-h-dvh w-full items-center justify-center bg-[#0a0a0a] py-12 text-white">
-      <div className="w-full max-w-6xl px-6">
-        {/* Title & Toggle */}
+      <div className="w-full max-w-5xl px-6">
         <div className="mb-12 text-center">
-          <h2 className="text-4xl font-bold tracking-tight">{t("플랜 업그레이드", "Upgrade Your Plan")}</h2>
-          <div className="mt-6 inline-flex rounded-full bg-zinc-900 p-1">
-            <button className="rounded-full bg-zinc-700 px-6 py-1.5 text-sm font-medium">{t("개인", "Personal")}</button>
-            <button className="rounded-full px-6 py-1.5 text-sm font-medium text-zinc-500 hover:text-zinc-300">{t("비즈니스", "Business")}</button>
-          </div>
+          <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">
+            {t("로그인 완료", "Login Complete")}
+          </p>
+          <h2 className="mt-4 text-4xl font-bold tracking-tight">
+            {t("플랜을 선택하고 시작하세요", "Choose your plan and continue")}
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
+            {t(
+              "로그인만으로는 아직 채팅을 시작할 수 없어요. 먼저 무료 또는 유료 플랜을 선택해야 API가 활성화됩니다.",
+              "Signing in is not enough yet. Pick Free or Paid first so API access can be enabled."
+            )}
+          </p>
         </div>
 
-        {/* 3-Column Grid */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          
-          {/* Card 1: Go (BYOK) */}
-          <div 
-            onClick={() => setSelectedPlan("free")}
-            className={`flex flex-col rounded-[32px] border-2 p-8 transition-all duration-300 ${selectedPlan === "free" ? "border-white bg-white/[0.03]" : "border-white/5 bg-transparent hover:border-white/20"}`}
-          >
-            <div className="mb-6 flex flex-col gap-1">
-              <h3 className="text-3xl font-bold">Go</h3>
-              <div className="mt-2 flex items-baseline gap-1">
-                <span className="text-sm text-zinc-400">CAD$</span>
-                <span className="text-5xl font-bold">11</span>
-                <span className="text-sm text-zinc-400">/ {t("월", "mo")}</span>
-              </div>
-              <p className="mt-4 text-sm font-medium text-zinc-300">{t("향상된 이용 한도로 끊김 없는 대화", "Seamless conversations with enhanced limits")}</p>
-            </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {(["free", "pro"] as const).map((planKey) => {
+            const plan = planCards[planKey];
+            const isActive = selectedPlan === planKey;
 
-            <Button 
-              variant={selectedPlan === "free" ? "default" : "outline"}
-              className={`mb-8 h-12 w-full rounded-full transition-all ${selectedPlan === "free" ? "bg-white text-black" : "border-white/20 bg-transparent text-white hover:bg-white/5"}`}
-            >
-              {selectedPlan === "free" ? t("현재 선택됨", "Current Selection") : t("Go로 전환하기", "Switch to Go")}
-            </Button>
-
-            <div className="flex flex-col gap-4 text-sm text-zinc-400">
-              <div className="flex items-center gap-3"><SparklesIcon className="size-4" /> <span>{t("코어 모델", "Core Models")}</span></div>
-              <div className="flex items-center gap-3"><LoaderCircleIcon className="size-4" /> <span>{t("메시지 및 업로드 한도 증가", "Increased message & upload limits")}</span></div>
-              <div className="flex items-center gap-3"><KeyIcon className="size-4" /> <span>{t("더 많은 이미지 생성", "Generate more images")}</span></div>
-              <div className="flex items-center gap-3"><ShieldCheckIcon className="size-4" /> <span>{t("더 많이 기억하는 메모리", "Longer memory retention")}</span></div>
-              <div className="flex items-center gap-3"><ArrowRightIcon className="size-4" /> <span>{t("확장된 음성 모드", "Extended voice mode")}</span></div>
-            </div>
-          </div>
-
-          {/* Card 2: Plus (Standard Managed) */}
-          <div 
-            onClick={() => setSelectedPlan("pro")}
-            className={`flex flex-col rounded-[32px] border-2 p-8 transition-all duration-300 ${selectedPlan === "pro" ? "border-white bg-white/[0.03]" : "border-white/5 bg-transparent hover:border-white/20"}`}
-          >
-            <div className="mb-6 flex flex-col gap-1">
-              <h3 className="text-3xl font-bold">Plus</h3>
-              <div className="mt-2 flex items-baseline gap-1">
-                <span className="text-sm text-zinc-400">CAD$</span>
-                <span className="text-5xl font-bold">25</span>
-                <span className="text-sm text-zinc-400">/ {t("월", "mo")}</span>
-              </div>
-              <p className="mt-4 text-sm font-medium text-zinc-300">{t("모든 기능을 폭넓게 이용", "Access to all features broadly")}</p>
-            </div>
-
-            <Button 
-              variant={selectedPlan === "pro" ? "default" : "outline"}
-              className={`mb-8 h-12 w-full rounded-full transition-all ${selectedPlan === "pro" ? "bg-white text-black" : "border-white/20 bg-transparent text-white hover:bg-white/5"}`}
-            >
-              {selectedPlan === "pro" ? t("현재 선택됨", "Current Selection") : t("Plus로 업그레이드", "Upgrade to Plus")}
-            </Button>
-
-            <div className="flex flex-col gap-4 text-sm text-zinc-400">
-              <div className="flex items-center gap-3"><SparklesIcon className="size-4 text-white" /> <span className="text-white">{t("고급 모델", "Advanced Models")}</span></div>
-              <div className="flex items-center gap-3"><LoaderCircleIcon className="size-4" /> <span>{t("더 많은 메시지와 업로드", "Even more messages & uploads")}</span></div>
-              <div className="flex items-center gap-3"><KeyIcon className="size-4" /> <span>{t("더 많은 이미지를 더 빠르게 생성", "Generate more images faster")}</span></div>
-              <div className="flex items-center gap-3"><ShieldCheckIcon className="size-4" /> <span>{t("더 많은 메모리로 채팅 지원", "Chat support with more memory")}</span></div>
-              <div className="flex items-center gap-3"><ArrowRightIcon className="size-4" /> <span>{t("Codex 코딩 에이전트", "Codex Coding Agent")}</span></div>
-              <div className="flex items-center gap-3"><CheckIcon className="size-4" /> <span>{t("확장된 심층 리서치", "Extended deep research")}</span></div>
-            </div>
-          </div>
-
-          {/* Card 3: Pro (Ultra Managed) */}
-          <div 
-            className="flex flex-col rounded-[32px] border-2 border-indigo-500/50 bg-indigo-500/[0.02] p-8 transition-all hover:border-indigo-500"
-          >
-            <div className="mb-6 flex flex-col gap-1">
-              <div className="flex justify-between items-center">
-                <h3 className="text-3xl font-bold text-indigo-400">Pro</h3>
-                <div className="flex gap-1 rounded-full bg-zinc-800 p-1">
-                  <span className="px-3 py-0.5 text-[10px] font-bold bg-zinc-700 rounded-full">5x</span>
-                  <span className="px-3 py-0.5 text-[10px] font-bold text-zinc-500">20x</span>
+            return (
+              <button
+                type="button"
+                key={planKey}
+                onClick={() => setSelectedPlan(planKey)}
+                className={`rounded-[32px] border p-8 text-left transition-all duration-300 ${
+                  isActive
+                    ? "border-white bg-white/[0.05] shadow-[0_0_40px_rgba(255,255,255,0.08)]"
+                    : "border-white/10 bg-white/[0.02] hover:border-white/25"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.3em] text-zinc-500">
+                      {plan.title}
+                    </p>
+                    <h3 className="mt-3 text-4xl font-semibold">{plan.price}</h3>
+                    <p className="mt-4 text-sm leading-6 text-zinc-300">{plan.summary}</p>
+                  </div>
+                  <div
+                    className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                      isActive
+                        ? "border-white/60 bg-white text-black"
+                        : "border-white/15 text-zinc-400"
+                    }`}
+                  >
+                    {isActive ? t("선택됨", "Selected") : t("선택", "Select")}
+                  </div>
                 </div>
-              </div>
-              <div className="mt-2 flex items-baseline gap-1">
-                <span className="text-sm text-zinc-400">CAD$</span>
-                <span className="text-5xl font-bold">136</span>
-                <span className="text-sm text-zinc-400">/ {t("월", "mo")}</span>
-              </div>
-              <p className="mt-4 text-sm font-medium text-zinc-300">{t("최상급 AI로 생산성 최대화", "Maximize productivity with elite AI")}</p>
-            </div>
 
-            <Button 
-              className="mb-8 h-12 w-full rounded-full bg-indigo-600 text-white hover:bg-indigo-500 transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)]"
-            >
-              {t("Pro로 업그레이드", "Upgrade to Pro")}
-            </Button>
-
-            <div className="mb-4 text-xs font-bold text-zinc-500 uppercase tracking-widest">{t("Plus의 모든 기능, 그리고", "EVERYTHING IN PLUS, AND")}</div>
-            <div className="flex flex-col gap-4 text-sm text-zinc-400">
-              <div className="flex items-center gap-3"><ArrowRightIcon className="size-4 text-indigo-400" /> <span>{t("Plus보다 5배 더 많은 사용량", "5x more usage than Plus")}</span></div>
-              <div className="flex items-center gap-3"><SparklesIcon className="size-4 text-indigo-400" /> <span>{t("Frontier Pro 모델", "Frontier Pro Models")}</span></div>
-              <div className="flex items-center gap-3"><CheckIcon className="size-4 text-indigo-400" /> <span>{t("Codex 액세스 최대화", "Maximize Codex access")}</span></div>
-              <div className="flex items-center gap-3"><ShieldCheckIcon className="size-4 text-indigo-400" /> <span>{t("최대 심층 리서치", "Maximum deep research")}</span></div>
-            </div>
-          </div>
+                <div className="mt-8 flex flex-col gap-4 text-sm text-zinc-400">
+                  {plan.features.map((feature) => (
+                    <div key={feature} className="flex items-start gap-3">
+                      <CheckIcon className={`mt-0.5 size-4 ${isActive ? "text-white" : "text-zinc-500"}`} />
+                      <span>{feature}</span>
+                    </div>
+                  ))}
+                </div>
+              </button>
+            );
+          })}
         </div>
 
-        {/* API Key Input (Bottom Section) */}
-        <div className={`mt-12 overflow-hidden transition-all duration-500 ${selectedPlan === "free" ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"}`}>
-          <div className="mx-auto max-w-xl rounded-3xl border border-white/10 bg-white/[0.02] p-8 backdrop-blur-xl">
-            <div className="mb-4 flex items-center gap-3 text-lg font-semibold text-white">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-white/10 text-white">
-                <KeyIcon className="size-5" />
-              </div>
-              <span>Gemini API Key</span>
+        <div className="mt-8 rounded-[32px] border border-white/10 bg-white/[0.03] p-8">
+          <div className="flex items-start gap-4">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/10">
+              {selectedPlan === "free" ? (
+                <SparklesIcon className="size-5 text-white" />
+              ) : (
+                <ShieldCheckIcon className="size-5 text-white" />
+              )}
             </div>
-            <p className="mb-6 text-sm text-zinc-400 leading-relaxed">
-              {t("개인 API 키를 사용하시면 Jarvis의 모든 기능을 무료로(BYOK) 이용하실 수 있습니다.", "Use your personal API key to access all Jarvis features for free (BYOK).")}
-            </p>
-            <Input 
-              value={userApiKey}
-              onChange={(e) => setUserApiKey(e.target.value)}
-              placeholder="AIzaSy..."
-              className="h-12 rounded-xl border-white/10 bg-black/40 px-4 text-white placeholder:text-zinc-600 focus:border-white/30"
-            />
-            <div className="mt-6 flex items-start gap-3 rounded-2xl bg-indigo-500/10 p-4 border border-indigo-500/20">
-              <ShieldCheckIcon className="mt-0.5 size-4 text-indigo-400" />
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
-                {t("입력하신 키는 사용자의 장치에만 안전하게 저장되며, 어떠한 경우에도 외부로 유출되지 않습니다. 안심하고 사용하세요.", "Your key is stored securely on your device and will never be shared. Use with confidence.")}
+            <div>
+              <p className="text-sm font-semibold text-white">
+                {t("현재 선택한 플랜", "Selected plan")}: {selectedPlanLabel}
               </p>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">{currentPlan.details}</p>
+              <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
+                <ArrowRightIcon className="size-4" />
+                <span>
+                  {selectedPlan === "free"
+                    ? t("무료 플랜은 사용량이 정해져 있어요.", "Free comes with a fixed usage allowance.")
+                    : t("유료 플랜은 더 빠른 모델과 넉넉한 사용량을 제공합니다.", "Paid gives you a faster model and roomier usage.")}
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Final CTA Button */}
         <div className="mt-12 flex flex-col items-center gap-4">
-          <Button 
+          <Button
             disabled={setupLoading}
             onClick={handleSetup}
             className="h-14 w-full max-w-sm rounded-full bg-white text-lg font-bold text-black transition-all hover:scale-105 active:scale-95 disabled:opacity-50 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
           >
-            {setupLoading ? <LoaderCircleIcon className="animate-spin" /> : t("설정 완료하고 시작하기", "Complete Setup & Start")}
+            {setupLoading ? (
+              <LoaderCircleIcon className="animate-spin" />
+            ) : (
+              t(`${selectedPlanLabel} 플랜으로 시작하기`, `Continue with ${selectedPlanLabel}`)
+            )}
           </Button>
           <p className="text-xs text-zinc-500">
-            {t("데이터는 안전하게 보호됩니다.", "Your data is protected securely.")}
+            {t("플랜은 나중에 다시 변경할 수 있어요.", "You can change your plan later.")}
           </p>
         </div>
       </div>

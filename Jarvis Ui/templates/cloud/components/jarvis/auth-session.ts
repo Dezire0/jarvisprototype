@@ -8,6 +8,7 @@ export type AuthSettings = {
   preferWebAi?: boolean;
   language?: "auto" | "ko" | "en";
   geminiKey?: string;
+  planConfirmed?: boolean;
 };
 
 export type AuthUser = {

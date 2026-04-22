@@ -51,7 +51,7 @@ settings.get("/profile", async (c) => {
     plan: user.plan,
     usage: {
       today: usedToday,
-      limit: user.plan === "pro" ? null : 30,
+      limit: user.plan === "pro" ? null : 15,
     },
   });
 });

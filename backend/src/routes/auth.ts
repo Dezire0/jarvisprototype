@@ -177,12 +177,160 @@ auth.get("/google-callback", async (c) => {
       c.env.JWT_SECRET || "fallback-secret"
     );
 
-    // 5. Redirect back to App (Deep Link)
+    // 5. Send user back to the desktop app and close the browser tab when possible.
     const frontendUrl = "jarvis-desktop://auth";
-    
     const userJson = encodeURIComponent(JSON.stringify({ id: user.id, email: user.email, plan: user.plan }));
-    
-    return c.redirect(`${frontendUrl}?token=${token}&user=${userJson}`);
+    const deepLinkUrl = `${frontendUrl}?token=${token}&user=${userJson}`;
+
+    return c.html(`<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Open Jarvis Desktop</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top, rgba(67, 56, 202, 0.18), transparent 36%),
+          linear-gradient(180deg, #0c0d10, #050608);
+        color: #f5f7fb;
+      }
+      .card {
+        width: min(520px, calc(100vw - 32px));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 28px;
+        background: rgba(17, 19, 24, 0.92);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+        padding: 28px;
+      }
+      .eyebrow {
+        margin: 0 0 10px;
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.48);
+      }
+      h1 {
+        margin: 0;
+        font-size: 30px;
+        line-height: 1.1;
+      }
+      p {
+        margin: 16px 0 0;
+        color: rgba(255, 255, 255, 0.68);
+        line-height: 1.6;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
+      .button {
+        appearance: none;
+        border: none;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .button-primary {
+        background: #ffffff;
+        color: #050608;
+      }
+      .button-secondary {
+        background: rgba(255, 255, 255, 0.06);
+        color: #f5f7fb;
+      }
+      .hint {
+        margin-top: 18px;
+        font-size: 13px;
+      }
+      .manual-close .hint-close {
+        display: inline;
+      }
+      .hint-close {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="card">
+      <p class="eyebrow">Jarvis Desktop</p>
+      <h1>Jarvis를 여는 중입니다</h1>
+      <p>
+        앱 열기 버튼을 누른 뒤에는 이 탭의 역할이 끝나요. 가능하면 자동으로 닫고, 브라우저가 막으면 직접 닫아도 됩니다.
+      </p>
+      <div class="actions">
+        <a class="button button-primary" id="open-app" href="${deepLinkUrl}">Jarvis Desktop 열기</a>
+        <button class="button button-secondary" id="retry-app" type="button">다시 시도</button>
+      </div>
+      <p class="hint">
+        앱이 열리면 이 탭은 자동으로 닫히도록 시도합니다.
+        <span class="hint-close"> 자동으로 닫히지 않으면 직접 닫아주세요.</span>
+      </p>
+    </section>
+
+    <script>
+      const deepLinkUrl = ${JSON.stringify(deepLinkUrl)};
+      let closeQueued = false;
+
+      function openJarvis() {
+        window.location.href = deepLinkUrl;
+      }
+
+      function tryCloseWindow() {
+        if (closeQueued) {
+          return;
+        }
+        closeQueued = true;
+        document.body.classList.add("manual-close");
+        window.setTimeout(() => {
+          try {
+            window.open("", "_self");
+          } catch (_error) {}
+          try {
+            window.close();
+          } catch (_error) {}
+          closeQueued = false;
+        }, 180);
+      }
+
+      window.addEventListener("load", () => {
+        window.setTimeout(openJarvis, 120);
+      });
+
+      window.addEventListener("pagehide", tryCloseWindow);
+      window.addEventListener("blur", () => {
+        window.setTimeout(tryCloseWindow, 220);
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          window.setTimeout(tryCloseWindow, 220);
+        }
+      });
+
+      document.getElementById("open-app")?.addEventListener("click", () => {
+        window.setTimeout(tryCloseWindow, 220);
+      });
+
+      document.getElementById("retry-app")?.addEventListener("click", () => {
+        openJarvis();
+        window.setTimeout(tryCloseWindow, 220);
+      });
+    </script>
+  </body>
+</html>`);
   } catch (error: any) {
     console.error("Google Auth Error:", error);
     return c.json({ error: error.message || "Authentication failed" }, 500);
