@@ -29,13 +29,15 @@ auth.post("/register", async (c) => {
       id: userId,
       email,
       passwordHash: hashedPassword,
+      plan: "free",
     });
     return c.json({ success: true, message: "User registered successfully" });
   } catch (error: any) {
-    if (error.message.includes("UNIQUE constraint failed")) {
+    console.error("Registration error:", error);
+    if (error.message && error.message.includes("UNIQUE constraint failed")) {
       return c.json({ error: "Email already exists" }, 409);
     }
-    return c.json({ error: "Registration failed" }, 500);
+    return c.json({ error: `Registration failed: ${error.message || "Unknown error"}` }, 500);
   }
 });
 
@@ -172,10 +174,12 @@ auth.get("/google-callback", async (c) => {
     );
 
     // 5. Redirect back to App (Frontend)
-    // IMPORTANT: Here we assume the frontend is at a specific URL or we can detect it.
-    // For local dev, it might be http://localhost:3000
-    // For now, let's use a standard redirect. The frontend will handle the params.
-    const frontendUrl = "http://localhost:3000"; // TODO: Make this dynamic if needed
+    // We try to use the Origin from the request or default to the Electron UI server
+    let frontendUrl = "http://localhost:3310"; 
+    
+    // If the request came from a different port (e.g. during dev), we could handle it here.
+    // For now, let's prioritize localhost:3310 as the standard Jarvis Desktop UI port.
+    
     const userJson = encodeURIComponent(JSON.stringify({ id: user.id, email: user.email, plan: user.plan }));
     
     return c.redirect(`${frontendUrl}/?token=${token}&user=${userJson}`);
