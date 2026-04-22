@@ -45,7 +45,7 @@ export function OnboardingGate() {
   // Check session on mount + Auto-wipe on version change
   useEffect(() => {
     void (async () => {
-      const CURRENT_VERSION = "1.5.1";
+      const CURRENT_VERSION = "1.5.2";
       const lastVersion = localStorage.getItem("jarvis_last_version");
 
       // 버전이 바뀌었으면(업데이트됨) 로컬 데이터 싹 밀기
@@ -79,24 +79,29 @@ export function OnboardingGate() {
         }
       }
 
-      const session = await restoreAuthSession();
-      if (session.token && session.user) {
-        const user = session.user as any;
-        const isValidPlan = user.plan === "pro" || user.plan === "free";
-        const hasSetup = user.plan === "pro" || (user.plan === "free" && user.settings?.geminiKey);
-        
-        if (isValidPlan && hasSetup) {
-          setStep("ready");
-        } else {
-          // 데이터가 꼬여있으면(구버전) 아예 세션 초기화 후 재인증 유도
-          if (!isValidPlan) {
-            localStorage.clear();
-            setStep("auth");
+      try {
+        const session = await restoreAuthSession();
+        if (session.token && session.user) {
+          const user = session.user as any;
+          const isValidPlan = user.plan === "pro" || user.plan === "free";
+          const hasSetup = user.plan === "pro" || (user.plan === "free" && user.settings?.geminiKey);
+          
+          if (isValidPlan && hasSetup) {
+            setStep("ready");
           } else {
-            setStep("setup");
+            // 데이터가 꼬여있으면(구버전) 아예 세션 초기화 후 재인증 유도
+            if (!isValidPlan) {
+              localStorage.clear();
+              setStep("auth");
+            } else {
+              setStep("setup");
+            }
           }
+        } else {
+          setStep("auth");
         }
-      } else {
+      } catch (err) {
+        console.error("Critical error during session restoration:", err);
         setStep("auth");
       }
     })();
