@@ -42,62 +42,15 @@ function getDefaultGithubRepo() {
   return parseGithubRepo(repository.url);
 }
 
-function buildPublishConfig() {
-  if (publishProvider === "generic") {
-    const baseUrl = String(process.env.JARVIS_UPDATE_BASE_URL || "").trim();
-
-    if (!baseUrl) {
-      return [];
-    }
-
-    return [
-      {
-        provider: "generic",
-        url: baseUrl,
-        channel: publishChannel
-      }
-    ];
+const publish = [
+  {
+    provider: "github",
+    owner: "Dezire0",
+    repo: "jarvisprototype",
+    releaseType: "release",
+    private: false
   }
-
-  if (publishProvider === "github") {
-    const owner = String(process.env.JARVIS_GITHUB_OWNER || "").trim();
-    const repo = String(process.env.JARVIS_GITHUB_REPO || "").trim();
-    const fallbackRepo = getDefaultGithubRepo();
-
-    if ((!owner || !repo) && !fallbackRepo) {
-      return [];
-    }
-
-    return [
-      {
-        provider: "github",
-        owner: owner || fallbackRepo.owner,
-        repo: repo || fallbackRepo.repo,
-        releaseType: String(process.env.JARVIS_GITHUB_RELEASE_TYPE || "release").trim() || "release",
-        private: process.env.JARVIS_GITHUB_PRIVATE === "1"
-      }
-    ];
-  }
-
-  if (!publishProvider) {
-    const fallbackRepo = getDefaultGithubRepo();
-    if (fallbackRepo) {
-      return [
-        {
-          provider: "github",
-          owner: fallbackRepo.owner,
-          repo: fallbackRepo.repo,
-          releaseType: "release",
-          private: false
-        }
-      ];
-    }
-  }
-
-  return [];
-}
-
-const publish = buildPublishConfig();
+];
 
 module.exports = {
   appId: "ai.jarvis.desktop",

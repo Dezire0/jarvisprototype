@@ -103,4 +103,85 @@ auth.put("/plan", async (c) => {
   }
 });
 
+auth.get("/google", async (c) => {
+  const clientId = c.env.GOOGLE_CLIENT_ID;
+  const redirectUri = `${new URL(c.req.url).origin}/api/auth/google-callback`;
+  
+  if (!clientId) {
+    return c.json({ error: "Google Client ID not configured in backend" }, 500);
+  }
+
+  const scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
+  const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+  
+  return c.redirect(googleUrl);
+});
+
+auth.get("/google-callback", async (c) => {
+  const code = c.req.query("code");
+  const clientId = c.env.GOOGLE_CLIENT_ID;
+  const clientSecret = c.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = `${new URL(c.req.url).origin}/api/auth/google-callback`;
+
+  if (!code) return c.json({ error: "No code provided" }, 400);
+
+  try {
+    // 1. Exchange code for access token
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      }),
+    });
+
+    const tokenData = await tokenRes.json() as any;
+    if (!tokenRes.ok) throw new Error(tokenData.error_description || "Failed to exchange token");
+
+    // 2. Get user info from Google
+    const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const userInfo = await userInfoRes.json() as any;
+
+    // 3. Find or Create user in DB
+    const db = drizzle(c.env.DB);
+    let userList = await db.select().from(users).where(eq(users.email, userInfo.email));
+    let user = userList[0];
+
+    if (!user) {
+      const userId = crypto.randomUUID();
+      await db.insert(users).values({
+        id: userId,
+        email: userInfo.email,
+        name: userInfo.name,
+        plan: "free",
+      });
+      userList = await db.select().from(users).where(eq(users.id, userId));
+      user = userList[0];
+    }
+
+    // 4. Generate JWT
+    const token = await sign(
+      { id: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, // 30 days
+      c.env.JWT_SECRET || "fallback-secret"
+    );
+
+    // 5. Redirect back to App (Frontend)
+    // IMPORTANT: Here we assume the frontend is at a specific URL or we can detect it.
+    // For local dev, it might be http://localhost:3000
+    // For now, let's use a standard redirect. The frontend will handle the params.
+    const frontendUrl = "http://localhost:3000"; // TODO: Make this dynamic if needed
+    const userJson = encodeURIComponent(JSON.stringify({ id: user.id, email: user.email, plan: user.plan }));
+    
+    return c.redirect(`${frontendUrl}/?token=${token}&user=${userJson}`);
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 export default auth;
