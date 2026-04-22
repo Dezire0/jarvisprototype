@@ -81,5 +81,12 @@ contextBridge.exposeInMainWorld("assistantAPI", {
     return () => {
       ipcRenderer.removeListener("assistant:update-status", listener);
     };
+  },
+  onEvent(channel, callback) {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on(channel, listener);
+    return () => {
+      ipcRenderer.removeListener(channel, listener);
+    };
   }
 });
