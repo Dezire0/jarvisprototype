@@ -1,6 +1,6 @@
 {
   "name": "jarvis-prototype",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "description": "Jarvis Desktop assistant with local automation, packaged UI, and auto-update support.",
   "author": {
     "name": "JYH",

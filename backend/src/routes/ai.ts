@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 
 // ── Plan config ──────────────────────────────────────────
 const FREE_DAILY_MSG_LIMIT = 15;            // 무료: 일 15회 메시지
-const FREE_MODEL = "gemini-1.5-flash";      // 무료: Gemini 1.5 Flash
+const FREE_MODEL = "gemini-1.5-flash-latest"; // 무료: Gemini 1.5 Flash (Fixed 404)
 
 const PRO_DAILY_TOKEN_LIMIT = 200_000;      // 유료: 일 200k 토큰
 const PRO_MODEL = "gemini-2.0-flash";       // 유료: Gemini 2.0 Flash

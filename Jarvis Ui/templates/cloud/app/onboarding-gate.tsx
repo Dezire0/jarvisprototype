@@ -47,14 +47,20 @@ export function OnboardingGate() {
     void (async () => {
       const session = await restoreAuthSession();
       if (session.token && session.user) {
-        // 이미 로그인됨 -> 플랜이 명시적으로 설정되어 있는지 확인 (구버전 세션 방지)
         const user = session.user as any;
+        const isValidPlan = user.plan === "pro" || user.plan === "free";
         const hasSetup = user.plan === "pro" || (user.plan === "free" && user.settings?.geminiKey);
         
-        if (hasSetup) {
+        if (isValidPlan && hasSetup) {
           setStep("ready");
         } else {
-          setStep("setup");
+          // 데이터가 꼬여있으면(구버전) 아예 세션 초기화 후 재인증 유도
+          if (!isValidPlan) {
+            localStorage.clear();
+            setStep("auth");
+          } else {
+            setStep("setup");
+          }
         }
       } else {
         setStep("auth");
