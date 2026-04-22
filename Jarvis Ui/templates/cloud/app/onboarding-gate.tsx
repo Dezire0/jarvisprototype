@@ -104,11 +104,18 @@ export function OnboardingGate() {
 
       const nextUser: AuthUser = {
         ...user,
+        plan: user.plan, // 서버에서 받은 플랜 정보 (없으면 undefined)
         settings: { autoSync: true, preferWebAi: true, language: "auto" },
       };
 
       await persistAuthSession(token, nextUser);
-      setStep("setup"); // 로그인 성공 후 무조건 셋업 화면으로
+
+      // 이미 서버에 플랜이 등록된 유저라면 즉시 준비 완료, 아니면 셋업 화면으로
+      if (nextUser.plan === "pro" || (nextUser.plan === "free" && user.hasGeminiKey)) {
+        setStep("ready");
+      } else {
+        setStep("setup");
+      }
     } catch {
       setAuthError(t("네트워크 오류", "Network error"));
     } finally {

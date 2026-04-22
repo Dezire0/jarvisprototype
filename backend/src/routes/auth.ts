@@ -63,7 +63,11 @@ auth.post("/login", async (c) => {
   return c.json({
     success: true,
     token,
-    user: { id: user.id, email: user.email },
+    user: { 
+      id: user.id, 
+      email: user.email,
+      plan: user.plan 
+    },
     hasGeminiKey: Boolean(user.geminiApiKeyEncrypted),
   });
 });
