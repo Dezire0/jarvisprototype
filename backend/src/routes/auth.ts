@@ -29,7 +29,11 @@ auth.post("/register", async (c) => {
       id: userId,
       email,
       passwordHash: hashedPassword,
+      name: name || null,
       plan: "free",
+      dailyMessageCount: 0,
+      dailyTokenCount: 0,
+      lastMessageDate: "",
     });
     return c.json({ success: true, message: "User registered successfully" });
   } catch (error: any) {
@@ -173,18 +177,15 @@ auth.get("/google-callback", async (c) => {
       c.env.JWT_SECRET || "fallback-secret"
     );
 
-    // 5. Redirect back to App (Frontend)
-    // We try to use the Origin from the request or default to the Electron UI server
-    let frontendUrl = "http://localhost:3310"; 
-    
-    // If the request came from a different port (e.g. during dev), we could handle it here.
-    // For now, let's prioritize localhost:3310 as the standard Jarvis Desktop UI port.
+    // 5. Redirect back to App (Deep Link)
+    const frontendUrl = "jarvis-desktop://auth"; 
     
     const userJson = encodeURIComponent(JSON.stringify({ id: user.id, email: user.email, plan: user.plan }));
     
-    return c.redirect(`${frontendUrl}/?token=${token}&user=${userJson}`);
+    return c.redirect(`${frontendUrl}?token=${token}&user=${userJson}`);
   } catch (error: any) {
-    return c.json({ error: error.message }, 500);
+    console.error("Google Auth Error:", error);
+    return c.json({ error: error.message || "Authentication failed" }, 500);
   }
 });
 

@@ -2,9 +2,18 @@ const { loadProjectEnv } = require("./project-env.cjs");
 
 loadProjectEnv();
 
-const fs = require("node:fs/promises");
-const path = require("node:path");
-const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell } = require("electron");
+const electronBinary = require("electron");
+const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell, protocol } = electronBinary;
+
+// Register jarvis-desktop protocol
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient("jarvis-desktop", process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient("jarvis-desktop");
+}
+
 const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
 const { BrowserService } = require("./beta/browser-service-beta.cjs");
@@ -348,6 +357,35 @@ async function resolvePopupBounds(windowWidth, windowHeight) {
   return clampPopupBounds(persisted, windowWidth, windowHeight);
 }
 
+// Deep Link Handling
+function handleDeepLink(url) {
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol === "jarvis-desktop:") {
+      const token = parsedUrl.searchParams.get("token");
+      const userRaw = parsedUrl.searchParams.get("user");
+      if (token && userRaw) {
+        settingsWindow?.webContents.send("auth:callback", { token, user: JSON.parse(userRaw) });
+        if (settingsWindow?.isMinimized()) settingsWindow.restore();
+        settingsWindow?.focus();
+      }
+    }
+  } catch (e) {
+    console.error("Failed to handle deep link:", e);
+  }
+}
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+// Windows/Linux startup deep link
+if (process.platform !== "darwin") {
+  const url = process.argv.find(arg => arg.startsWith("jarvis-desktop://"));
+  if (url) handleDeepLink(url);
+}
+
 async function createPopupWindow() {
   const windowWidth = 430;
   const windowHeight = 560;
@@ -410,7 +448,7 @@ function createSettingsWindow() {
     show: true,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
-    title: "Jarvis Desktop v1.5.5 (Auth Fix)",
+    title: "Jarvis Desktop v1.5.6 (Migration & DeepLink)",
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,

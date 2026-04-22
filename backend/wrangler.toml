@@ -1,13 +1,8 @@
-name = "jarvis-backend"
+name = "jarvis-auth-service"
 main = "src/index.ts"
 compatibility_date = "2024-04-05"
 
-# [vars]
-# MY_VARIABLE = "production_value"
-
-# [[kv_namespaces]]
-# binding = "MY_KV_NAMESPACE"
-# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# Secrets managed via wrangler secret put
 
 [[d1_databases]]
 binding = "DB"

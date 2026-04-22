@@ -39,7 +39,7 @@ import {
 } from "@/components/jarvis/auth-session";
 import { Assistant } from "./assistant";
 
-const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
+const API_BASE = "https://jarvis-auth-service.a01044622139.workers.dev";
 
 type OnboardingStep = "loading" | "auth" | "setup" | "ready";
 
@@ -66,7 +66,7 @@ export function OnboardingGate() {
   // Check session on mount + Auto-wipe on version change
   useEffect(() => {
     void (async () => {
-      const CURRENT_VERSION = "1.5.5";
+      const CURRENT_VERSION = "1.5.6";
       const lastVersion = localStorage.getItem("jarvis_last_version");
 
       // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
@@ -109,6 +109,23 @@ export function OnboardingGate() {
         } catch (e) {
           console.error("Failed to parse user from URL", e);
         }
+      }
+
+      // Listen for deep link callbacks from Electron main process
+      if (typeof window !== "undefined" && (window as any).assistantAPI) {
+        const removeListener = (window as any).assistantAPI.onEvent("auth:callback", async (data: any) => {
+          console.log("Received auth callback from deep link:", data);
+          if (data.token && data.user) {
+            await persistAuthSession(data.token, data.user);
+            const isValidPlan = data.user.plan === "pro" || data.user.plan === "free";
+            if (isValidPlan) {
+              setStep("ready");
+            } else {
+              setStep("setup");
+            }
+          }
+        });
+        // Component will unmount soon anyway during this gate flow, but it's good practice
       }
 
       try {
