@@ -113,7 +113,10 @@ auth.put("/plan", async (c) => {
     return c.json({ success: true, plan });
   } catch (error: any) {
     console.error("Plan update DB error:", error.message);
-    return c.json({ error: "Failed to update plan in database" }, 500);
+    return c.json({ 
+      error: "Failed to update plan on server", 
+      details: error.message 
+    }, 500);
   }
 });
 

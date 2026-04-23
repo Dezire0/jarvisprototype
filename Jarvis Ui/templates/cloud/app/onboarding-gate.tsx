@@ -114,7 +114,7 @@ export function OnboardingGate() {
   useEffect(() => {
     void (async () => {
       try {
-        const CURRENT_VERSION = "1.7.2";
+        const CURRENT_VERSION = "1.7.3";
         const lastVersion = localStorage.getItem("jarvis_last_version");
 
         // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
@@ -291,7 +291,8 @@ export function OnboardingGate() {
         console.log("Plan updated on server successfully:", selectedPlan);
       } catch (err: any) {
         setSetupLoading(false);
-        alert(t("서버 플랜 업데이트에 실패했습니다: ", "Failed to sync plan with server: ") + err.message);
+        const detailedMsg = err.message || "Unknown error";
+        alert(t("서버 플랜 업데이트에 실패했습니다: ", "Failed to sync plan with server: ") + detailedMsg);
         return;
       }
 
