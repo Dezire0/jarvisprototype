@@ -9,7 +9,7 @@ import {
   type AuthUser,
 } from "@/components/jarvis/auth-session";
 
-const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
+const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
 
 type LoginModalProps = {
   open: boolean;

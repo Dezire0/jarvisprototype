@@ -47,7 +47,7 @@ import {
   RefreshCwIcon,
 } from "lucide-react";
 
-const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
+const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
 const SIDEBAR_STORAGE_KEY = "jarvis-sidebar-layout-v3";
 const LOCAL_INDEX_STORAGE_KEY = "jarvis-thread-search-index-v1";
 const PINNED_APP_NAMES = [

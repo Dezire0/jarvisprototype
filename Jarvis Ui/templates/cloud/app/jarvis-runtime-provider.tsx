@@ -38,7 +38,7 @@ const threadsStore = new Map<
   }
 >();
 
-const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
+const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
 
 async function syncToCloud(threadId: string, title?: string, messages?: readonly any[]) {
   if (typeof window === "undefined") return;
