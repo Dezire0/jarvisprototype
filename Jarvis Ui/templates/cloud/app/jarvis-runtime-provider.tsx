@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 import { createAssistantStream } from "assistant-stream";
 import {
   AssistantRuntimeProvider,
@@ -219,17 +219,19 @@ function transportConverter(state: TransportState, connectionMetadata: { isSendi
 }
 
 function useJarvisTransportRuntime() {
+  const headers = useMemo(() => {
+    if (typeof window === "undefined") return TRANSPORT_HEADERS;
+    const token = window.localStorage.getItem("jarvis_auth_token");
+    return {
+      ...TRANSPORT_HEADERS,
+      Authorization: token ? `Bearer ${token}` : "",
+    };
+  }, []);
+
   return useAssistantTransportRuntime<TransportState>({
     initialState: INITIAL_STATE,
     api: `${API_BASE}/api/chat`,
-    headers: () => {
-      if (typeof window === "undefined") return TRANSPORT_HEADERS;
-      const token = window.localStorage.getItem("jarvis_auth_token");
-      return {
-        ...TRANSPORT_HEADERS,
-        Authorization: token ? `Bearer ${token}` : "",
-      };
-    },
+    headers,
     converter: transportConverter,
     onError: (error) => {
       console.error("Jarvis transport error:", error);
