@@ -114,7 +114,7 @@ export function OnboardingGate() {
   useEffect(() => {
     void (async () => {
       try {
-        const CURRENT_VERSION = "1.6.8";
+        const CURRENT_VERSION = "1.6.9";
         const lastVersion = localStorage.getItem("jarvis_last_version");
 
         // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
@@ -276,6 +276,12 @@ export function OnboardingGate() {
           if (planRes.status === 401 || errorMsg.includes("Unauthorized")) {
             setSetupLoading(false);
             alert(t("세션이 만료되었습니다. 보안을 위해 다시 로그인해 주세요.", "Session expired. Please login again for security."));
+            
+            // 핵폭탄급 초기화: 모든 로컬 데이터 삭제
+            localStorage.removeItem("jarvis_auth_token");
+            localStorage.removeItem("jarvis_auth_user");
+            window.electron?.ipcRenderer.send("auth:logout"); // Electron 쪽도 밀기
+            
             setStep("auth"); // 로그인 화면으로 강제 이동
             return;
           }
