@@ -7,6 +7,7 @@ import {
   type RemoteThreadListAdapter,
   useAssistantTransportRuntime,
   useRemoteThreadListRuntime,
+  type ThreadMessage,
 } from "@assistant-ui/react";
 
 type TransportMessage = {
@@ -152,7 +153,7 @@ const threadListAdapter: RemoteThreadListAdapter = {
   },
 };
 
-function toThreadMessages(state: TransportState) {
+function toThreadMessages(state: TransportState): ThreadMessage[] {
   const messages = Array.isArray(state?.messages) ? state.messages : [];
   
   return messages.map((message) => {
