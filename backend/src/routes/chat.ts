@@ -30,12 +30,11 @@ chat.get("/threads", async (c) => {
   }
 });
 
-// POST / — The main chat endpoint used by assistant-ui
+// POST / — The main chat endpoint used by assistant-ui (Standard JSON)
 chat.post("/", async (c) => {
   return handleChat(c);
 });
 
-// Explicitly handle without trailing slash if needed
 chat.post("", async (c) => {
   return handleChat(c);
 });
@@ -49,7 +48,6 @@ async function handleChat(c: any) {
     return c.json({ error: "No messages provided" }, 400);
   }
 
-  // Forward to Gemini API (non-streaming for now but compatible format)
   const apiKey = c.env.GEMINI_API_KEY;
 
   try {
@@ -71,14 +69,15 @@ async function handleChat(c: any) {
     );
 
     if (!geminiRes.ok) {
-      throw new Error(`Gemini API error: ${geminiRes.status}`);
+      const errData = await geminiRes.json().catch(() => ({}));
+      throw new Error(`Gemini API error: ${geminiRes.status} ${JSON.stringify(errData)}`);
     }
 
     const data = await geminiRes.json<any>();
     const replyText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
-    // Return in the format assistant-ui expects for transport
-    return c.json({
+    // IMPORTANT: Return EXACTLY what the client's TransportState expects
+    const responseState = {
       messages: [
         ...messages,
         {
@@ -89,43 +88,44 @@ async function handleChat(c: any) {
           status: "complete"
         }
       ]
-    });
+    };
+
+    // Auto-sync to DB in background
+    c.executionCtx.waitUntil(syncToDB(c.env.DB, payload.id, messages[messages.length-1], replyText));
+
+    return c.json(responseState);
   } catch (error: any) {
     return c.json({ error: "Chat processing failed", details: error.message }, 500);
   }
 }
 
-// POST /sync — Legacy sync endpoint for manual triggers
-chat.post("/sync", async (c) => {
-  const payload = c.get("jwtPayload");
-  const { threadId, title, messages: newMessages } = await c.req.json();
-
-  if (!threadId) {
-    return c.json({ error: "threadId is required" }, 400);
-  }
-
+async function syncToDB(db: D1Database, userId: string, userMsg: any, aiReply: string) {
   try {
-    await c.env.DB.prepare(
+    const threadId = "default-thread"; 
+    await db.prepare(
       "INSERT OR IGNORE INTO threads (id, user_id, title, created_at) VALUES (?, ?, ?, (strftime('%s', 'now')))"
     )
-    .bind(threadId, payload.id, title || "New Chat")
+    .bind(threadId, userId, userMsg.text?.slice(0, 50) || "New Chat")
     .run();
 
-    if (newMessages && Array.isArray(newMessages) && newMessages.length > 0) {
-      for (const msg of newMessages) {
-        if (!msg.id) continue;
-        await c.env.DB.prepare(
-          "INSERT OR IGNORE INTO messages (id, thread_id, role, content, created_at) VALUES (?, ?, ?, ?, (strftime('%s', 'now')))"
-        )
-        .bind(msg.id, threadId, msg.role, msg.content)
-        .run();
-      }
-    }
+    await db.prepare(
+      "INSERT INTO messages (id, thread_id, role, content, created_at) VALUES (?, ?, ?, ?, (strftime('%s', 'now')))"
+    )
+    .bind(`user-${Date.now()}`, threadId, "user", userMsg.text || userMsg.content?.[0]?.text || "")
+    .run();
 
-    return c.json({ success: true, message: "Sync complete" });
-  } catch (error: any) {
-    return c.json({ error: "Failed to sync chat data", details: error.message }, 500);
+    await db.prepare(
+      "INSERT INTO messages (id, thread_id, role, content, created_at) VALUES (?, ?, ?, ?, (strftime('%s', 'now')))"
+    )
+    .bind(`ai-${Date.now()}`, threadId, "assistant", aiReply)
+    .run();
+  } catch (e) {
+    console.error("Auto-sync failed:", e);
   }
+}
+
+chat.post("/sync", async (c) => {
+  return c.json({ success: true, message: "Sync handled automatically now" });
 });
 
 export default chat;

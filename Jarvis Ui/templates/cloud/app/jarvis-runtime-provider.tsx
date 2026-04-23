@@ -153,36 +153,44 @@ const threadListAdapter: RemoteThreadListAdapter = {
 };
 
 function toThreadMessages(state: TransportState) {
-  return (Array.isArray(state?.messages) ? state.messages : []).map((message) => {
+  const messages = Array.isArray(state?.messages) ? state.messages : [];
+  
+  return messages.map((message) => {
     const createdAt = new Date(message.createdAt || Date.now());
 
+    // Basic common content
+    const content: any[] = [];
+    if (message.text) {
+      content.push({
+        type: "text" as const,
+        text: message.text,
+      });
+    }
+
     if (message.role === "assistant") {
-      return {
-        id: message.id,
-        role: "assistant" as const,
-        createdAt,
-        content: [
-          {
-            type: "text" as const,
-            text: message.text || "",
-          },
-          ...(message.actions || []).map((action) => ({
+      if (message.actions && Array.isArray(message.actions)) {
+        message.actions.forEach((action) => {
+          content.push({
             type: "tool-call" as const,
             toolCallId: `call-${action.type}-${Date.now()}`,
             toolName: action.type,
             args: action,
             argsText: JSON.stringify(action),
-          })),
-        ],
+          });
+        });
+      }
+
+      return {
+        id: message.id,
+        role: "assistant" as const,
+        createdAt,
+        content,
         status:
           message.status === "running"
             ? { type: "running" as const }
             : { type: "complete" as const, reason: "stop" as const },
         metadata: {
           unstable_state: state,
-          unstable_annotations: [],
-          unstable_data: [],
-          steps: [],
           custom: {
             provider: message.provider || "local",
           },
@@ -194,12 +202,7 @@ function toThreadMessages(state: TransportState) {
       id: message.id,
       role: "user" as const,
       createdAt,
-      content: [
-        {
-          type: "text" as const,
-          text: message.text || "",
-        },
-      ],
+      content,
       attachments: [],
       metadata: {
         custom: {},
