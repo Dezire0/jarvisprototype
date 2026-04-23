@@ -221,8 +221,15 @@ function transportConverter(state: TransportState, connectionMetadata: { isSendi
 function useJarvisTransportRuntime() {
   return useAssistantTransportRuntime<TransportState>({
     initialState: INITIAL_STATE,
-    api: "/api/chat",
-    headers: TRANSPORT_HEADERS,
+    api: `${API_BASE}/api/chat`,
+    headers: () => {
+      if (typeof window === "undefined") return TRANSPORT_HEADERS;
+      const token = window.localStorage.getItem("jarvis_auth_token");
+      return {
+        ...TRANSPORT_HEADERS,
+        Authorization: token ? `Bearer ${token}` : "",
+      };
+    },
     converter: transportConverter,
     onError: (error) => {
       console.error("Jarvis transport error:", error);
