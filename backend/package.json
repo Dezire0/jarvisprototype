@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "assistant-stream": "file:../Jarvis Ui/packages/assistant-stream",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.14"
   },

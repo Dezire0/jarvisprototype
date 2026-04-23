@@ -4,6 +4,8 @@ import { type ReactNode, useMemo } from "react";
 import { createAssistantStream } from "assistant-stream";
 import {
   AssistantRuntimeProvider,
+  type AssistantTransportCommand,
+  type AssistantTransportConnectionMetadata,
   type RemoteThreadListAdapter,
   useAssistantTransportRuntime,
   useRemoteThreadListRuntime,
@@ -28,6 +30,7 @@ const INITIAL_STATE: TransportState = {
 };
 
 const TRANSPORT_HEADERS = {};
+const PENDING_MESSAGE_CREATED_AT = new Date(0).toISOString();
 
 const threadsStore = new Map<
   string,
@@ -154,7 +157,7 @@ const threadListAdapter: RemoteThreadListAdapter = {
 
 function toThreadMessages(state: TransportState) {
   const messages = Array.isArray(state?.messages) ? state.messages : [];
-  
+
   return messages.map((message) => {
     const createdAt = new Date(message.createdAt || Date.now());
 
@@ -169,10 +172,10 @@ function toThreadMessages(state: TransportState) {
 
     if (message.role === "assistant") {
       if (message.actions && Array.isArray(message.actions)) {
-        message.actions.forEach((action) => {
+        message.actions.forEach((action, actionIndex) => {
           content.push({
             type: "tool-call" as const,
-            toolCallId: `call-${action.type}-${Date.now()}`,
+            toolCallId: `call-${action.type}-${actionIndex}`,
             toolName: action.type,
             args: action,
             argsText: JSON.stringify(action),
@@ -211,14 +214,120 @@ function toThreadMessages(state: TransportState) {
   });
 }
 
-function transportConverter(state: TransportState, connectionMetadata: { isSending: boolean }) {
+function extractCommandText(
+  message: {
+    text?: string;
+    parts?: readonly { type?: string; text?: string }[];
+    content?: unknown;
+  },
+) {
+  if (typeof message.text === "string") {
+    return message.text.trim();
+  }
+
+  if (Array.isArray(message.parts)) {
+    return message.parts
+      .map((part) =>
+        part?.type === "text" && typeof part.text === "string" ? part.text : "",
+      )
+      .filter((part) => part.trim().length > 0)
+      .join(" ")
+      .trim();
+  }
+
+  if (typeof message.content === "string") {
+    return message.content.trim();
+  }
+
+  if (Array.isArray(message.content)) {
+    return message.content
+      .map((part) =>
+        part && typeof part === "object" && "text" in part && typeof (part as { text?: string }).text === "string"
+          ? (part as { text?: string }).text ?? ""
+          : "",
+      )
+      .filter((part) => part.trim().length > 0)
+      .join(" ")
+      .trim();
+  }
+
+  return "";
+}
+
+function createOptimisticMessage(
+  command: AssistantTransportCommand,
+  index: number,
+): TransportMessage | null {
+  if (command.type !== "add-message" || !command.message) {
+    return null;
+  }
+
+  const text = extractCommandText(command.message);
+  if (!text) {
+    return null;
+  }
+
+  const role = command.message.role === "assistant" ? "assistant" : "user";
+
   return {
-    messages: toThreadMessages(state),
+    id: `pending-${index}-${command.sourceId ?? command.parentId ?? "root"}`,
+    role,
+    text,
+    createdAt: PENDING_MESSAGE_CREATED_AT,
+    ...(role === "assistant" ? { status: "complete" as const } : {}),
+  };
+}
+
+function mergeMessagesWithOptimistic(
+  messages: readonly TransportMessage[],
+  optimisticMessages: readonly TransportMessage[],
+) {
+  const merged = [...messages];
+
+  for (const optimisticMessage of optimisticMessages) {
+    const lastMessage = merged[merged.length - 1];
+
+    if (
+      lastMessage &&
+      lastMessage.role === optimisticMessage.role &&
+      lastMessage.text === optimisticMessage.text
+    ) {
+      continue;
+    }
+
+    merged.push(optimisticMessage);
+  }
+
+  return merged;
+}
+
+function transportConverter(
+  state: TransportState,
+  connectionMetadata: AssistantTransportConnectionMetadata,
+) {
+  const optimisticMessages = connectionMetadata.pendingCommands
+    .map((command, index) => createOptimisticMessage(command, index))
+    .filter((message): message is TransportMessage => message !== null);
+
+  const mergedState =
+    optimisticMessages.length > 0
+      ? {
+          ...state,
+          messages: mergeMessagesWithOptimistic(
+            state.messages,
+            optimisticMessages,
+          ),
+        }
+      : state;
+
+  return {
+    messages: toThreadMessages(mergedState),
     isRunning:
       connectionMetadata.isSending ||
-      Boolean(state.messages?.some((message) => message.status === "running")),
-    state,
-  };
+      Boolean(optimisticMessages.length) ||
+      Boolean(mergedState.messages?.some((message) => message.status === "running")),
+    state: mergedState,
+  } as any;
 }
 
 function useJarvisTransportRuntime() {
