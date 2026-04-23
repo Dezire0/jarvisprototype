@@ -52,12 +52,12 @@ export async function restoreAuthSession(): Promise<StoredAuthSession> {
     return local;
   }
 
-  if (typeof window === "undefined" || !window.assistantAPI?.invokeTool) {
+  if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
     return local;
   }
 
   try {
-    const restored = (await window.assistantAPI.invokeTool(
+    const restored = (await (window as any).assistantAPI.invokeTool(
       "auth:session-restore",
     )) as {
       token?: string | null;
@@ -92,7 +92,7 @@ export async function persistAuthSession(token: string, user: AuthUser) {
   window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
 
   try {
-    await window.assistantAPI?.invokeTool("auth:session-save", {
+    await (window as any).assistantAPI?.invokeTool("auth:session-save", {
       token,
       user,
     });
@@ -114,7 +114,7 @@ export async function updateStoredAuthUser(user: AuthUser) {
   }
 
   try {
-    await window.assistantAPI?.invokeTool("auth:session-save", {
+    await (window as any).assistantAPI?.invokeTool("auth:session-save", {
       token,
       user,
     });
@@ -132,7 +132,7 @@ export async function clearAuthSession() {
   window.localStorage.removeItem(AUTH_USER_KEY);
 
   try {
-    await window.assistantAPI?.invokeTool("auth:session-clear");
+    await (window as any).assistantAPI?.invokeTool("auth:session-clear");
   } catch {
     // Best effort.
   }

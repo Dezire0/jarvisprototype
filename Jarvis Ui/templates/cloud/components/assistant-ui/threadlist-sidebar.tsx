@@ -304,8 +304,8 @@ export function ThreadListSidebar({
     }, 15000);
 
     let unsubscribeUpdate: (() => void) | undefined;
-    if (typeof window !== "undefined" && window.assistantAPI?.onUpdateStatus) {
-      unsubscribeUpdate = window.assistantAPI.onUpdateStatus((status: any) => {
+    if (typeof window !== "undefined" && (window as any).assistantAPI?.onUpdateStatus) {
+      unsubscribeUpdate = (window as any).assistantAPI.onUpdateStatus((status: any) => {
         if (
           status?.state === "available" &&
           (status.mode === "installer" || status.mode === "disabled")
@@ -546,13 +546,13 @@ export function ThreadListSidebar({
   }
 
   async function checkWebAiStatus(forceRefresh = false) {
-    if (typeof window === "undefined" || !window.assistantAPI?.invokeTool) {
+    if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
       setWebAiStatus("disconnected");
       return;
     }
 
     try {
-      const result = (await window.assistantAPI.invokeTool("ai:web-status", {
+      const result = (await (window as any).assistantAPI.invokeTool("ai:web-status", {
         forceRefresh,
       })) as {
         connected?: boolean;
@@ -578,13 +578,13 @@ export function ThreadListSidebar({
   }
 
   async function connectWebAi(provider: string = "chatgpt") {
-    if (typeof window === "undefined" || !window.assistantAPI?.invokeTool) {
+    if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
       return;
     }
 
     setWebAiStatus("checking");
     try {
-      await window.assistantAPI.invokeTool("ai:web-login", {
+      await (window as any).assistantAPI.invokeTool("ai:web-login", {
         provider: provider,
       });
       await checkWebAiStatus(true);
@@ -671,14 +671,14 @@ export function ThreadListSidebar({
     if (
       launcherApps.length > 0 ||
       typeof window === "undefined" ||
-      !window.assistantAPI?.invokeTool
+      !(window as any).assistantAPI?.invokeTool
     ) {
       return;
     }
 
     setLauncherLoading(true);
     try {
-      const result = (await window.assistantAPI.invokeTool("apps:list", {
+      const result = (await (window as any).assistantAPI.invokeTool("apps:list", {
         limit: 80,
       })) as {
         data?: { apps?: LauncherApp[] };
@@ -698,11 +698,11 @@ export function ThreadListSidebar({
   }
 
   async function handleOpenApp(appName: string) {
-    if (typeof window === "undefined" || !window.assistantAPI?.invokeTool) {
+    if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
       return;
     }
 
-    await window.assistantAPI.invokeTool("app:open", {
+    await (window as any).assistantAPI.invokeTool("app:open", {
       appName,
     });
     setLauncherOpen(false);

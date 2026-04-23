@@ -114,7 +114,7 @@ export function OnboardingGate() {
   useEffect(() => {
     void (async () => {
       try {
-        const CURRENT_VERSION = "1.6.9";
+        const CURRENT_VERSION = "1.7.0";
         const lastVersion = localStorage.getItem("jarvis_last_version");
 
         // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
@@ -280,7 +280,7 @@ export function OnboardingGate() {
             // 핵폭탄급 초기화: 모든 로컬 데이터 삭제
             localStorage.removeItem("jarvis_auth_token");
             localStorage.removeItem("jarvis_auth_user");
-            window.electron?.ipcRenderer.send("auth:logout"); // Electron 쪽도 밀기
+            (window as any).electron?.ipcRenderer.send("auth:logout"); // Electron 쪽도 밀기
             
             setStep("auth"); // 로그인 화면으로 강제 이동
             return;

@@ -109,7 +109,7 @@ function getAssistantApi() {
     return null;
   }
 
-  return window.assistantAPI ?? null;
+  return (window as any).assistantAPI ?? null;
 }
 
 export function JarvisExtensionsProvider({
