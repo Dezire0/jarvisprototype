@@ -153,7 +153,7 @@ const threadListAdapter: RemoteThreadListAdapter = {
   },
 };
 
-function toThreadMessages(state: TransportState): ThreadMessage[] {
+function toThreadMessages(state: TransportState): any[] {
   const messages = Array.isArray(state?.messages) ? state.messages : [];
   
   return messages.map((message) => {
