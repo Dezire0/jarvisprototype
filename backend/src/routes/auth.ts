@@ -104,18 +104,32 @@ auth.put("/plan", async (c) => {
     return c.json({ error: "Invalid plan" }, 400);
   }
 
-  const db = drizzle(c.env.DB);
   try {
-    await db.update(users)
-      .set({ plan })
-      .where(eq(users.id, payload.id as string));
+    // Check if user exists first
+    const userResult = await c.env.DB.prepare("SELECT id FROM users WHERE id = ?")
+      .bind(payload.id)
+      .first();
     
+    if (!userResult) {
+      return c.json({ error: "User not found in database", id: payload.id }, 404);
+    }
+
+    // Use raw SQL for maximum reliability
+    const result = await c.env.DB.prepare("UPDATE users SET plan = ? WHERE id = ?")
+      .bind(plan, payload.id)
+      .run();
+    
+    if (!result.success) {
+      throw new Error("D1 Update execution failed");
+    }
+
     return c.json({ success: true, plan });
   } catch (error: any) {
-    console.error("Plan update DB error:", error.message);
+    console.error("Plan update CRITICAL error:", error.message);
     return c.json({ 
-      error: "Failed to update plan on server", 
-      details: error.message 
+      error: "Critical server error during plan update", 
+      details: error.message,
+      stack: error.stack
     }, 500);
   }
 });
