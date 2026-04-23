@@ -1,8 +1,10 @@
 import { Hono } from "hono";
-import { sign } from "hono/jwt";
+import { sign, verify } from "hono/jwt";
 import { drizzle } from "drizzle-orm/d1";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
+
+const INTERNAL_JWT_SECRET = "jarvis-permanent-secret-key-2024-v1";
 
 const auth = new Hono<{ Bindings: { DB: D1Database; JWT_SECRET: string } }>();
 
@@ -62,8 +64,8 @@ auth.post("/login", async (c) => {
   }
 
   const token = await sign(
-    { id: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 }, // 7 days
-    c.env.JWT_SECRET || "fallback-secret"
+    { id: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, // 30 days
+    INTERNAL_JWT_SECRET
   );
 
   return c.json({
@@ -78,19 +80,23 @@ auth.post("/login", async (c) => {
   });
 });
 
-import { jwt } from "hono/jwt";
-
 auth.put("/plan", async (c) => {
-  // Use jwt middleware manually since it's not applied globally to /auth
-  const token = c.req.header("Authorization")?.replace("Bearer ", "");
-  if (!token) return c.json({ error: "Unauthorized" }, 401);
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader) return c.json({ error: "Unauthorized: Missing header" }, 401);
   
   let payload;
   try {
-    const { verify } = await import("hono/jwt");
-    payload = await verify(token, c.env.JWT_SECRET || "fallback-secret");
-  } catch (e) {
-    return c.json({ error: "Unauthorized" }, 401);
+    payload = await verify(token, INTERNAL_JWT_SECRET);
+    if (!payload || !payload.id) {
+      throw new Error("Invalid token payload: missing ID");
+    }
+  } catch (e: any) {
+    console.error("Token verification failed:", e.message);
+    return c.json({ 
+      error: "Unauthorized: Invalid session", 
+      debug: e.message,
+      token_preview: token.substring(0, 10) + "..." 
+    }, 401);
   }
 
   const { plan } = await c.req.json();
@@ -103,9 +109,11 @@ auth.put("/plan", async (c) => {
     await db.update(users)
       .set({ plan })
       .where(eq(users.id, payload.id as string));
+    
     return c.json({ success: true, plan });
-  } catch (error) {
-    return c.json({ error: "Failed to update plan" }, 500);
+  } catch (error: any) {
+    console.error("Plan update DB error:", error.message);
+    return c.json({ error: "Failed to update plan in database" }, 500);
   }
 });
 
