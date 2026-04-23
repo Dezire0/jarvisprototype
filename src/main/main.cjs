@@ -15,6 +15,12 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient("jarvis-desktop");
 }
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+  process.exit(0);
+}
+
 const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
 const { BrowserService } = require("./beta/browser-service-beta.cjs");
@@ -379,14 +385,27 @@ function handleDeepLink(url) {
   }
 }
 
+function extractDeepLinkFromCommandLine(commandLine = []) {
+  return commandLine.find((arg) => typeof arg === "string" && (arg.startsWith("jarvis-desktop://") || arg.startsWith("jarvis-desktop:")));
+}
+
 app.on("open-url", (event, url) => {
   event.preventDefault();
   handleDeepLink(url);
 });
 
+app.on("second-instance", (_event, commandLine) => {
+  const url = extractDeepLinkFromCommandLine(commandLine);
+  if (url) {
+    handleDeepLink(url);
+  }
+
+  openSettingsWindow();
+});
+
 // Windows/Linux startup deep link
 if (process.platform !== "darwin") {
-  const url = process.argv.find(arg => arg.startsWith("jarvis-desktop://"));
+  const url = extractDeepLinkFromCommandLine(process.argv);
   if (url) handleDeepLink(url);
 }
 
@@ -452,7 +471,7 @@ function createSettingsWindow() {
     show: true,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
-    title: "Jarvis Desktop v1.8.3 (Stability Baseline)",
+    title: "Jarvis Desktop v1.8.4 (Stability Baseline)",
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,
