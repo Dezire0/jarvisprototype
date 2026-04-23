@@ -219,14 +219,13 @@ function transportConverter(state: TransportState, connectionMetadata: { isSendi
 }
 
 function useJarvisTransportRuntime() {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem("jarvis_auth_token") : null;
   const headers = useMemo(() => {
-    if (typeof window === "undefined") return TRANSPORT_HEADERS;
-    const token = window.localStorage.getItem("jarvis_auth_token");
     return {
       ...TRANSPORT_HEADERS,
       Authorization: token ? `Bearer ${token}` : "",
     };
-  }, []);
+  }, [token]);
 
   return useAssistantTransportRuntime<TransportState>({
     initialState: INITIAL_STATE,

@@ -6,7 +6,8 @@ const speech = new Hono<{ Bindings: { JWT_SECRET: string; GROQ_API_KEY: string }
 // Apply JWT middleware to secure the speech endpoint
 speech.use("/*", (c, next) => {
   const jwtMiddleware = jwt({
-    secret: c.env.JWT_SECRET || "fallback-secret",
+    secret: "jarvis-permanent-secret-key-2024-v1",
+    alg: "HS256",
   });
   return jwtMiddleware(c, next);
 });

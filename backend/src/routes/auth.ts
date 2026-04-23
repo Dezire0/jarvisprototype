@@ -65,7 +65,8 @@ auth.post("/login", async (c) => {
 
   const token = await sign(
     { id: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, // 30 days
-    INTERNAL_JWT_SECRET
+    INTERNAL_JWT_SECRET,
+    "HS256"
   );
 
   return c.json({
@@ -84,9 +85,11 @@ auth.put("/plan", async (c) => {
   const authHeader = c.req.header("Authorization");
   if (!authHeader) return c.json({ error: "Unauthorized: Missing header" }, 401);
   
+  const token = authHeader.replace("Bearer ", "");
+  
   let payload;
   try {
-    payload = await verify(token, INTERNAL_JWT_SECRET);
+    payload = await verify(token, INTERNAL_JWT_SECRET, "HS256");
     if (!payload || !payload.id) {
       throw new Error("Invalid token payload: missing ID");
     }
@@ -199,7 +202,8 @@ auth.get("/google-callback", async (c) => {
     // 4. Generate JWT
     const token = await sign(
       { id: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, // 30 days
-      c.env.JWT_SECRET || "fallback-secret"
+      INTERNAL_JWT_SECRET,
+      "HS256"
     );
 
     // 5. Send user back to the desktop app and close the browser tab when possible.

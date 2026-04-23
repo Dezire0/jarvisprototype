@@ -1,95 +1,131 @@
 import { Hono } from "hono";
 import { jwt } from "hono/jwt";
-import { drizzle } from "drizzle-orm/d1";
-import { threads, messages } from "../schema";
-import { eq, desc } from "drizzle-orm";
 
-const chat = new Hono<{ Bindings: { DB: D1Database; JWT_SECRET: string }; Variables: { jwtPayload: { id: string } } }>();
+const chat = new Hono<{ Bindings: { DB: D1Database; JWT_SECRET: string; GEMINI_API_KEY: string }; Variables: { jwtPayload: { id: string } } }>();
+
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 // Apply JWT middleware to all chat routes
 chat.use("/*", (c, next) => {
   const jwtMiddleware = jwt({
-    secret: c.env.JWT_SECRET || "fallback-secret",
+    secret: "jarvis-permanent-secret-key-2024-v1",
+    alg: "HS256"
   });
   return jwtMiddleware(c, next);
 });
 
-// Get all threads for the current user
+// GET /threads — Get all threads for the current user
 chat.get("/threads", async (c) => {
   const payload = c.get("jwtPayload");
-  const db = drizzle(c.env.DB);
+  try {
+    const { results } = await c.env.DB.prepare(
+      "SELECT * FROM threads WHERE user_id = ? ORDER BY created_at DESC"
+    )
+    .bind(payload.id)
+    .all();
 
-  const userThreads = await db
-    .select()
-    .from(threads)
-    .where(eq(threads.userId, payload.id))
-    .orderBy(desc(threads.createdAt));
-
-  return c.json({ success: true, threads: userThreads });
+    return c.json({ success: true, threads: results });
+  } catch (error: any) {
+    return c.json({ error: "Failed to fetch threads", details: error.message }, 500);
+  }
 });
 
-// Get messages for a specific thread
-chat.get("/threads/:id/messages", async (c) => {
+// POST / — The main chat endpoint used by assistant-ui
+chat.post("/", async (c) => {
+  return handleChat(c);
+});
+
+// Explicitly handle without trailing slash if needed
+chat.post("", async (c) => {
+  return handleChat(c);
+});
+
+async function handleChat(c: any) {
   const payload = c.get("jwtPayload");
-  const threadId = c.req.param("id");
-  const db = drizzle(c.env.DB);
+  const body = await c.req.json();
+  const messages = body.messages || [];
 
-  // First verify the thread belongs to the user
-  const threadList = await db.select().from(threads).where(eq(threads.id, threadId));
-  const thread = threadList[0];
-
-  if (!thread || thread.userId !== payload.id) {
-    return c.json({ error: "Thread not found or unauthorized" }, 404);
+  if (messages.length === 0) {
+    return c.json({ error: "No messages provided" }, 400);
   }
 
-  const threadMessages = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.threadId, threadId))
-    .orderBy(messages.createdAt);
+  // Forward to Gemini API (non-streaming for now but compatible format)
+  const apiKey = c.env.GEMINI_API_KEY;
 
-  return c.json({ success: true, messages: threadMessages });
-});
+  try {
+    const geminiRes = await fetch(
+      `${GEMINI_API_BASE}/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: messages.map((m: any) => ({
+            role: m.role === "assistant" ? "model" : "user",
+            parts: [{ text: m.content?.[0]?.text || m.text || "" }]
+          })),
+          systemInstruction: {
+            parts: [{ text: "당신은 유능하고 친절한 AI 비서 Jarvis입니다. 한국어로 응답하세요." }]
+          }
+        }),
+      }
+    );
 
-// Sync a thread and its messages
+    if (!geminiRes.ok) {
+      throw new Error(`Gemini API error: ${geminiRes.status}`);
+    }
+
+    const data = await geminiRes.json<any>();
+    const replyText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+    // Return in the format assistant-ui expects for transport
+    return c.json({
+      messages: [
+        ...messages,
+        {
+          id: `ai-${Date.now()}`,
+          role: "assistant",
+          text: replyText,
+          createdAt: new Date().toISOString(),
+          status: "complete"
+        }
+      ]
+    });
+  } catch (error: any) {
+    return c.json({ error: "Chat processing failed", details: error.message }, 500);
+  }
+}
+
+// POST /sync — Legacy sync endpoint for manual triggers
 chat.post("/sync", async (c) => {
   const payload = c.get("jwtPayload");
   const { threadId, title, messages: newMessages } = await c.req.json();
-  const db = drizzle(c.env.DB);
 
   if (!threadId) {
     return c.json({ error: "threadId is required" }, 400);
   }
 
-  // Upsert the thread (if it doesn't exist, create it)
-  const existingThreadList = await db.select().from(threads).where(eq(threads.id, threadId));
-  const existingThread = existingThreadList[0];
+  try {
+    await c.env.DB.prepare(
+      "INSERT OR IGNORE INTO threads (id, user_id, title, created_at) VALUES (?, ?, ?, (strftime('%s', 'now')))"
+    )
+    .bind(threadId, payload.id, title || "New Chat")
+    .run();
 
-  if (!existingThread) {
-    await db.insert(threads).values({
-      id: threadId,
-      userId: payload.id,
-      title: title || "New Chat",
-    });
-  }
-
-  // Insert messages if any
-  if (newMessages && Array.isArray(newMessages) && newMessages.length > 0) {
-    for (const msg of newMessages) {
-      // Check if message exists to avoid duplicates
-      const existingMsgList = await db.select().from(messages).where(eq(messages.id, msg.id));
-      if (existingMsgList.length === 0) {
-        await db.insert(messages).values({
-          id: msg.id,
-          threadId: threadId,
-          role: msg.role,
-          content: msg.content,
-        });
+    if (newMessages && Array.isArray(newMessages) && newMessages.length > 0) {
+      for (const msg of newMessages) {
+        if (!msg.id) continue;
+        await c.env.DB.prepare(
+          "INSERT OR IGNORE INTO messages (id, thread_id, role, content, created_at) VALUES (?, ?, ?, ?, (strftime('%s', 'now')))"
+        )
+        .bind(msg.id, threadId, msg.role, msg.content)
+        .run();
       }
     }
-  }
 
-  return c.json({ success: true, message: "Sync complete" });
+    return c.json({ success: true, message: "Sync complete" });
+  } catch (error: any) {
+    return c.json({ error: "Failed to sync chat data", details: error.message }, 500);
+  }
 });
 
 export default chat;

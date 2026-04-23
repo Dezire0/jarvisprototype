@@ -9,7 +9,21 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-app.use("/*", cors());
+app.use("*", async (c, next) => {
+  console.log(`[REQUEST] ${c.req.method} ${c.req.url}`);
+  await next();
+});
+
+app.use(
+  "/*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    exposeHeaders: ["Content-Length"],
+    maxAge: 600,
+  })
+);
 
 app.get("/", (c) => {
   return c.text("Jarvis Backend API v2 (Cloudflare Workers + D1) is running!");

@@ -28,7 +28,7 @@ const ai = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 ai.use("/*", (c, next) => {
   const jwtMiddleware = jwt({
-    secret: c.env.JWT_SECRET || "fallback-secret",
+    secret: "jarvis-permanent-secret-key-2024-v1",
     alg: "HS256",
   });
   return jwtMiddleware(c, next);
