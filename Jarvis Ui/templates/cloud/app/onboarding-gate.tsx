@@ -114,7 +114,7 @@ export function OnboardingGate() {
   useEffect(() => {
     void (async () => {
       try {
-        const CURRENT_VERSION = "1.6.5";
+        const CURRENT_VERSION = "1.6.6";
         const lastVersion = localStorage.getItem("jarvis_last_version");
 
         // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
@@ -260,7 +260,7 @@ export function OnboardingGate() {
 
       // 서버 DB에 플랜 업데이트 요청 (강력한 동기화)
       try {
-        const planRes = await fetch("https://jarvis-backend.a01044622139.workers.dev/api/auth/plan", {
+        const planRes = await fetch(`${API_BASE}/api/auth/plan`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
