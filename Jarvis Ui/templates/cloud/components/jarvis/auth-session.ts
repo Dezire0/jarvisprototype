@@ -2,6 +2,7 @@
 
 const AUTH_TOKEN_KEY = "jarvis_auth_token";
 const AUTH_USER_KEY = "jarvis_auth_user";
+const AUTH_REMEMBER_KEY = "jarvis_auth_remember";
 
 export type AuthSettings = {
   autoSync?: boolean;
@@ -24,13 +25,13 @@ type StoredAuthSession = {
   user: AuthUser | null;
 };
 
-function readLocalSession(): StoredAuthSession {
-  if (typeof window === "undefined") {
+function readStorageSession(storage: Storage | undefined): StoredAuthSession {
+  if (!storage) {
     return { token: null, user: null };
   }
 
-  const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
-  const rawUser = window.localStorage.getItem(AUTH_USER_KEY);
+  const token = storage.getItem(AUTH_TOKEN_KEY);
+  const rawUser = storage.getItem(AUTH_USER_KEY);
 
   if (!rawUser) {
     return { token, user: null };
@@ -44,6 +45,35 @@ function readLocalSession(): StoredAuthSession {
   } catch {
     return { token, user: null };
   }
+}
+
+function readLocalSession(): StoredAuthSession {
+  if (typeof window === "undefined") {
+    return { token: null, user: null };
+  }
+
+  const session = readStorageSession(window.sessionStorage);
+  if (session.token && session.user) {
+    return session;
+  }
+
+  return readStorageSession(window.localStorage);
+}
+
+export function isAuthRemembered(): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  return window.localStorage.getItem(AUTH_REMEMBER_KEY) !== "0";
+}
+
+function setRememberPreference(remember: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(AUTH_REMEMBER_KEY, remember ? "1" : "0");
 }
 
 export async function restoreAuthSession(): Promise<StoredAuthSession> {
@@ -83,21 +113,36 @@ export async function restoreAuthSession(): Promise<StoredAuthSession> {
   }
 }
 
-export async function persistAuthSession(token: string, user: AuthUser) {
+export async function persistAuthSession(
+  token: string,
+  user: AuthUser,
+  options: { remember?: boolean } = {},
+) {
   if (typeof window === "undefined") {
     return;
   }
 
-  window.localStorage.setItem(AUTH_TOKEN_KEY, token);
-  window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  const remember = options.remember ?? true;
+  const targetStorage = remember ? window.localStorage : window.sessionStorage;
+  const otherStorage = remember ? window.sessionStorage : window.localStorage;
+
+  targetStorage.setItem(AUTH_TOKEN_KEY, token);
+  targetStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  otherStorage.removeItem(AUTH_TOKEN_KEY);
+  otherStorage.removeItem(AUTH_USER_KEY);
+  setRememberPreference(remember);
 
   try {
-    await (window as any).assistantAPI?.invokeTool("auth:session-save", {
-      token,
-      user,
-    });
+    if (remember) {
+      await (window as any).assistantAPI?.invokeTool("auth:session-save", {
+        token,
+        user,
+      });
+    } else {
+      await (window as any).assistantAPI?.invokeTool("auth:session-clear");
+    }
   } catch {
-    // Keep localStorage as the online fallback.
+    // Keep browser storage as the fallback.
   }
 }
 
@@ -106,20 +151,26 @@ export async function updateStoredAuthUser(user: AuthUser) {
     return;
   }
 
-  const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
-  window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  const sessionStorageToken = window.sessionStorage.getItem(AUTH_TOKEN_KEY);
+  const localStorageToken = window.localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = sessionStorageToken || localStorageToken;
+  const targetStorage = sessionStorageToken ? window.sessionStorage : window.localStorage;
+
+  targetStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
 
   if (!token) {
     return;
   }
 
   try {
-    await (window as any).assistantAPI?.invokeTool("auth:session-save", {
-      token,
-      user,
-    });
+    if (targetStorage === window.localStorage) {
+      await (window as any).assistantAPI?.invokeTool("auth:session-save", {
+        token,
+        user,
+      });
+    }
   } catch {
-    // Local session remains available.
+    // Browser session remains available.
   }
 }
 
@@ -130,6 +181,8 @@ export async function clearAuthSession() {
 
   window.localStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(AUTH_USER_KEY);
+  window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  window.sessionStorage.removeItem(AUTH_USER_KEY);
 
   try {
     await (window as any).assistantAPI?.invokeTool("auth:session-clear");

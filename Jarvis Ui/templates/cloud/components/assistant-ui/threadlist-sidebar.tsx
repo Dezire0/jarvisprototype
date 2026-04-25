@@ -935,7 +935,7 @@ export function ThreadListSidebar({
 
       <Sidebar
         {...props}
-        className="border-r-0 bg-[#171717] text-[#ececec] [--sidebar-width:280px]"
+        className="border-r-0 bg-sidebar text-sidebar-foreground [--sidebar-width:280px]"
       >
         <SidebarHeader className="border-none px-3 pt-3 pb-0">
           <button
@@ -944,10 +944,10 @@ export function ThreadListSidebar({
             className={cn(
               "mb-2 flex w-full items-center gap-2 rounded-xl border border-white/5 px-3 py-2.5 text-left font-semibold text-xs transition-all",
               webAiStatus === "connected"
-                ? "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20"
-                : "bg-zinc-800/60 text-zinc-300 ring-1 ring-zinc-700/30 hover:bg-zinc-700/60 hover:text-white",
+                ? "bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/25 hover:bg-emerald-500/18 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20 dark:hover:bg-emerald-500/20"
+                : "bg-card/80 text-foreground/78 ring-1 ring-border hover:bg-accent hover:text-foreground dark:bg-zinc-800/60 dark:text-zinc-300 dark:ring-zinc-700/30 dark:hover:bg-zinc-700/60 dark:hover:text-white",
               webAiStatus === "expired" &&
-                "bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20 hover:bg-amber-900/40",
+                "bg-amber-500/12 text-amber-700 ring-1 ring-amber-500/25 hover:bg-amber-500/18 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20 dark:hover:bg-amber-900/40",
             )}
           >
             <SparklesIcon className="size-3.5 shrink-0" />
@@ -958,7 +958,14 @@ export function ThreadListSidebar({
                   ? "상태 확인 중..."
                   : "Web AI 연동 및 관리"}
             </span>
-            <div className="flex items-center gap-1.5 rounded-full bg-black/20 px-1.5 py-0.5 font-bold text-[9px] uppercase tracking-wider">
+            <div
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-1.5 py-0.5 font-bold text-[9px] uppercase tracking-wider",
+                webAiStatus === "connected"
+                  ? "bg-emerald-900/12 text-emerald-800 dark:bg-black/20 dark:text-emerald-300"
+                  : "bg-foreground/8 text-foreground/75 dark:bg-black/20 dark:text-zinc-300"
+              )}
+            >
               {webAiStatus === "connected" ? "Connected" : "Setup"}
             </div>
           </button>
@@ -1058,7 +1065,7 @@ export function ThreadListSidebar({
           </Dialog>
 
           {webAiReason && webAiStatus === "expired" && (
-            <p className="mb-2 px-1 text-[11px] text-amber-300/80">
+            <p className="mb-2 px-1 text-[11px] text-amber-700/90 dark:text-amber-300/80">
               세션 토큰이 만료된 상태라 백그라운드에서 다시 연결이 필요해.
             </p>
           )}
@@ -1095,14 +1102,14 @@ export function ThreadListSidebar({
 
         <SidebarContent className="scrollbar-none px-3 py-2">
           <div className="mt-4 mb-1 flex items-center justify-between px-3">
-            <p className="font-semibold text-muted-foreground/80 text-xs uppercase tracking-wider">
+            <p className="font-semibold text-foreground/72 text-xs uppercase tracking-wider dark:text-muted-foreground/80">
               {t("프로젝트", "Projects")}
             </p>
             {selectedProject && (
               <button
                 type="button"
                 onClick={() => setSelectedProjectId(null)}
-                className="text-[11px] text-zinc-500 hover:text-zinc-300"
+                className="text-[11px] text-foreground/62 hover:text-foreground dark:text-zinc-500 dark:hover:text-zinc-300"
               >
                 {t("전체 보기", "View All")}
               </button>
@@ -1139,25 +1146,25 @@ export function ThreadListSidebar({
                       selectedProjectId === project.id && "bg-[#252525]",
                     )}
                   >
-                    <FolderIcon className="size-4.5 text-zinc-400" />
+                      <FolderIcon className="size-4.5 text-foreground/55 dark:text-zinc-400" />
                     <span className="flex-1 truncate text-left font-medium text-sm">
                       {project.name}
                     </span>
-                    <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400">
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground/72 dark:bg-zinc-800 dark:text-zinc-400">
                       {chatCount}
                     </span>
                   </Button>
                 );
               })
             ) : (
-              <div className="mx-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-5 text-center text-xs text-zinc-500">
+              <div className="mx-3 rounded-xl border border-border bg-card/70 px-4 py-5 text-center text-sm font-medium text-foreground/68 dark:border-white/5 dark:bg-white/[0.02] dark:text-zinc-500">
                 {t("프로젝트가 없습니다.", "No projects yet.")}
               </div>
             )}
           </div>
 
           <div className="mt-6 mb-1 px-3">
-            <p className="font-semibold text-muted-foreground/80 text-xs uppercase tracking-wider">
+            <p className="font-semibold text-foreground/72 text-xs uppercase tracking-wider dark:text-muted-foreground/80">
               {t("최근 대화", "Recent")} {selectedProject ? `· ${selectedProject.name}` : ""}
             </p>
           </div>
@@ -1182,15 +1189,15 @@ export function ThreadListSidebar({
                 </Button>
               ))
             ) : (
-              <div className="mx-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-5 text-center text-xs text-zinc-500">
+              <div className="mx-3 rounded-xl border border-border bg-card/70 px-4 py-5 text-center text-sm font-medium text-foreground/68 dark:border-white/5 dark:bg-white/[0.02] dark:text-zinc-500">
                 {t("대화 기록이 없습니다.", "No recent threads.")}
               </div>
             )}
           </div>
 
           {authUser && (
-            <div className="mt-6 rounded-2xl border border-emerald-500/10 bg-emerald-500/[0.03] p-4">
-              <div className="flex items-center gap-2 font-medium text-emerald-500/80 text-[11px] uppercase tracking-tight">
+            <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 dark:border-emerald-500/10 dark:bg-emerald-500/[0.03]">
+              <div className="flex items-center gap-2 font-semibold text-emerald-700 text-[11px] uppercase tracking-tight dark:text-emerald-500/80">
                 <BadgeCheckIcon className="size-3.5" />
                 <span>{t("동기화 활성화됨", "Cloud Sync Active")}</span>
               </div>
@@ -1220,19 +1227,21 @@ export function ThreadListSidebar({
                 {userDisplayName.charAt(0).toUpperCase()}
               </div>
               <div className="flex min-w-0 flex-1 flex-col items-start text-left">
-                <span className="truncate font-medium text-sm text-white">
+                <span className="truncate font-semibold text-sm text-foreground dark:text-white">
                   {userDisplayName}
                 </span>
                 <span
                   className={cn(
-                    "truncate text-xs",
-                    authUser ? "text-emerald-400" : "text-muted-foreground",
+                    "truncate text-xs font-medium",
+                    authUser
+                      ? "text-emerald-700 dark:text-emerald-400"
+                      : "text-foreground/62 dark:text-muted-foreground",
                   )}
                 >
                   {userSubLabel}
                 </span>
               </div>
-              <UserRoundIcon className="size-4 text-zinc-500" />
+              <UserRoundIcon className="size-4 text-foreground/55 dark:text-zinc-500" />
             </Button>
 
             {authUser && (
@@ -1240,7 +1249,7 @@ export function ThreadListSidebar({
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => void handleLogout()}
-                className="shrink-0 rounded-xl text-zinc-500 hover:bg-[#212121] hover:text-white"
+                className="shrink-0 rounded-xl text-foreground/55 hover:bg-accent hover:text-foreground dark:text-zinc-500 dark:hover:bg-[#212121] dark:hover:text-white"
                 title={t("로그아웃", "Logout")}
               >
                 <LogOutIcon className="size-4" />
