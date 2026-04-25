@@ -34,6 +34,7 @@ import {
 import {
   restoreAuthSession,
   persistAuthSession,
+  isAuthRemembered,
   type AuthUser,
 } from "@/components/jarvis/auth-session";
 import { Assistant } from "./assistant";
@@ -56,6 +57,7 @@ export function OnboardingGate() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberLogin, setRememberLogin] = useState(true);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -112,6 +114,10 @@ export function OnboardingGate() {
 
   // Check session on mount + Auto-wipe on version change
   useEffect(() => {
+    setRememberLogin(isAuthRemembered());
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       try {
         const CURRENT_VERSION = "1.8.4";
@@ -150,7 +156,9 @@ export function OnboardingGate() {
                 planConfirmed: false,
               },
             };
-            await persistAuthSession(urlToken, nextUser);
+            await persistAuthSession(urlToken, nextUser, {
+              remember: isAuthRemembered(),
+            });
             syncSelectedPlan(nextUser);
             // URL 파라미터 제거 (깔끔한 UI를 위해)
             window.history.replaceState({}, document.title, window.location.pathname);
@@ -174,7 +182,9 @@ export function OnboardingGate() {
                   planConfirmed: false,
                 },
               };
-              await persistAuthSession(data.token, nextUser);
+              await persistAuthSession(data.token, nextUser, {
+                remember: isAuthRemembered(),
+              });
               syncSelectedPlan(nextUser);
               setStep(resolveFreshAuthStep(nextUser));
             }
@@ -242,7 +252,9 @@ export function OnboardingGate() {
         },
       };
 
-      await persistAuthSession(token, nextUser);
+      await persistAuthSession(token, nextUser, {
+        remember: rememberLogin,
+      });
       syncSelectedPlan(nextUser);
       setStep(resolveFreshAuthStep(nextUser));
     } catch {
@@ -336,6 +348,15 @@ export function OnboardingGate() {
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("이메일", "Email")} required className="h-11 rounded-xl bg-white/5 text-white" />
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("비밀번호", "Password")} required className="h-11 rounded-xl bg-white/5 text-white" />
             {authError && <p className="text-xs text-red-400">{authError}</p>}
+            <label className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
+              <input
+                type="checkbox"
+                checked={rememberLogin}
+                onChange={(e) => setRememberLogin(e.target.checked)}
+                className="size-3.5 rounded border border-white/15 bg-white/5 accent-white"
+              />
+              <span>{t("로그인 유지", "Keep me signed in")}</span>
+            </label>
             <Button disabled={authLoading} className="h-11 rounded-xl bg-white text-black font-medium transition-all active:scale-95">{authLoading ? <LoaderCircleIcon className="animate-spin" /> : t("이메일로 계속하기", "Continue with Email")}</Button>
             
             <div className="relative my-2">

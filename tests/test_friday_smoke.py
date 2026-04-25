@@ -1,8 +1,10 @@
 import importlib
 import os
+from pathlib import Path
 import sys
+import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from friday.credentials import normalize_site_key
 from friday.tools import file_ops, media
@@ -267,6 +269,56 @@ class FridaySmokeTests(unittest.TestCase):
     def test_build_say_command_omits_voice_when_not_provided(self):
         self.assertEqual(media._build_say_command("Hello there"), ["say", "Hello there"])
         self.assertEqual(media._build_say_command("Hello there", voice="Samantha"), ["say", "-v", "Samantha", "Hello there"])
+
+    def test_capture_screen_uses_windows_imagegrab(self):
+        screenshot_path = Path("screenshot.png")
+        screenshot = Mock()
+        image_grab = types.SimpleNamespace(grab=Mock(return_value=screenshot))
+        pil = types.SimpleNamespace(ImageGrab=image_grab)
+
+        with patch("friday.tools.media.platform.system", return_value="Windows"), patch.dict(
+            sys.modules, {"PIL": pil}
+        ):
+            media._capture_screen_to_file(screenshot_path)
+
+        image_grab.grab.assert_called_once_with()
+        screenshot.save.assert_called_once_with(screenshot_path)
+
+    def test_capture_screen_uses_linux_scrot(self):
+        screenshot_path = Path("/tmp/screenshot.png")
+
+        with (
+            patch("friday.tools.media.platform.system", return_value="Linux"),
+            patch("friday.tools.media.which", return_value="/usr/bin/scrot"),
+            patch("friday.tools.media.subprocess.run") as run,
+        ):
+            media._capture_screen_to_file(screenshot_path)
+
+        run.assert_called_once_with(["scrot", str(screenshot_path)], check=True)
+
+    def test_text_to_speech_uses_windows_pyttsx3(self):
+        engine = Mock()
+        pyttsx3 = types.SimpleNamespace(init=Mock(return_value=engine))
+
+        with patch("friday.tools.media.platform.system", return_value="Windows"), patch.dict(
+            sys.modules, {"pyttsx3": pyttsx3}
+        ):
+            media._speak_text("Hello there", voice="voice-id")
+
+        pyttsx3.init.assert_called_once_with()
+        engine.setProperty.assert_called_once_with("voice", "voice-id")
+        engine.say.assert_called_once_with("Hello there")
+        engine.runAndWait.assert_called_once_with()
+
+    def test_text_to_speech_uses_linux_espeak(self):
+        with (
+            patch("friday.tools.media.platform.system", return_value="Linux"),
+            patch("friday.tools.media.which", return_value="/usr/bin/espeak"),
+            patch("friday.tools.media.subprocess.run") as run,
+        ):
+            media._speak_text("Hello there", voice="en")
+
+        run.assert_called_once_with(["espeak", "-v", "en", "Hello there"], check=True)
 
 
 if __name__ == "__main__":

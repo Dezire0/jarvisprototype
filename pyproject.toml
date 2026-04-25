@@ -13,6 +13,7 @@ dependencies = [
     "playwright",
     "pytesseract",
     "pillow",
+    "pyttsx3",
     "obs-websocket-py",
     "keyring",
 ]

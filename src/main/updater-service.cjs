@@ -865,5 +865,10 @@ class UpdaterService {
 }
 
 module.exports = {
-  UpdaterService
+  UpdaterService,
+  chooseGithubAsset,
+  chooseNewestReleaseWithAsset,
+  compareVersions,
+  normalizeVersion,
+  parseGithubRepo
 };

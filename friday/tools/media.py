@@ -2,6 +2,7 @@
 Media tools — OBS control, TTS, screen capture, OCR, etc.
 """
 
+import platform
 import subprocess
 from shutil import which
 from pathlib import Path
@@ -56,6 +57,87 @@ def _build_say_command(text: str, voice: str = "") -> list[str]:
     return command
 
 
+def _capture_screen_to_file(screenshot_path: Path) -> None:
+    current_os = platform.system()
+
+    if current_os == "Darwin":
+        if not which("screencapture"):
+            raise RuntimeError("system 'screencapture' command is not available on this machine.")
+
+        subprocess.run(["screencapture", "-x", str(screenshot_path)], check=True)
+        return
+
+    if current_os == "Windows":
+        try:
+            from PIL import ImageGrab
+        except ImportError as exc:
+            raise RuntimeError(
+                "Pillow ImageGrab is unavailable. Install pillow to enable Windows screen capture."
+            ) from exc
+
+        screenshot = ImageGrab.grab()
+        screenshot.save(screenshot_path)
+        return
+
+    if current_os == "Linux":
+        if not which("scrot"):
+            raise RuntimeError("system 'scrot' command is not available on this machine.")
+
+        subprocess.run(["scrot", str(screenshot_path)], check=True)
+        return
+
+    raise RuntimeError(f"unsupported operating system: {current_os}")
+
+
+def _speak_with_pyttsx3(text: str, voice: str = "") -> None:
+    try:
+        import pyttsx3
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyttsx3 is unavailable. Install pyttsx3 to enable Windows text_to_speech."
+        ) from exc
+
+    engine = pyttsx3.init()
+    selected_voice = str(voice).strip()
+
+    if selected_voice:
+        engine.setProperty("voice", selected_voice)
+
+    engine.say(text)
+    engine.runAndWait()
+
+
+def _speak_text(text: str, voice: str = "") -> None:
+    current_os = platform.system()
+
+    if current_os == "Darwin":
+        if not which("say"):
+            raise RuntimeError("system 'say' command is not available on this machine.")
+
+        subprocess.run(_build_say_command(text, voice=voice), check=True)
+        return
+
+    if current_os == "Windows":
+        _speak_with_pyttsx3(text, voice=voice)
+        return
+
+    if current_os == "Linux":
+        if not which("espeak"):
+            raise RuntimeError("system 'espeak' command is not available on this machine.")
+
+        command = ["espeak"]
+        selected_voice = str(voice).strip()
+
+        if selected_voice:
+            command.extend(["-v", selected_voice])
+
+        command.append(text)
+        subprocess.run(command, check=True)
+        return
+
+    raise RuntimeError(f"unsupported operating system: {current_os}")
+
+
 def register(mcp):
 
     @mcp.tool()
@@ -63,8 +145,7 @@ def register(mcp):
         """Capture a screenshot and return the file path."""
         try:
             screenshot_path = Path.home() / "Desktop" / "jarvis_screenshot.png"
-            # Use macOS screencapture command
-            subprocess.run(["screencapture", "-x", str(screenshot_path)], check=True)
+            _capture_screen_to_file(screenshot_path)
             return f"Screenshot saved to: {screenshot_path}"
         except Exception as e:
             return f"Failed to capture screen: {str(e)}"
@@ -123,10 +204,7 @@ def register(mcp):
     async def text_to_speech(text: str, voice: str = "") -> str:
         """Convert text to speech using system TTS."""
         try:
-            if not which("say"):
-                return "TTS failed: system 'say' command is not available on this machine."
-
-            subprocess.run(_build_say_command(text, voice=voice), check=True)
+            _speak_text(text, voice=voice)
             return "TTS completed."
         except Exception as e:
             return f"TTS failed: {str(e)}"
