@@ -266,6 +266,34 @@ In short:
 - commit only: source code changes, no installed app update
 - tag + packaged release: installed app can detect and download the update
 
+## GitHub Release fallback workflow
+
+This repo now treats GitHub Releases as the default fallback update feed for installed apps, especially for the macOS unsigned distribution path.
+
+What installed Jarvis expects:
+
+- `package.json` version is bumped before each release
+- the Git tag matches the app version, for example `v1.8.5`
+- the GitHub Release contains real platform installer assets, not source archives only
+- asset names stay in the Electron Builder format from `artifactName`, such as:
+  - `Jarvis-Desktop-1.8.5-mac-arm64.dmg`
+  - `Jarvis-Desktop-1.8.5-win-x64.exe`
+  - `Jarvis-Desktop-1.8.5-linux-x64.AppImage`
+
+What the installed app does:
+
+- checks the GitHub Releases feed on startup or via `Help -> Check for Updates...`
+- compares the newest release version against the installed app version
+- picks the installer asset that matches the current OS and architecture
+- downloads and opens or installs that asset using the platform-specific fallback flow
+
+For the current macOS no-Apple-Developer path:
+
+- update detection works through GitHub Releases
+- the app downloads the matching `.dmg`
+- Jarvis runs the fallback installer flow that replaces `/Applications/Jarvis Desktop.app`
+- users may still see an admin-password prompt or Gatekeeper friction because this is not a signed/notarized Developer ID distribution
+
 ## Operational notes
 
 - macOS auto-update requires a signed and notarized application build.

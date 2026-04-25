@@ -32,6 +32,7 @@ const INITIAL_STATE: TransportState = {
 
 const TRANSPORT_HEADERS = {};
 const PENDING_MESSAGE_CREATED_AT = new Date(0).toISOString();
+const CHAT_API_PATH = "/api/chat";
 
 const threadsStore = new Map<
   string,
@@ -342,7 +343,7 @@ function useJarvisTransportRuntime() {
 
   return useAssistantTransportRuntime<TransportState>({
     initialState: INITIAL_STATE,
-    api: `${API_BASE}/api/chat`,
+    api: CHAT_API_PATH,
     headers,
     converter: transportConverter,
     onError: (error) => {
