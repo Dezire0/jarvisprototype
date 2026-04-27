@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   saveTtsSettings(payload = {}) {
     return ipcRenderer.invoke("assistant:save-tts-settings", payload);
   },
+  getConversationModelSettings() {
+    return ipcRenderer.invoke("assistant:get-conversation-model-settings");
+  },
+  saveConversationModelSettings(payload = {}) {
+    return ipcRenderer.invoke("assistant:save-conversation-model-settings", payload);
+  },
   checkForUpdates() {
     return ipcRenderer.invoke("assistant:check-for-updates");
   },

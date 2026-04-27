@@ -4,18 +4,48 @@ const {
   detectLanguageCode,
   FAST_ROUTER_MODEL,
   FAST_PLANNER_MODEL,
-  getTierProviderLabel
+  getTierProviderLabel,
+  resolveConfig,
+  isUnconfiguredAutoFallback
 } = require("./ollama-service.cjs");
 
 const unofficialAI = require("./unofficial-ai-provider.cjs");
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
 
+function buildModelConnectionReply(text = "") {
+  return detectLanguageCode(text) === "ko"
+    ? "대화 모델이 아직 연결되어 있지 않아요. 왼쪽 위의 WebUI 연동 및 관리에서 ChatGPT/Gemini WebUI를 연결하거나 GPT/Claude API 키를 저장해 주세요. 로컬로 쓰려면 대화 모델에서 로컬 모델 연결을 선택하면 됩니다."
+    : "No conversation model is connected yet. Open WebUI Integration & Management in the upper-left and connect ChatGPT/Gemini WebUI, save a GPT/Claude API key, or choose Local Model Connection.";
+}
+
 // Override chat to use unofficial Web AI session if configured
 const chat = async (options) => {
   try {
     const connectedProvider = await unofficialAI.isConnected();
-    if (connectedProvider && !options.localOnly) {
+    const config = resolveConfig({
+      tier: options.tier || "complex",
+      provider: options.provider,
+      model: options.model,
+      url: options.url,
+      apiKey: options.apiKey
+    });
+    const directApiSelected = ["gemini", "openai-compatible", "anthropic"].includes(config.provider);
+    const directApiReady = directApiSelected && Boolean(config.apiKey);
+    const needsModelConnection =
+      !options.localOnly &&
+      !connectedProvider &&
+      (isUnconfiguredAutoFallback({
+        tier: options.tier || "complex",
+        provider: options.provider
+      }) ||
+        (directApiSelected && !directApiReady));
+
+    if (needsModelConnection) {
+      return buildModelConnectionReply(options.userPrompt);
+    }
+
+    if (connectedProvider && !options.localOnly && !directApiReady) {
       const prompt = options.systemPrompt 
         ? `${options.systemPrompt}\n\n${options.userPrompt}`
         : options.userPrompt;
@@ -4886,6 +4916,34 @@ class AssistantService {
       "만약 앱을 설치해야 하는 경우 [ACTION: INSTALL_APP] 앱이름 형식을 포함하세요.",
       "일상적인 대화라면 풍부하고 친절하게 답변하세요."
     ].join("\n");
+
+    try {
+      const tier = chooseChatModelTier(input, this.getRecentHistory());
+      const modelReply = await this.replyWithModel(
+        input,
+        [
+          "Follow the conversation naturally.",
+          `Reply only in ${buildLanguageName(language)}.`,
+          "Sound like Jarvis as a modern everyday assistant: calm, polished, warm, and capable.",
+          "If the user is chatting casually, answer like a strong general chatbot.",
+          "If the user asks for recommendations, suggest two or three concrete options when useful.",
+          "If the user greets you, greet them back naturally and invite the next request.",
+          "Do not sound like a status banner or system message."
+        ].join("\n"),
+        {
+          tier,
+          systemPrompt
+        }
+      );
+
+      return {
+        reply: modelReply,
+        actions: [],
+        provider: modelReply === buildModelConnectionReply(input) ? "model-required" : getTierProviderLabel(tier)
+      };
+    } catch (error) {
+      console.error("Configured chat model failed:", error.message);
+    }
 
     // Build conversation history for context
     const recentHistory = this.getRecentHistory().slice(-10).map(h => ({

@@ -17,7 +17,9 @@ function normalizeProvider(value = "", fallback = "auto") {
     "lm-studio": "openai-compatible",
     jan: "openai-compatible",
     anythingllm: "openai-compatible",
-    openwebui: "openai-compatible"
+    openwebui: "openai-compatible",
+    anthropic: "anthropic",
+    claude: "anthropic"
   };
 
   return aliases[normalized] || fallback;
@@ -36,12 +38,34 @@ function pickFirstNonEmpty(...values) {
 }
 
 let externalApiKeyProvider = null;
+let externalLlmSettingsProvider = null;
 
 function setExternalApiKeyProvider(fn) {
   externalApiKeyProvider = fn;
 }
 
+function setExternalLlmSettingsProvider(fn) {
+  externalLlmSettingsProvider = fn;
+}
+
+function getExternalLlmSettings() {
+  if (!externalLlmSettingsProvider) {
+    return null;
+  }
+
+  try {
+    return externalLlmSettingsProvider() || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
 function getGeminiApiKey() {
+  const settings = getExternalLlmSettings();
+  if (settings?.gemini?.apiKey) {
+    return settings.gemini.apiKey;
+  }
+
   if (externalApiKeyProvider) {
     const key = externalApiKeyProvider("gemini");
     if (key) return key;
@@ -50,7 +74,31 @@ function getGeminiApiKey() {
 }
 
 function getOpenAICompatibleApiKey() {
+  const settings = getExternalLlmSettings();
+  if (settings?.openai?.apiKey) {
+    return settings.openai.apiKey;
+  }
+
+  if (externalApiKeyProvider) {
+    const key = externalApiKeyProvider("openai-compatible") || externalApiKeyProvider("openai");
+    if (key) return key;
+  }
+
   return String(process.env.JARVIS_COMPLEX_LLM_API_KEY || process.env.OPENAI_API_KEY || "").trim();
+}
+
+function getAnthropicApiKey() {
+  const settings = getExternalLlmSettings();
+  if (settings?.anthropic?.apiKey) {
+    return settings.anthropic.apiKey;
+  }
+
+  if (externalApiKeyProvider) {
+    const key = externalApiKeyProvider("anthropic") || externalApiKeyProvider("claude");
+    if (key) return key;
+  }
+
+  return String(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || "").trim();
 }
 
 function normalizeOpenAICompatibleUrl(value = "") {
@@ -96,7 +144,12 @@ function hasGeminiConfig() {
 }
 
 function hasOpenAICompatibleConfig() {
-  const explicitUrl = String(process.env.JARVIS_COMPLEX_LLM_URL || process.env.OPENAI_BASE_URL || "").trim();
+  const settings = getExternalLlmSettings();
+  const explicitUrl = pickFirstNonEmpty(
+    settings?.openai?.baseUrl,
+    process.env.JARVIS_COMPLEX_LLM_URL,
+    process.env.OPENAI_BASE_URL
+  );
 
   return Boolean(
     getOpenAICompatibleApiKey() ||
@@ -104,13 +157,24 @@ function hasOpenAICompatibleConfig() {
   );
 }
 
-function resolveProviderForTier(tier = "complex", requestedProvider = "") {
-  const requested = normalizeProvider(
-    requestedProvider || (tier === "fast"
+function hasAnthropicConfig() {
+  return Boolean(getAnthropicApiKey());
+}
+
+function getRequestedProviderForTier(tier = "complex", requestedProvider = "") {
+  const settings = getExternalLlmSettings();
+  const settingsProvider = normalizeProvider(settings?.provider, "auto");
+
+  return normalizeProvider(
+    requestedProvider || (settingsProvider !== "auto" ? settingsProvider : "") || (tier === "fast"
       ? process.env.JARVIS_FAST_LLM_PROVIDER || "auto"
       : process.env.JARVIS_COMPLEX_LLM_PROVIDER || "auto"),
     "auto"
   );
+}
+
+function resolveProviderForTier(tier = "complex", requestedProvider = "") {
+  const requested = getRequestedProviderForTier(tier, requestedProvider);
 
   if (requested !== "auto") {
     return requested;
@@ -124,24 +188,47 @@ function resolveProviderForTier(tier = "complex", requestedProvider = "") {
     return "openai-compatible";
   }
 
+  if (hasAnthropicConfig()) {
+    return "anthropic";
+  }
+
   return "ollama";
 }
 
+function isUnconfiguredAutoFallback({ tier = "complex", provider } = {}) {
+  const requested = getRequestedProviderForTier(tier, provider);
+
+  return (
+    requested === "auto" &&
+    !hasGeminiConfig() &&
+    !hasOpenAICompatibleConfig() &&
+    !hasAnthropicConfig()
+  );
+}
+
 function defaultModelForProvider(provider = "ollama") {
+  const settings = getExternalLlmSettings();
+
   if (provider === "gemini") {
-    return process.env.GEMINI_LLM_MODEL || "gemini-2.0-flash";
+    return settings?.gemini?.model || process.env.GEMINI_LLM_MODEL || "gemini-2.5-flash";
   }
 
   if (provider === "openai-compatible") {
-    return process.env.OPENAI_LLM_MODEL || "gpt-4o-mini";
+    return settings?.openai?.model || process.env.OPENAI_LLM_MODEL || "gpt-4o-mini";
   }
 
-  return CHAT_MODEL;
+  if (provider === "anthropic") {
+    return settings?.anthropic?.model || process.env.ANTHROPIC_LLM_MODEL || process.env.CLAUDE_LLM_MODEL || "claude-3-5-haiku-latest";
+  }
+
+  return settings?.ollama?.model || CHAT_MODEL;
 }
 
 function defaultUrlForProvider(provider = "ollama") {
+  const settings = getExternalLlmSettings();
+
   if (provider === "openai-compatible") {
-    const preferredUrl = pickFirstNonEmpty(process.env.JARVIS_COMPLEX_LLM_URL, process.env.OPENAI_BASE_URL);
+    const preferredUrl = pickFirstNonEmpty(settings?.openai?.baseUrl, process.env.JARVIS_COMPLEX_LLM_URL, process.env.OPENAI_BASE_URL);
 
     return (
       normalizeOpenAICompatibleUrl(looksLikeOllamaUrl(preferredUrl) ? process.env.OPENAI_BASE_URL : preferredUrl) ||
@@ -149,7 +236,11 @@ function defaultUrlForProvider(provider = "ollama") {
     );
   }
 
-  return OLLAMA_URL;
+  if (provider === "anthropic") {
+    return pickFirstNonEmpty(settings?.anthropic?.baseUrl, process.env.ANTHROPIC_BASE_URL, "https://api.anthropic.com/v1/messages");
+  }
+
+  return settings?.ollama?.url || OLLAMA_URL;
 }
 
 function defaultApiKeyForProvider(provider = "ollama") {
@@ -159,6 +250,10 @@ function defaultApiKeyForProvider(provider = "ollama") {
 
   if (provider === "openai-compatible") {
     return getOpenAICompatibleApiKey();
+  }
+
+  if (provider === "anthropic") {
+    return getAnthropicApiKey();
   }
 
   return "";
@@ -180,6 +275,7 @@ const COMPLEX_LLM_API_KEY = defaultApiKeyForProvider(COMPLEX_LLM_PROVIDER);
 
 let installedModelsCache = {
   fetchedAt: 0,
+  url: "",
   names: []
 };
 
@@ -289,8 +385,21 @@ function extractGeminiText(data) {
     .trim();
 }
 
-function getOllamaTagsUrl() {
-  const url = new URL(OLLAMA_URL);
+function extractAnthropicText(data) {
+  const content = data?.content;
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => (typeof part?.text === "string" ? part.text : ""))
+    .join("")
+    .trim();
+}
+
+function getOllamaTagsUrl(chatUrl = OLLAMA_URL) {
+  const url = new URL(chatUrl || OLLAMA_URL);
   url.pathname = "/api/tags";
   url.search = "";
   url.hash = "";
@@ -312,14 +421,15 @@ function buildModelCandidates(model = "") {
   return [...new Set([clean, `${baseName}:latest`, baseName])];
 }
 
-async function listInstalledModels({ forceRefresh = false } = {}) {
+async function listInstalledModels({ forceRefresh = false, url = OLLAMA_URL } = {}) {
   const now = Date.now();
+  const tagsUrl = getOllamaTagsUrl(url);
 
-  if (!forceRefresh && now - installedModelsCache.fetchedAt < MODEL_CACHE_TTL_MS) {
+  if (!forceRefresh && installedModelsCache.url === tagsUrl && now - installedModelsCache.fetchedAt < MODEL_CACHE_TTL_MS) {
     return installedModelsCache.names;
   }
 
-  const response = await fetch(getOllamaTagsUrl(), {
+  const response = await fetch(tagsUrl, {
     method: "GET"
   });
 
@@ -334,14 +444,15 @@ async function listInstalledModels({ forceRefresh = false } = {}) {
 
   installedModelsCache = {
     fetchedAt: now,
+    url: tagsUrl,
     names
   };
 
   return names;
 }
 
-async function resolveAvailableModel(requestedModel = CHAT_MODEL) {
-  const installed = await listInstalledModels();
+async function resolveAvailableModel(requestedModel = CHAT_MODEL, url = OLLAMA_URL) {
+  const installed = await listInstalledModels({ url });
   const normalizedInstalled = installed.map((name) => normalizeModelName(name));
   const candidates = buildModelCandidates(requestedModel);
 
@@ -358,7 +469,7 @@ async function resolveAvailableModel(requestedModel = CHAT_MODEL) {
 
 async function chatWithOllama({ systemPrompt, userPrompt, history = [], model = CHAT_MODEL, url = OLLAMA_URL }) {
   const messages = buildMessageList({ systemPrompt, userPrompt, history });
-  const primaryModel = await resolveAvailableModel(model);
+  const primaryModel = await resolveAvailableModel(model, url);
   const attemptedModels = new Set();
   let lastError = null;
 
@@ -402,7 +513,7 @@ async function chatWithOllama({ systemPrompt, userPrompt, history = [], model = 
     }
 
     try {
-      const refreshedModel = await resolveAvailableModel(model);
+      const refreshedModel = await resolveAvailableModel(model, url);
       buildModelCandidates(refreshedModel).forEach((name) => attemptedModels.delete(name));
     } catch (_error) {
       // Ignore model refresh failures and keep trying known candidates.
@@ -506,6 +617,56 @@ async function chatWithOpenAICompatible({
   return text;
 }
 
+async function chatWithAnthropic({
+  systemPrompt,
+  userPrompt,
+  history = [],
+  model = defaultModelForProvider("anthropic"),
+  url = defaultUrlForProvider("anthropic"),
+  apiKey = defaultApiKeyForProvider("anthropic")
+}) {
+  if (!apiKey) {
+    throw new Error("Anthropic API key is missing. Set ANTHROPIC_API_KEY or add it in Jarvis settings.");
+  }
+
+  const messages = [...history, { role: "user", content: userPrompt }]
+    .filter((message) => message?.content)
+    .map((message) => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: String(message.content)
+    }));
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 2048,
+      temperature: 0.35,
+      system: systemPrompt || buildBasePrompt(),
+      messages
+    })
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(`Anthropic request failed: ${extractErrorDetail(data, `status ${response.status}`)}`);
+  }
+
+  const text = extractAnthropicText(data);
+
+  if (!text) {
+    throw new Error("Anthropic returned an empty response.");
+  }
+
+  return text;
+}
+
 function resolveConfig({ tier = "complex", provider, model, url, apiKey } = {}) {
   const resolvedProvider = resolveProviderForTier(tier, provider);
 
@@ -554,6 +715,17 @@ async function chat({ systemPrompt, userPrompt, history = [], model, tier = "com
     });
   }
 
+  if (config.provider === "anthropic") {
+    return chatWithAnthropic({
+      systemPrompt,
+      userPrompt,
+      history,
+      model: config.model,
+      url: config.url,
+      apiKey: config.apiKey
+    });
+  }
+
   return chatWithOllama({
     systemPrompt,
     userPrompt,
@@ -584,5 +756,7 @@ module.exports = {
   normalizeOpenAICompatibleUrl,
   normalizeProvider,
   resolveAvailableModel,
-  resolveConfig
+  resolveConfig,
+  isUnconfiguredAutoFallback,
+  setExternalLlmSettingsProvider
 };

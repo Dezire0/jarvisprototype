@@ -30,7 +30,12 @@ const { DesktopUiServer } = require("./desktop-ui-server.cjs");
 const { ExtensionsService } = require("./extensions-service.cjs");
 const { FileService } = require("./file-service.cjs");
 const { GameService } = require("./game-service.cjs");
-const { getTierProviderLabel, setExternalApiKeyProvider } = require("./ollama-service.cjs");
+const {
+  getTierProviderLabel,
+  listInstalledModels,
+  setExternalApiKeyProvider,
+  setExternalLlmSettingsProvider
+} = require("./ollama-service.cjs");
 const { MemoryStore } = require("./memory-store.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
@@ -112,8 +117,15 @@ async function createServices() {
 
   setExternalApiKeyProvider((provider) => {
     if (provider === "gemini") return settings.getGeminiApiKey();
+    if (provider === "openai" || provider === "openai-compatible") {
+      return settings.getConversationModelSettings().openai.apiKey;
+    }
+    if (provider === "anthropic" || provider === "claude") {
+      return settings.getConversationModelSettings().anthropic.apiKey;
+    }
     return null;
   });
+  setExternalLlmSettingsProvider(() => settings.getConversationModelSettings());
   const extensions = new ExtensionsService({ app });
   await extensions.load();
   const browser = new BrowserService({
@@ -942,6 +954,17 @@ async function dispatchTool(tool, payload = {}) {
         checkedAt: state.checkedAt
       };
     }
+    case "ai:ollama-models": {
+      const models = await listInstalledModels({
+        forceRefresh: Boolean(payload.forceRefresh),
+        url: payload.url
+      });
+      return {
+        ok: true,
+        tool,
+        models
+      };
+    }
     case "auth:session-save": {
       if (payload.token) {
         piiManager.set("auth.token", String(payload.token));
@@ -1156,12 +1179,29 @@ ipcMain.handle("assistant:save-tts-settings", async (_event, payload) => {
   };
 });
 
+ipcMain.handle("assistant:get-conversation-model-settings", async () => {
+  const { services: liveServices } = ensureReadyServices();
+
+  return {
+    settings: liveServices.settings.getConversationModelSettingsView()
+  };
+});
+
+ipcMain.handle("assistant:save-conversation-model-settings", async (_event, payload) => {
+  const { services: liveServices } = ensureReadyServices();
+  const settings = await liveServices.settings.updateConversationModelSettings(payload);
+
+  return {
+    settings
+  };
+});
+
 ipcMain.handle("assistant:get-gemini-status", async () => {
   const { services: liveServices } = ensureReadyServices();
   const key = liveServices.settings.getGeminiApiKey();
   return {
     configured: Boolean(key),
-    model: "gemini-2.0-flash"
+    model: "gemini-2.5-flash"
   };
 });
 

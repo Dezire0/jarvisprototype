@@ -8,6 +8,11 @@ const MANAGED_ENV_KEYS = [
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OPENAI_LLM_MODEL",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_LLM_MODEL",
+  "CLAUDE_API_KEY",
+  "CLAUDE_LLM_MODEL",
   "JARVIS_FAST_LLM_PROVIDER",
   "JARVIS_FAST_LLM_MODEL",
   "JARVIS_FAST_ROUTER_MODEL",
@@ -101,6 +106,40 @@ test("llm service auto mode falls back to Ollama when no remote provider is conf
       assert.equal(complex.provider, "ollama");
       assert.equal(complex.model, "qwen3:14b");
       assert.equal(complex.url, "http://127.0.0.1:11434/api/chat");
+      assert.equal(service.isUnconfiguredAutoFallback({ tier: "complex" }), true);
     }
   );
+});
+
+test("llm service does not treat explicitly selected Ollama as an unconfigured fallback", () => {
+  withFreshLlmModule(
+    {
+      JARVIS_FAST_LLM_PROVIDER: "ollama",
+      JARVIS_COMPLEX_LLM_PROVIDER: "ollama"
+    },
+    (service) => {
+      assert.equal(service.resolveConfig({ tier: "complex" }).provider, "ollama");
+      assert.equal(service.isUnconfiguredAutoFallback({ tier: "complex" }), false);
+    }
+  );
+});
+
+test("llm service uses saved Claude settings when selected", () => {
+  withFreshLlmModule({}, (service) => {
+    service.setExternalLlmSettingsProvider(() => ({
+      provider: "anthropic",
+      anthropic: {
+        apiKey: "claude-test-key",
+        model: "claude-test-model",
+        baseUrl: "https://api.anthropic.com/v1/messages"
+      }
+    }));
+
+    const config = service.resolveConfig({ tier: "complex" });
+
+    assert.equal(config.provider, "anthropic");
+    assert.equal(config.model, "claude-test-model");
+    assert.equal(config.apiKey, "claude-test-key");
+    assert.equal(config.url, "https://api.anthropic.com/v1/messages");
+  });
 });

@@ -43,9 +43,46 @@ const DEFAULT_TTS_SETTINGS = {
   }
 };
 
+const DEFAULT_CONVERSATION_MODEL_SETTINGS = {
+  provider: "auto",
+  openai: {
+    model: "gpt-4o-mini",
+    baseUrl: "",
+    apiKeyEncrypted: ""
+  },
+  anthropic: {
+    model: "claude-3-5-haiku-latest",
+    baseUrl: "",
+    apiKeyEncrypted: ""
+  },
+  gemini: {
+    model: "gemini-2.5-flash",
+    apiKeyEncrypted: ""
+  },
+  ollama: {
+    model: "qwen3:14b",
+    url: ""
+  }
+};
+
 function createDefaultSettings() {
   return {
     version: 1,
+    conversationModel: {
+      provider: DEFAULT_CONVERSATION_MODEL_SETTINGS.provider,
+      openai: {
+        ...DEFAULT_CONVERSATION_MODEL_SETTINGS.openai
+      },
+      anthropic: {
+        ...DEFAULT_CONVERSATION_MODEL_SETTINGS.anthropic
+      },
+      gemini: {
+        ...DEFAULT_CONVERSATION_MODEL_SETTINGS.gemini
+      },
+      ollama: {
+        ...DEFAULT_CONVERSATION_MODEL_SETTINGS.ollama
+      }
+    },
     tts: {
       providers: {
         ...DEFAULT_TTS_SETTINGS.providers
@@ -80,6 +117,23 @@ function trimmedOrFallback(value, fallback) {
 
   const trimmed = String(value).trim();
   return trimmed || fallback;
+}
+
+function normalizeConversationProvider(value = "", fallback = "auto") {
+  const normalized = String(value || "").trim().toLowerCase();
+  const aliases = {
+    auto: "auto",
+    ollama: "ollama",
+    openai: "openai-compatible",
+    gpt: "openai-compatible",
+    "openai-compatible": "openai-compatible",
+    anthropic: "anthropic",
+    claude: "anthropic",
+    gemini: "gemini",
+    google: "gemini"
+  };
+
+  return aliases[normalized] || fallback;
 }
 
 class SettingsStore {
@@ -119,9 +173,32 @@ class SettingsStore {
   normalize(raw = {}) {
     const defaults = createDefaultSettings();
     const storedTts = raw.tts || {};
+    const storedConversation = raw.conversationModel || raw.llm || {};
 
     return {
       version: 1,
+      geminiApiKeyEncrypted: String(raw.geminiApiKeyEncrypted || ""),
+      conversationModel: {
+        provider: normalizeConversationProvider(storedConversation.provider, defaults.conversationModel.provider),
+        openai: {
+          model: trimmedOrFallback(storedConversation.openai?.model, defaults.conversationModel.openai.model),
+          baseUrl: String(storedConversation.openai?.baseUrl || "").trim(),
+          apiKeyEncrypted: String(storedConversation.openai?.apiKeyEncrypted || "")
+        },
+        anthropic: {
+          model: trimmedOrFallback(storedConversation.anthropic?.model, defaults.conversationModel.anthropic.model),
+          baseUrl: String(storedConversation.anthropic?.baseUrl || "").trim(),
+          apiKeyEncrypted: String(storedConversation.anthropic?.apiKeyEncrypted || "")
+        },
+        gemini: {
+          model: trimmedOrFallback(storedConversation.gemini?.model, defaults.conversationModel.gemini.model),
+          apiKeyEncrypted: String(storedConversation.gemini?.apiKeyEncrypted || raw.geminiApiKeyEncrypted || "")
+        },
+        ollama: {
+          model: trimmedOrFallback(storedConversation.ollama?.model, defaults.conversationModel.ollama.model),
+          url: String(storedConversation.ollama?.url || "").trim()
+        }
+      },
       tts: {
         providers: {
           en: trimmedOrFallback(storedTts.providers?.en, defaults.tts.providers.en),
@@ -232,6 +309,102 @@ class SettingsStore {
     };
   }
 
+  getConversationModelSettings() {
+    const settings = this.cache.conversationModel || createDefaultSettings().conversationModel;
+
+    return {
+      provider: settings.provider,
+      openai: {
+        model: settings.openai.model,
+        baseUrl: settings.openai.baseUrl,
+        apiKey: this.decryptSecret(settings.openai.apiKeyEncrypted)
+      },
+      anthropic: {
+        model: settings.anthropic.model,
+        baseUrl: settings.anthropic.baseUrl,
+        apiKey: this.decryptSecret(settings.anthropic.apiKeyEncrypted)
+      },
+      gemini: {
+        model: settings.gemini.model,
+        apiKey: this.decryptSecret(settings.gemini.apiKeyEncrypted)
+      },
+      ollama: {
+        model: settings.ollama.model,
+        url: settings.ollama.url
+      }
+    };
+  }
+
+  getConversationModelSettingsView() {
+    const settings = this.getConversationModelSettings();
+
+    return {
+      provider: settings.provider,
+      openai: {
+        configured: Boolean(settings.openai.apiKey),
+        model: settings.openai.model,
+        baseUrl: settings.openai.baseUrl
+      },
+      anthropic: {
+        configured: Boolean(settings.anthropic.apiKey),
+        model: settings.anthropic.model,
+        baseUrl: settings.anthropic.baseUrl
+      },
+      gemini: {
+        configured: Boolean(settings.gemini.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+        model: settings.gemini.model
+      },
+      ollama: {
+        model: settings.ollama.model,
+        url: settings.ollama.url
+      }
+    };
+  }
+
+  async updateConversationModelSettings(patch = {}) {
+    const current = this.cache.conversationModel || createDefaultSettings().conversationModel;
+    const next = this.normalize({
+      ...this.cache,
+      conversationModel: {
+        provider: normalizeConversationProvider(patch.provider, current.provider),
+        openai: {
+          model: trimmedOrFallback(patch.openai?.model, current.openai.model),
+          baseUrl: patch.openai?.baseUrl !== undefined
+            ? String(patch.openai.baseUrl || "").trim()
+            : current.openai.baseUrl,
+          apiKeyEncrypted: String(patch.openai?.apiKey || "").trim()
+            ? this.encryptSecret(String(patch.openai.apiKey).trim())
+            : current.openai.apiKeyEncrypted
+        },
+        anthropic: {
+          model: trimmedOrFallback(patch.anthropic?.model, current.anthropic.model),
+          baseUrl: patch.anthropic?.baseUrl !== undefined
+            ? String(patch.anthropic.baseUrl || "").trim()
+            : current.anthropic.baseUrl,
+          apiKeyEncrypted: String(patch.anthropic?.apiKey || "").trim()
+            ? this.encryptSecret(String(patch.anthropic.apiKey).trim())
+            : current.anthropic.apiKeyEncrypted
+        },
+        gemini: {
+          model: trimmedOrFallback(patch.gemini?.model, current.gemini.model),
+          apiKeyEncrypted: String(patch.gemini?.apiKey || "").trim()
+            ? this.encryptSecret(String(patch.gemini.apiKey).trim())
+            : current.gemini.apiKeyEncrypted
+        },
+        ollama: {
+          model: trimmedOrFallback(patch.ollama?.model, current.ollama.model),
+          url: patch.ollama?.url !== undefined
+            ? String(patch.ollama.url || "").trim()
+            : current.ollama.url
+        }
+      }
+    });
+
+    this.cache = next;
+    await this.writeCache();
+    return this.getConversationModelSettingsView();
+  }
+
   getTtsSettingsView() {
     const tts = this.getTtsSettings();
 
@@ -279,6 +452,7 @@ class SettingsStore {
   async updateTtsSettings(patch = {}) {
     const current = this.cache.tts || createDefaultSettings().tts;
     const next = this.normalize({
+      ...this.cache,
       version: 1,
       tts: {
         providers: {
@@ -342,11 +516,20 @@ class SettingsStore {
   }
 
   getGeminiApiKey() {
-    return this.decryptSecret(this.cache.geminiApiKeyEncrypted) || process.env.GEMINI_API_KEY || "";
+    return (
+      this.getConversationModelSettings().gemini.apiKey ||
+      this.decryptSecret(this.cache.geminiApiKeyEncrypted) ||
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      ""
+    );
   }
 
   async updateGeminiApiKey(key = "") {
-    this.cache.geminiApiKeyEncrypted = this.encryptSecret(String(key).trim());
+    const encrypted = this.encryptSecret(String(key).trim());
+    this.cache.geminiApiKeyEncrypted = encrypted;
+    this.cache.conversationModel = this.cache.conversationModel || createDefaultSettings().conversationModel;
+    this.cache.conversationModel.gemini.apiKeyEncrypted = encrypted;
     await this.writeCache();
     return { success: true };
   }
