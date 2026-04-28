@@ -51,7 +51,7 @@ const DEFAULT_CONVERSATION_MODEL_SETTINGS = {
     apiKeyEncrypted: ""
   },
   anthropic: {
-    model: "claude-3-5-haiku-latest",
+    model: "claude-haiku-4-5",
     baseUrl: "",
     apiKeyEncrypted: ""
   },
@@ -62,6 +62,10 @@ const DEFAULT_CONVERSATION_MODEL_SETTINGS = {
   ollama: {
     model: "qwen3:14b",
     url: ""
+  },
+  web: {
+    provider: "",
+    model: "auto"
   }
 };
 
@@ -81,6 +85,9 @@ function createDefaultSettings() {
       },
       ollama: {
         ...DEFAULT_CONVERSATION_MODEL_SETTINGS.ollama
+      },
+      web: {
+        ...DEFAULT_CONVERSATION_MODEL_SETTINGS.web
       }
     },
     tts: {
@@ -127,9 +134,15 @@ function normalizeConversationProvider(value = "", fallback = "auto") {
     openai: "openai-compatible",
     gpt: "openai-compatible",
     "openai-compatible": "openai-compatible",
+    "openai-cli": "openai-cli",
+    "gpt-cli": "openai-cli",
+    "codex-cli": "openai-cli",
+    codex: "openai-cli",
+    "claude-code": "claude-code",
     anthropic: "anthropic",
     claude: "anthropic",
     gemini: "gemini",
+    "gemini-cli": "gemini-cli",
     google: "gemini"
   };
 
@@ -197,6 +210,10 @@ class SettingsStore {
         ollama: {
           model: trimmedOrFallback(storedConversation.ollama?.model, defaults.conversationModel.ollama.model),
           url: String(storedConversation.ollama?.url || "").trim()
+        },
+        web: {
+          provider: String(storedConversation.web?.provider || "").trim(),
+          model: trimmedOrFallback(storedConversation.web?.model, defaults.conversationModel.web.model)
         }
       },
       tts: {
@@ -331,42 +348,79 @@ class SettingsStore {
       ollama: {
         model: settings.ollama.model,
         url: settings.ollama.url
+      },
+      web: {
+        provider: settings.web?.provider || "",
+        model: settings.web?.model || "auto"
       }
     };
   }
 
   getConversationModelSettingsView() {
-    const settings = this.getConversationModelSettings();
+    const defaults = createDefaultSettings().conversationModel;
+    const current = this.cache.conversationModel || defaults;
+    const settings = {
+      provider: current.provider || defaults.provider,
+      openai: {
+        ...defaults.openai,
+        ...(current.openai || {})
+      },
+      anthropic: {
+        ...defaults.anthropic,
+        ...(current.anthropic || {})
+      },
+      gemini: {
+        ...defaults.gemini,
+        ...(current.gemini || {})
+      },
+      ollama: {
+        ...defaults.ollama,
+        ...(current.ollama || {})
+      },
+      web: {
+        ...defaults.web,
+        ...(current.web || {})
+      }
+    };
 
     return {
       provider: settings.provider,
       openai: {
-        configured: Boolean(settings.openai.apiKey),
+        configured: Boolean(settings.openai.apiKeyEncrypted),
         model: settings.openai.model,
         baseUrl: settings.openai.baseUrl
       },
       anthropic: {
-        configured: Boolean(settings.anthropic.apiKey),
+        configured: Boolean(settings.anthropic.apiKeyEncrypted),
         model: settings.anthropic.model,
         baseUrl: settings.anthropic.baseUrl
       },
       gemini: {
-        configured: Boolean(settings.gemini.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+        configured: Boolean(settings.gemini.apiKeyEncrypted || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
         model: settings.gemini.model
       },
       ollama: {
         model: settings.ollama.model,
         url: settings.ollama.url
+      },
+      web: {
+        provider: settings.web?.provider || "",
+        model: settings.web?.model || "auto"
       }
     };
   }
 
   async updateConversationModelSettings(patch = {}) {
     const current = this.cache.conversationModel || createDefaultSettings().conversationModel;
+    const nextWebProvider = patch.web?.provider !== undefined
+      ? String(patch.web.provider || "").trim()
+      : current.web?.provider || "";
     const next = this.normalize({
       ...this.cache,
       conversationModel: {
-        provider: normalizeConversationProvider(patch.provider, current.provider),
+        provider: nextWebProvider
+          ? "auto"
+          : normalizeConversationProvider(patch.provider, current.provider),
         openai: {
           model: trimmedOrFallback(patch.openai?.model, current.openai.model),
           baseUrl: patch.openai?.baseUrl !== undefined
@@ -396,6 +450,10 @@ class SettingsStore {
           url: patch.ollama?.url !== undefined
             ? String(patch.ollama.url || "").trim()
             : current.ollama.url
+        },
+        web: {
+          provider: nextWebProvider,
+          model: trimmedOrFallback(patch.web?.model, current.web?.model || "auto")
         }
       }
     });

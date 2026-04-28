@@ -1150,8 +1150,11 @@ function updateConversationModelSummary(settings = {}) {
   const providerNames = {
     auto: "자동 선택",
     "openai-compatible": "GPT / OpenAI API",
-    anthropic: "Claude API",
+    "openai-cli": "GPT / Codex CLI",
+    anthropic: "Anthropic API",
+    "claude-code": "Claude Code CLI",
     gemini: "Gemini API",
+    "gemini-cli": "Gemini CLI",
     ollama: "로컬 모델 연결"
   };
   const configured = [
@@ -1163,9 +1166,17 @@ function updateConversationModelSummary(settings = {}) {
 
   conversationModelStatus.textContent = settings.provider === "ollama"
     ? `현재 선택: ${providerLabel} / ${settings.ollama?.model || "qwen3:14b"}`
+    : settings.provider === "openai-cli"
+      ? `현재 선택: ${providerLabel} / ${settings.openai?.model || "gpt-4o-mini"}`
+    : settings.provider === "gemini-cli"
+      ? `현재 선택: ${providerLabel} / ${settings.gemini?.model || "gemini-2.5-flash"}`
+    : settings.provider === "claude-code"
+      ? `현재 선택: ${providerLabel} / ${settings.anthropic?.model || "claude-haiku-4-5"}`
     : `현재 선택: ${providerLabel} / ${configured}`;
-  aiManagerBadge.textContent = settings.openai?.configured || settings.anthropic?.configured || settings.gemini?.configured
-    ? "API ready"
+  aiManagerBadge.textContent = ["openai-cli", "gemini-cli", "claude-code"].includes(settings.provider)
+    ? "oauth"
+    : settings.openai?.configured || settings.anthropic?.configured || settings.gemini?.configured
+      ? "API ready"
     : settings.provider === "ollama"
       ? "local"
     : "local";
@@ -1181,7 +1192,7 @@ function populateConversationModelSettings(payload = {}) {
   conversationProvider.value = settings.provider || "auto";
   openaiChatModel.value = openai.model || "gpt-4o-mini";
   openaiChatBaseUrl.value = openai.baseUrl || "";
-  anthropicModel.value = anthropic.model || "claude-3-5-haiku-latest";
+  anthropicModel.value = anthropic.model || "claude-haiku-4-5";
   geminiChatModel.value = gemini.model || "gemini-2.5-flash";
   ollamaChatModel.value = ollama.model || "qwen3:14b";
   ollamaChatUrl.value = ollama.url || "";

@@ -1,7 +1,112 @@
+const { execFile } = require("node:child_process");
+const fsSync = require("node:fs");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { promisify } = require("node:util");
+
+const execFileAsync = promisify(execFile);
 const DEFAULT_MODEL = process.env.JARVIS_MODEL || "qwen3:14b";
 const CHAT_MODEL = process.env.JARVIS_CHAT_MODEL || DEFAULT_MODEL;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434/api/chat";
 const MODEL_CACHE_TTL_MS = 30_000;
+const CLI_EXTRA_PATHS = [
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  path.join(os.homedir(), ".local", "bin"),
+  path.join(os.homedir(), ".npm-global", "bin"),
+  path.join(os.homedir(), ".bun", "bin")
+];
+const CLAUDE_CODE_COMMAND = pickFirstNonEmpty(
+  process.env.CLAUDE_CODE_BIN,
+  resolveCliCommand("claude", buildCommonCliCandidates("claude"))
+);
+const CLAUDE_CODE_ALLOWED_TOOLS = "Read,Grep,Glob";
+const CLAUDE_CODE_TIMEOUT_MS = 120_000;
+const CLAUDE_CODE_MAX_TURNS = 6;
+const OPENAI_CLI_COMMAND = pickFirstNonEmpty(
+  process.env.CODEX_CLI_BIN,
+  process.env.OPENAI_CLI_BIN,
+  resolveCliCommand("codex", buildCodexCliCandidates())
+);
+const GEMINI_CLI_COMMAND = pickFirstNonEmpty(
+  process.env.GEMINI_CLI_BIN,
+  resolveCliCommand("gemini", buildCommonCliCandidates("gemini"))
+);
+const CLI_LLM_TIMEOUT_MS = 180_000;
+
+function fileExists(filePath = "") {
+  try {
+    return Boolean(filePath) && fsSync.existsSync(filePath);
+  } catch (_error) {
+    return false;
+  }
+}
+
+function buildCliPath() {
+  return [
+    process.env.PATH,
+    ...CLI_EXTRA_PATHS
+  ]
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+    .join(path.delimiter);
+}
+
+function buildCliEnv() {
+  return {
+    ...process.env,
+    PATH: buildCliPath()
+  };
+}
+
+function buildCommonCliCandidates(command = "") {
+  return CLI_EXTRA_PATHS.map((dir) => path.join(dir, command));
+}
+
+function buildCodexCliCandidates() {
+  const extensionRoot = path.join(os.homedir(), ".vscode", "extensions");
+  const extensionCandidates = [];
+
+  try {
+    const extensions = fsSync.readdirSync(extensionRoot, { withFileTypes: true });
+    extensions
+      .filter((entry) => entry.isDirectory() && /^openai\.chatgpt-/i.test(entry.name))
+      .forEach((entry) => {
+        const base = path.join(extensionRoot, entry.name, "bin");
+        ["macos-aarch64", "macos-x64", "linux-x64", "linux-arm64"].forEach((platform) => {
+          extensionCandidates.push(path.join(base, platform, "codex"));
+        });
+      });
+  } catch (_error) {
+    // VS Code extension fallback is best-effort; PATH and env overrides still work.
+  }
+
+  return [
+    ...buildCommonCliCandidates("codex"),
+    ...extensionCandidates
+  ];
+}
+
+function resolveCliCommand(command = "", candidates = []) {
+  const requested = String(command || "").trim();
+  if (!requested) {
+    return "";
+  }
+
+  if (requested.includes(path.sep) || path.isAbsolute(requested)) {
+    return requested;
+  }
+
+  for (const dir of buildCliPath().split(path.delimiter)) {
+    const candidate = path.join(dir, requested);
+    if (fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates.find(fileExists) || requested;
+}
 
 function normalizeProvider(value = "", fallback = "auto") {
   const normalized = String(value || "").trim().toLowerCase();
@@ -18,6 +123,12 @@ function normalizeProvider(value = "", fallback = "auto") {
     jan: "openai-compatible",
     anythingllm: "openai-compatible",
     openwebui: "openai-compatible",
+    "openai-cli": "openai-cli",
+    "gpt-cli": "openai-cli",
+    "codex-cli": "openai-cli",
+    codex: "openai-cli",
+    "gemini-cli": "gemini-cli",
+    "claude-code": "claude-code",
     anthropic: "anthropic",
     claude: "anthropic"
   };
@@ -217,8 +328,20 @@ function defaultModelForProvider(provider = "ollama") {
     return settings?.openai?.model || process.env.OPENAI_LLM_MODEL || "gpt-4o-mini";
   }
 
+  if (provider === "openai-cli") {
+    return settings?.openai?.model || process.env.OPENAI_LLM_MODEL || "gpt-4o-mini";
+  }
+
+  if (provider === "gemini-cli") {
+    return settings?.gemini?.model || process.env.GEMINI_LLM_MODEL || "gemini-2.5-flash";
+  }
+
   if (provider === "anthropic") {
-    return settings?.anthropic?.model || process.env.ANTHROPIC_LLM_MODEL || process.env.CLAUDE_LLM_MODEL || "claude-3-5-haiku-latest";
+    return settings?.anthropic?.model || process.env.ANTHROPIC_LLM_MODEL || process.env.CLAUDE_LLM_MODEL || "claude-haiku-4-5";
+  }
+
+  if (provider === "claude-code") {
+    return settings?.anthropic?.model || process.env.CLAUDE_LLM_MODEL || process.env.ANTHROPIC_LLM_MODEL || "claude-haiku-4-5";
   }
 
   return settings?.ollama?.model || CHAT_MODEL;
@@ -240,6 +363,14 @@ function defaultUrlForProvider(provider = "ollama") {
     return pickFirstNonEmpty(settings?.anthropic?.baseUrl, process.env.ANTHROPIC_BASE_URL, "https://api.anthropic.com/v1/messages");
   }
 
+  if (provider === "claude-code") {
+    return "";
+  }
+
+  if (provider === "openai-cli" || provider === "gemini-cli") {
+    return "";
+  }
+
   return settings?.ollama?.url || OLLAMA_URL;
 }
 
@@ -256,7 +387,269 @@ function defaultApiKeyForProvider(provider = "ollama") {
     return getAnthropicApiKey();
   }
 
+  if (provider === "claude-code") {
+    return "";
+  }
+
+  if (provider === "openai-cli" || provider === "gemini-cli") {
+    return "";
+  }
+
   return "";
+}
+
+function buildCliPrompt({ systemPrompt = "", history = [], userPrompt = "" } = {}) {
+  const blocks = [];
+
+  if (systemPrompt) {
+    blocks.push(`System:\n${String(systemPrompt).trim()}`);
+  }
+
+  const conversation = history
+    .filter((message) => String(message?.content || "").trim())
+    .map((message) => {
+      const role = message.role === "assistant" ? "Assistant" : "User";
+      return `${role}:\n${String(message.content).trim()}`;
+    })
+    .join("\n\n");
+
+  if (conversation) {
+    blocks.push(conversation);
+  }
+
+  blocks.push(`User:\n${String(userPrompt || "").trim()}`);
+  return blocks.filter(Boolean).join("\n\n");
+}
+
+function extractCliText(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(extractCliText).filter(Boolean).join("\n").trim();
+  }
+
+  if (typeof value === "object") {
+    for (const key of ["result", "response", "text", "content", "message", "output", "structured_output"]) {
+      const text = extractCliText(value[key]);
+      if (text) {
+        return text;
+      }
+    }
+  }
+
+  return "";
+}
+
+function parseCliOutput(stdout = "") {
+  const text = String(stdout || "").trim();
+
+  if (!text) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+    return extractCliText(parsed) || text;
+  } catch (_error) {
+    // Fall back to plain text output if the CLI did not emit JSON.
+  }
+
+  return text;
+}
+
+async function withTempFile(prefix, callback) {
+  const filePath = path.join(
+    os.tmpdir(),
+    `${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
+  );
+
+  try {
+    return await callback(filePath);
+  } finally {
+    await fs.rm(filePath, { force: true }).catch(() => {});
+  }
+}
+
+function buildCliError(label, error) {
+  if (error?.code === "ENOENT") {
+    return new Error(`${label} CLI is not installed or is not on PATH.`);
+  }
+
+  if (error?.killed || error?.signal === "SIGTERM") {
+    return new Error(`${label} CLI timed out while generating a reply.`);
+  }
+
+  const detail = pickFirstNonEmpty(error?.stderr, error?.stdout, error?.message, `Unknown ${label} CLI error`);
+  return new Error(`${label} CLI request failed: ${detail}`);
+}
+
+async function chatWithOpenAICli({
+  systemPrompt,
+  userPrompt,
+  history = [],
+  model = defaultModelForProvider("openai-cli")
+}) {
+  const prompt = buildCliPrompt({
+    systemPrompt,
+    history,
+    userPrompt
+  });
+
+  if (!prompt) {
+    throw new Error("OpenAI CLI prompt is empty.");
+  }
+
+  return withTempFile("jarvis-codex-reply", async (outputPath) => {
+    const args = [
+      "exec",
+      "--skip-git-repo-check",
+      "--ephemeral",
+      "--sandbox",
+      "read-only",
+      "--output-last-message",
+      outputPath,
+      "-C",
+      process.cwd()
+    ];
+
+    if (model) {
+      args.push("--model", String(model));
+    }
+
+    args.push(prompt);
+
+    try {
+      const { stdout } = await execFileAsync(OPENAI_CLI_COMMAND, args, {
+        cwd: process.cwd(),
+        env: buildCliEnv(),
+        timeout: CLI_LLM_TIMEOUT_MS,
+        maxBuffer: 4 * 1024 * 1024
+      });
+      const fileText = await fs.readFile(outputPath, "utf8").catch(() => "");
+      const text = parseCliOutput(fileText || stdout);
+
+      if (!text) {
+        throw new Error("OpenAI CLI returned an empty response.");
+      }
+
+      return text;
+    } catch (error) {
+      throw buildCliError("OpenAI/Codex", error);
+    }
+  });
+}
+
+async function chatWithGeminiCli({
+  systemPrompt,
+  userPrompt,
+  history = [],
+  model = defaultModelForProvider("gemini-cli")
+}) {
+  const prompt = buildCliPrompt({
+    systemPrompt,
+    history,
+    userPrompt
+  });
+
+  if (!prompt) {
+    throw new Error("Gemini CLI prompt is empty.");
+  }
+
+  const args = ["--prompt", prompt, "--output-format", "json"];
+
+  if (model) {
+    args.push("--model", String(model));
+  }
+
+  try {
+    const { stdout } = await execFileAsync(GEMINI_CLI_COMMAND, args, {
+      cwd: process.cwd(),
+      env: buildCliEnv(),
+      timeout: CLI_LLM_TIMEOUT_MS,
+      maxBuffer: 4 * 1024 * 1024
+    });
+    const text = parseCliOutput(stdout);
+
+    if (!text) {
+      throw new Error("Gemini CLI returned an empty response.");
+    }
+
+    return text;
+  } catch (error) {
+    throw buildCliError("Gemini", error);
+  }
+}
+
+async function chatWithClaudeCode({
+  systemPrompt,
+  userPrompt,
+  history = [],
+  model = defaultModelForProvider("claude-code")
+}) {
+  const prompt = buildCliPrompt({
+    history,
+    userPrompt
+  });
+
+  if (!prompt) {
+    throw new Error("Claude Code prompt is empty.");
+  }
+
+  const args = [
+    "-p",
+    prompt,
+    "--output-format",
+    "json",
+    "--max-turns",
+    String(CLAUDE_CODE_MAX_TURNS),
+    "--tools",
+    CLAUDE_CODE_ALLOWED_TOOLS,
+    "--permission-mode",
+    "dontAsk"
+  ];
+
+  if (systemPrompt) {
+    args.push("--append-system-prompt", String(systemPrompt));
+  }
+
+  if (model) {
+    args.push("--model", String(model));
+  }
+
+  try {
+    const { stdout } = await execFileAsync(CLAUDE_CODE_COMMAND, args, {
+      cwd: process.cwd(),
+      env: buildCliEnv(),
+      timeout: CLAUDE_CODE_TIMEOUT_MS,
+      maxBuffer: 4 * 1024 * 1024
+    });
+    const text = parseClaudeCodeOutput(stdout);
+
+    if (!text) {
+      throw new Error("Claude Code returned an empty response.");
+    }
+
+    return text;
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error(
+        "Claude Code CLI is not installed. Install Claude Code and sign in with `claude auth login` or run `claude` once."
+      );
+    }
+
+    if (error?.killed || error?.signal === "SIGTERM") {
+      throw new Error("Claude Code CLI timed out while generating a reply.");
+    }
+
+    const detail = pickFirstNonEmpty(error?.stderr, error?.stdout, error?.message, "Unknown Claude Code error");
+    throw new Error(`Claude Code request failed: ${detail}`);
+  }
 }
 
 const FAST_LLM_PROVIDER = resolveProviderForTier("fast");
@@ -704,6 +1097,24 @@ async function chat({ systemPrompt, userPrompt, history = [], model, tier = "com
     });
   }
 
+  if (config.provider === "gemini-cli") {
+    return chatWithGeminiCli({
+      systemPrompt,
+      userPrompt,
+      history,
+      model: config.model
+    });
+  }
+
+  if (config.provider === "openai-cli") {
+    return chatWithOpenAICli({
+      systemPrompt,
+      userPrompt,
+      history,
+      model: config.model
+    });
+  }
+
   if (config.provider === "openai-compatible") {
     return chatWithOpenAICompatible({
       systemPrompt,
@@ -723,6 +1134,15 @@ async function chat({ systemPrompt, userPrompt, history = [], model, tier = "com
       model: config.model,
       url: config.url,
       apiKey: config.apiKey
+    });
+  }
+
+  if (config.provider === "claude-code") {
+    return chatWithClaudeCode({
+      systemPrompt,
+      userPrompt,
+      history,
+      model: config.model
     });
   }
 
@@ -751,6 +1171,8 @@ module.exports = {
   buildBasePrompt,
   detectLanguageCode,
   getTierProviderLabel,
+  getExternalLlmSettings,
+  getRequestedProviderForTier,
   setExternalApiKeyProvider,
   listInstalledModels,
   normalizeOpenAICompatibleUrl,

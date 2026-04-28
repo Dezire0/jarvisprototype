@@ -126,6 +126,7 @@ async function createServices() {
     return null;
   });
   setExternalLlmSettingsProvider(() => settings.getConversationModelSettings());
+  unofficialAI.setWebModelProvider(() => settings.getConversationModelSettings().web);
   const extensions = new ExtensionsService({ app });
   await extensions.load();
   const browser = new BrowserService({
@@ -929,6 +930,9 @@ async function dispatchTool(tool, payload = {}) {
         forceRefresh: true,
         provider
       });
+      if (state.connected) {
+        unofficialAI.setActiveWebProvider(provider);
+      }
       return {
         ok: state.connected,
         tool,
@@ -943,7 +947,8 @@ async function dispatchTool(tool, payload = {}) {
     }
     case "ai:web-status": {
       const state = await unofficialAI.getConnectionState({
-        forceRefresh: Boolean(payload.forceRefresh)
+        forceRefresh: Boolean(payload.forceRefresh),
+        provider: payload.provider || null
       });
       return {
         ok: true,

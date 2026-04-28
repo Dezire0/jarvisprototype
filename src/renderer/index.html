@@ -47,33 +47,36 @@
                 <select id="conversationProvider">
                   <option value="auto">자동 선택</option>
                   <option value="openai-compatible">GPT / OpenAI API</option>
-                  <option value="anthropic">Claude API</option>
+                  <option value="openai-cli">GPT / Codex CLI</option>
+                  <option value="anthropic">Anthropic API</option>
+                  <option value="claude-code">Claude Code CLI</option>
                   <option value="gemini">Gemini API</option>
+                  <option value="gemini-cli">Gemini CLI</option>
                   <option value="ollama">로컬 모델 연결 (Ollama / Qwen 14B)</option>
                 </select>
               </label>
 
               <details class="provider-card provider-card-compact" open>
-                <summary>GPT / OpenAI</summary>
+                <summary>GPT API / Codex CLI</summary>
                 <div class="stack">
-                  <input id="openaiChatApiKey" type="password" placeholder="OpenAI API Key" />
+                  <input id="openaiChatApiKey" type="password" placeholder="OpenAI API Key (Codex CLI 사용 시 비워둠)" />
                   <input id="openaiChatModel" type="text" placeholder="모델 ID 예: gpt-4o-mini" />
                   <input id="openaiChatBaseUrl" type="text" placeholder="Base URL 선택사항" />
                 </div>
               </details>
 
               <details class="provider-card provider-card-compact">
-                <summary>Claude</summary>
+                <summary>Claude API / Claude Code</summary>
                 <div class="stack">
-                  <input id="anthropicApiKey" type="password" placeholder="Anthropic API Key" />
-                  <input id="anthropicModel" type="text" placeholder="모델 ID 예: claude-3-5-haiku-latest" />
+                  <input id="anthropicApiKey" type="password" placeholder="Anthropic API Key (Claude Code 사용 시 비워둠)" />
+                  <input id="anthropicModel" type="text" placeholder="Claude 모델 ID 예: claude-sonnet-4-6" />
                 </div>
               </details>
 
               <details class="provider-card provider-card-compact">
                 <summary>Gemini / Ollama</summary>
                 <div class="stack">
-                  <input id="geminiChatApiKey" type="password" placeholder="Gemini API Key" />
+                  <input id="geminiChatApiKey" type="password" placeholder="Gemini API Key (Gemini CLI 사용 시 비워둠)" />
                   <input id="geminiChatModel" type="text" placeholder="Gemini 모델 ID" />
                   <input id="ollamaChatUrl" type="text" placeholder="Ollama URL 선택사항 예: http://127.0.0.1:11434/api/chat" />
                   <div class="controls-row">

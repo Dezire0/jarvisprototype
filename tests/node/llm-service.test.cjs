@@ -143,3 +143,57 @@ test("llm service uses saved Claude settings when selected", () => {
     assert.equal(config.url, "https://api.anthropic.com/v1/messages");
   });
 });
+
+test("llm service resolves Claude Code provider using the shared Claude model selection", () => {
+  withFreshLlmModule({}, (service) => {
+    service.setExternalLlmSettingsProvider(() => ({
+      provider: "claude-code",
+      anthropic: {
+        model: "claude-sonnet-4-6"
+      }
+    }));
+
+    const config = service.resolveConfig({ tier: "complex" });
+
+    assert.equal(config.provider, "claude-code");
+    assert.equal(config.model, "claude-sonnet-4-6");
+    assert.equal(config.apiKey, "");
+    assert.equal(config.url, "");
+  });
+});
+
+test("llm service resolves OpenAI CLI provider without requiring an API key", () => {
+  withFreshLlmModule({}, (service) => {
+    service.setExternalLlmSettingsProvider(() => ({
+      provider: "openai-cli",
+      openai: {
+        model: "gpt-4o-mini"
+      }
+    }));
+
+    const config = service.resolveConfig({ tier: "complex" });
+
+    assert.equal(config.provider, "openai-cli");
+    assert.equal(config.model, "gpt-4o-mini");
+    assert.equal(config.apiKey, "");
+    assert.equal(config.url, "");
+  });
+});
+
+test("llm service resolves Gemini CLI provider without requiring an API key", () => {
+  withFreshLlmModule({}, (service) => {
+    service.setExternalLlmSettingsProvider(() => ({
+      provider: "gemini-cli",
+      gemini: {
+        model: "gemini-2.5-flash"
+      }
+    }));
+
+    const config = service.resolveConfig({ tier: "complex" });
+
+    assert.equal(config.provider, "gemini-cli");
+    assert.equal(config.model, "gemini-2.5-flash");
+    assert.equal(config.apiKey, "");
+    assert.equal(config.url, "");
+  });
+});
