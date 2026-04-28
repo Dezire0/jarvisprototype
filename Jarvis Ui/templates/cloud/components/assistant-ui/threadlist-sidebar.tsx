@@ -1,7 +1,7 @@
 "use client";
 
 import type * as React from "react";
-import { useDeferredValue, useEffect, useId, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import {
   Sidebar,
@@ -105,6 +105,169 @@ type LauncherApp = {
   name: string;
   path: string;
 };
+
+type ConversationProvider =
+  | "auto"
+  | "openai"
+  | "openai-cli"
+  | "anthropic"
+  | "claude-code"
+  | "gemini"
+  | "gemini-cli"
+  | "ollama";
+type StoredConversationProvider = ConversationProvider | "openai-compatible";
+
+type ConversationModelSettingsView = {
+  provider?: StoredConversationProvider;
+  openai?: {
+    configured?: boolean;
+    model?: string;
+    baseUrl?: string;
+  };
+  anthropic?: {
+    configured?: boolean;
+    model?: string;
+    baseUrl?: string;
+  };
+  gemini?: {
+    configured?: boolean;
+    model?: string;
+  };
+  ollama?: {
+    model?: string;
+    url?: string;
+  };
+  web?: {
+    provider?: string;
+    model?: string;
+  };
+};
+
+const OPENAI_MODEL_OPTIONS = [
+  "gpt-4.1-mini",
+  "gpt-4.1",
+  "gpt-4o-mini",
+  "gpt-4o",
+];
+
+const ANTHROPIC_MODEL_OPTIONS = [
+  "claude-haiku-4-5",
+  "claude-sonnet-4-6",
+  "claude-opus-4-7",
+];
+
+const GEMINI_MODEL_OPTIONS = [
+  "gemini-3-flash-preview",
+  "gemini-3-pro-preview",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.5-flash-lite",
+  "gemini-1.5-flash-latest",
+];
+
+const WEB_MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  chatgpt: [
+    { value: "chatgpt-auto", label: "ChatGPT 자동 선택" },
+    { value: "chatgpt-instant", label: "ChatGPT Instant" },
+    { value: "chatgpt-thinking", label: "ChatGPT Thinking" },
+    { value: "chatgpt-pro", label: "ChatGPT Pro" },
+  ],
+  gemini: [
+    { value: "gemini-3-pro-preview", label: "gemini-3-pro-preview" },
+    { value: "gemini-3-flash-preview", label: "gemini-3-flash-preview" },
+    { value: "gemini-2.5-flash", label: "gemini-2.5-flash" },
+    { value: "gemini-2.5-pro", label: "gemini-2.5-pro" },
+    { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite" },
+    { value: "gemini-1.5-flash-latest", label: "gemini-1.5-flash-latest" },
+  ],
+  claude: [
+    { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+    { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
+  ],
+};
+
+function getWebModelOptions(provider?: string | null) {
+  return WEB_MODEL_OPTIONS[provider || ""] || [{ value: "auto", label: "자동 선택" }];
+}
+
+function getWebProviderLabel(provider?: string | null) {
+  if (provider === "chatgpt") return "ChatGPT";
+  if (provider === "gemini") return "Gemini";
+  if (provider === "claude") return "Claude";
+  return "사이트 로그인";
+}
+
+function getConversationProviderLabel(provider?: ConversationProvider | StoredConversationProvider | null) {
+  if (provider === "openai" || provider === "openai-compatible") return "GPT";
+  if (provider === "openai-cli") return "Codex CLI";
+  if (provider === "anthropic") return "Anthropic";
+  if (provider === "claude-code") return "Claude Code";
+  if (provider === "gemini") return "Gemini";
+  if (provider === "gemini-cli") return "Gemini CLI";
+  if (provider === "ollama") return "Ollama";
+  return "WebUI";
+}
+
+function withSelectedModelOption(options: string[], selectedModel: string) {
+  const selected = selectedModel.trim();
+  return selected ? [...new Set([selected, ...options])] : options;
+}
+
+function normalizeConversationProviderForUi(provider?: string | null): ConversationProvider {
+  if (provider === "openai-compatible") {
+    return "openai";
+  }
+
+  if (
+    provider === "auto" ||
+    provider === "openai" ||
+    provider === "openai-cli" ||
+    provider === "anthropic" ||
+    provider === "claude-code" ||
+    provider === "gemini" ||
+    provider === "gemini-cli" ||
+    provider === "ollama"
+  ) {
+    return provider;
+  }
+
+  return "auto";
+}
+
+function getConversationModelSummary(settings?: ConversationModelSettingsView | null) {
+  const provider = normalizeConversationProviderForUi(settings?.provider);
+
+  if (provider === "openai") {
+    return `GPT / ${settings?.openai?.model || "gpt-4o-mini"}`;
+  }
+  if (provider === "openai-cli") {
+    return `Codex CLI / ${settings?.openai?.model || "gpt-4o-mini"}`;
+  }
+  if (provider === "anthropic") {
+    return `Anthropic / ${settings?.anthropic?.model || "claude-haiku-4-5"}`;
+  }
+  if (provider === "claude-code") {
+    return `Claude Code / ${settings?.anthropic?.model || "claude-haiku-4-5"}`;
+  }
+  if (provider === "gemini") {
+    return `Gemini / ${settings?.gemini?.model || "gemini-2.5-flash"}`;
+  }
+  if (provider === "gemini-cli") {
+    return `Gemini CLI / ${settings?.gemini?.model || "gemini-2.5-flash"}`;
+  }
+  if (provider === "ollama") {
+    return `Ollama / ${settings?.ollama?.model || "qwen3:14b"}`;
+  }
+  if (provider === "auto" && settings?.web?.provider) {
+    const option = getWebModelOptions(settings.web.provider).find(
+      (item) => item.value === settings.web?.model,
+    );
+    return `사이트 로그인 / ${settings.web.provider} / ${option?.label || settings.web.model || "자동 선택"}`;
+  }
+
+  return "사이트 로그인 / WebUI 우선";
+}
 
 function readSidebarState(): StoredSidebarState {
   if (typeof window === "undefined") {
@@ -233,6 +396,7 @@ export function ThreadListSidebar({
   const [webAiReason, setWebAiReason] = useState<string | null>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [webAiModalOpen, setWebAiModalOpen] = useState(false);
+  const [selectedWebAiProvider, setSelectedWebAiProvider] = useState<string | null>(null);
   const [newVersion, setNewVersion] = useState("");
   const [downloadUrl, setDownloadUrl] = useState(
     "https://dexproject.pages.dev/",
@@ -250,6 +414,26 @@ export function ThreadListSidebar({
   const [profileAutoSync, setProfileAutoSync] = useState(true);
   const [profilePreferWebAi, setProfilePreferWebAi] = useState(true);
   const [profileLanguage, setProfileLanguage] = useState<"auto" | "ko" | "en">("auto");
+  const [conversationSettings, setConversationSettings] =
+    useState<ConversationModelSettingsView | null>(null);
+  const [conversationProvider, setConversationProvider] =
+    useState<ConversationProvider>("auto");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
+  const [anthropicApiKey, setAnthropicApiKey] = useState("");
+  const [anthropicModel, setAnthropicModel] = useState("claude-haiku-4-5");
+  const [anthropicBaseUrl, setAnthropicBaseUrl] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
+  const [ollamaUrl, setOllamaUrl] = useState("http://127.0.0.1:11434");
+  const [ollamaModel, setOllamaModel] = useState("qwen2.5:14b");
+  const [webModel, setWebModel] = useState("auto");
+  const webModelRef = useRef("auto");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaLoading, setOllamaLoading] = useState(false);
+  const [conversationSaving, setConversationSaving] = useState(false);
+  const [conversationStatus, setConversationStatus] = useState("");
   const profileNameInputId = useId();
 
   const isKo = profileLanguage === "ko" || (profileLanguage === "auto" && typeof navigator !== "undefined" && navigator.language.startsWith("ko"));
@@ -274,6 +458,47 @@ export function ThreadListSidebar({
         .trim(),
     [activeThreadMessages],
   );
+  const openaiModelOptions = useMemo(
+    () => withSelectedModelOption(OPENAI_MODEL_OPTIONS, openaiModel),
+    [openaiModel],
+  );
+  const anthropicModelOptions = useMemo(
+    () => ANTHROPIC_MODEL_OPTIONS,
+    [],
+  );
+  const geminiModelOptions = useMemo(
+    () => withSelectedModelOption(GEMINI_MODEL_OPTIONS, geminiModel),
+    [geminiModel],
+  );
+  const ollamaModelOptions = useMemo(
+    () => withSelectedModelOption(ollamaModels, ollamaModel),
+    [ollamaModel, ollamaModels],
+  );
+  const activeWebModelProvider = webAiProvider || selectedWebAiProvider || conversationSettings?.web?.provider || null;
+  const connectedWebModelProvider =
+    webAiStatus === "connected" ? activeWebModelProvider : null;
+  const hasConnectedWebAi = Boolean(connectedWebModelProvider);
+  const webModelOptions = useMemo(
+    () => getWebModelOptions(connectedWebModelProvider),
+    [connectedWebModelProvider],
+  );
+  const activeWebProviderLabel = getWebProviderLabel(connectedWebModelProvider);
+
+  useEffect(() => {
+    webModelRef.current = webModel;
+  }, [webModel]);
+
+  useEffect(() => {
+    if (!connectedWebModelProvider) {
+      return;
+    }
+
+    if (!webModelOptions.some((option) => option.value === webModel)) {
+      const fallbackWebModel = webModelOptions[0]?.value || "auto";
+      webModelRef.current = fallbackWebModel;
+      setWebModel(fallbackWebModel);
+    }
+  }, [connectedWebModelProvider, webModel, webModelOptions]);
 
   useEffect(() => {
     const stored = readSidebarState();
@@ -299,6 +524,7 @@ export function ThreadListSidebar({
     })();
 
     void checkWebAiStatus(true);
+    void loadConversationModelSettings();
     const interval = window.setInterval(() => {
       void checkWebAiStatus(false);
     }, 15000);
@@ -323,6 +549,14 @@ export function ThreadListSidebar({
       unsubscribeUpdate?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!webAiModalOpen) {
+      return;
+    }
+
+    void loadConversationModelSettings();
+  }, [webAiModalOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -545,7 +779,7 @@ export function ThreadListSidebar({
     }
   }
 
-  async function checkWebAiStatus(forceRefresh = false) {
+  async function checkWebAiStatus(forceRefresh = false, preferredProvider = selectedWebAiProvider) {
     if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
       setWebAiStatus("disconnected");
       return;
@@ -554,6 +788,7 @@ export function ThreadListSidebar({
     try {
       const result = (await (window as any).assistantAPI.invokeTool("ai:web-status", {
         forceRefresh,
+        provider: preferredProvider || undefined,
       })) as {
         connected?: boolean;
         provider?: string | null;
@@ -583,13 +818,196 @@ export function ThreadListSidebar({
     }
 
     setWebAiStatus("checking");
+    setSelectedWebAiProvider(provider);
     try {
-      await (window as any).assistantAPI.invokeTool("ai:web-login", {
+      const result = (await (window as any).assistantAPI.invokeTool("ai:web-login", {
         provider: provider,
-      });
-      await checkWebAiStatus(true);
+      })) as {
+        ok?: boolean;
+        provider?: string | null;
+      };
+      if (result?.ok) {
+        const connectedProvider = result.provider || provider;
+        const nextWebModel = getWebModelOptions(connectedProvider)[0]?.value || "auto";
+        setConversationProvider("auto");
+        webModelRef.current = nextWebModel;
+        setWebModel(nextWebModel);
+        await saveConversationModelSettings("auto", {
+          provider: connectedProvider,
+          model: nextWebModel,
+        });
+      }
+      await checkWebAiStatus(true, provider);
     } catch {
       setWebAiStatus("disconnected");
+    }
+  }
+
+  function syncConversationModelSettings(settings?: ConversationModelSettingsView | null) {
+    const next = settings || {};
+    setConversationSettings(next);
+    setConversationProvider(normalizeConversationProviderForUi(next.provider));
+    setOpenaiModel(next.openai?.model || "gpt-4o-mini");
+    setOpenaiBaseUrl(next.openai?.baseUrl || "");
+    const nextAnthropicModel = next.anthropic?.model || "claude-haiku-4-5";
+    setAnthropicModel(
+      ANTHROPIC_MODEL_OPTIONS.includes(nextAnthropicModel)
+        ? nextAnthropicModel
+        : "claude-haiku-4-5",
+    );
+    setAnthropicBaseUrl(next.anthropic?.baseUrl || "");
+    setGeminiModel(next.gemini?.model || "gemini-2.5-flash");
+    setOllamaUrl(next.ollama?.url || "http://127.0.0.1:11434");
+    setOllamaModel(next.ollama?.model || "qwen2.5:14b");
+    const nextWebModel = next.web?.model || "auto";
+    webModelRef.current = nextWebModel;
+    setWebModel(nextWebModel);
+    if (next.web?.provider) {
+      setSelectedWebAiProvider(next.web.provider);
+    }
+    setOpenaiApiKey("");
+    setAnthropicApiKey("");
+    setGeminiApiKey("");
+  }
+
+  async function loadConversationModelSettings() {
+    if (typeof window === "undefined" || !(window as any).assistantAPI) {
+      return;
+    }
+
+    try {
+      const result = (await (window as any).assistantAPI.getConversationModelSettings?.()) as {
+        settings?: ConversationModelSettingsView;
+      };
+      syncConversationModelSettings(result?.settings);
+    } catch {
+      setConversationStatus(t("대화 모델 설정을 불러오지 못했어요.", "Could not load model settings."));
+    }
+  }
+
+  async function refreshOllamaModels(forceRefresh = false) {
+    if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
+      return;
+    }
+
+    setOllamaLoading(true);
+    try {
+      const result = (await (window as any).assistantAPI.invokeTool("ai:ollama-models", {
+        forceRefresh,
+        url: ollamaUrl,
+      })) as {
+        models?: string[];
+      };
+      const models = Array.isArray(result?.models) ? result.models : [];
+      setOllamaModels(models);
+      if (models.length > 0 && !models.includes(ollamaModel)) {
+        setOllamaModel(models[0]);
+      }
+      setConversationStatus(
+        models.length > 0
+          ? t("Ollama 모델 목록을 불러왔어요.", "Loaded Ollama models.")
+          : t("Ollama에서 설치된 모델을 찾지 못했어요.", "No installed Ollama models were found."),
+      );
+    } catch {
+      setOllamaModels([]);
+      setConversationStatus(
+        t(
+          "Ollama에 연결하지 못했어요. Ollama 실행 상태와 주소를 확인해 주세요.",
+          "Could not connect to Ollama. Check that Ollama is running and the URL is correct.",
+        ),
+      );
+    } finally {
+      setOllamaLoading(false);
+    }
+  }
+
+  function handleConversationProviderChange(provider: ConversationProvider) {
+    setConversationProvider(provider);
+
+    if (provider === "ollama") {
+      void refreshOllamaModels(false);
+    }
+  }
+
+  function handleWebModelChange(model: string) {
+    webModelRef.current = model;
+    setConversationProvider("auto");
+    setWebModel(model);
+  }
+
+  async function saveConversationModelSettings(
+    provider = conversationProvider,
+    webOverride?: { provider?: string | null; model?: string },
+  ) {
+    if (typeof window === "undefined" || !(window as any).assistantAPI?.saveConversationModelSettings) {
+      return;
+    }
+
+    setConversationSaving(true);
+    setConversationStatus("");
+    const nextWebProvider = webOverride?.provider ?? connectedWebModelProvider ?? "";
+    const nextWebModel = webOverride?.model ?? webModelRef.current;
+
+    try {
+      const result = (await (window as any).assistantAPI.saveConversationModelSettings({
+        provider,
+        openai: {
+          apiKey: openaiApiKey,
+          model: openaiModel,
+          baseUrl: openaiBaseUrl,
+        },
+        anthropic: {
+          apiKey: anthropicApiKey,
+          model: anthropicModel,
+          baseUrl: anthropicBaseUrl,
+        },
+        gemini: {
+          apiKey: geminiApiKey,
+          model: geminiModel,
+        },
+        ollama: {
+          model: ollamaModel,
+          url: ollamaUrl,
+        },
+        web: {
+          provider: nextWebProvider,
+          model: nextWebModel,
+        },
+      })) as {
+        settings?: ConversationModelSettingsView;
+      };
+
+      try {
+        syncConversationModelSettings(result?.settings);
+        const summarySettings = {
+          ...(result?.settings || {}),
+          provider: result?.settings?.provider || provider,
+          web: {
+            provider: result?.settings?.web?.provider ?? nextWebProvider,
+            model: result?.settings?.web?.model ?? nextWebModel,
+          },
+        };
+        const summary = getConversationModelSummary(summarySettings);
+        setConversationStatus(
+          t(
+            `대화 모델 연결 설정을 저장했어요: ${summary}`,
+            `Saved conversation model settings: ${summary}`,
+          ),
+        );
+      } catch (uiError) {
+        console.warn("Conversation settings were saved, but UI refresh failed:", uiError);
+        setConversationStatus(t("저장했어요. 창을 다시 열면 최신 설정이 보입니다.", "Saved. Reopen this window to see the latest settings."));
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error || "");
+      console.error("Failed to save conversation model settings:", error);
+      setConversationStatus(
+        detail
+          ? t(`저장하지 못했어요: ${detail}`, `Could not save settings: ${detail}`)
+          : t("저장하지 못했어요. 설정을 확인해 주세요.", "Could not save settings."),
+      );
+    } finally {
+      setConversationSaving(false);
     }
   }
 
@@ -972,7 +1390,7 @@ export function ThreadListSidebar({
 
           {/* Web AI Management Modal */}
           <Dialog open={webAiModalOpen} onOpenChange={setWebAiModalOpen}>
-            <DialogContent className="max-w-[380px] border-none bg-[#171717] p-0 text-white shadow-2xl">
+            <DialogContent className="max-h-[86dvh] max-w-[560px] overflow-y-auto border-none bg-[#171717] p-0 text-white shadow-2xl">
               <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
               <div className="p-6">
                 <DialogHeader className="mb-4">
@@ -981,7 +1399,7 @@ export function ThreadListSidebar({
                     Web AI 관리
                   </DialogTitle>
                   <DialogDescription className="text-zinc-400">
-                    브라우저 계정의 무료 토큰을 사용하여 고성능 모델을 연결합니다.
+                    사이트 계정 로그인, API 키, Ollama 로컬 모델을 여기서 연결합니다.
                   </DialogDescription>
                 </DialogHeader>
 
@@ -1006,7 +1424,7 @@ export function ThreadListSidebar({
                       </div>
                       <div className="text-left">
                         <p className="font-bold text-sm">ChatGPT</p>
-                        <p className="text-xs text-zinc-500">OpenAI Backend API</p>
+                        <p className="text-xs text-zinc-500">OpenAI 계정으로 Jarvis 연결</p>
                       </div>
                     </div>
                     {webAiProvider === "chatgpt" &&
@@ -1035,7 +1453,7 @@ export function ThreadListSidebar({
                       </div>
                       <div className="text-left">
                         <p className="font-bold text-sm">Gemini</p>
-                        <p className="text-xs text-zinc-500">Google Advanced Web</p>
+                        <p className="text-xs text-zinc-500">Google 계정으로 Jarvis 연결</p>
                       </div>
                     </div>
                     {webAiProvider === "gemini" &&
@@ -1043,6 +1461,362 @@ export function ThreadListSidebar({
                         <BadgeCheckIcon className="size-5 text-blue-400" />
                       )}
                   </button>
+
+                  {/* Claude Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWebAiModalOpen(false);
+                      void connectWebAi("claude");
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-xl border p-4 transition-all hover:scale-[1.02]",
+                      webAiProvider === "claude" && webAiStatus === "connected"
+                        ? "border-orange-500/50 bg-orange-500/10 ring-1 ring-orange-500/20"
+                        : "border-white/5 bg-white/5 hover:bg-white/10",
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 font-bold text-orange-300">
+                        A
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-sm">Claude</p>
+                        <p className="text-xs text-zinc-500">Anthropic 계정으로 Jarvis 연결</p>
+                      </div>
+                    </div>
+                    {webAiProvider === "claude" &&
+                      webAiStatus === "connected" && (
+                        <BadgeCheckIcon className="size-5 text-orange-300" />
+                      )}
+                  </button>
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold">대화 모델 연결</p>
+                      <p className="text-xs text-zinc-500">
+                        {hasConnectedWebAi
+                          ? `${activeWebProviderLabel} 계정으로 사용할 모델을 선택합니다.`
+                          : ["openai-cli", "gemini-cli", "claude-code"].includes(conversationProvider)
+                            ? "로컬 CLI의 OAuth 로그인 상태를 사용합니다."
+                            : "API 키는 기기 안에 암호화해서 저장됩니다."}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white/8 px-2 py-1 text-[10px] font-bold uppercase text-zinc-400">
+                      {hasConnectedWebAi
+                        ? activeWebProviderLabel
+                        : getConversationProviderLabel(conversationProvider)}
+                    </span>
+                  </div>
+
+                  {hasConnectedWebAi ? (
+                    <div className="space-y-2">
+                      <label className="block text-[11px] font-semibold text-zinc-500">
+                        {activeWebProviderLabel} 모델 선택
+                      </label>
+                      <select
+                        value={webModel}
+                        onChange={(event) => handleWebModelChange(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        {webModelOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] leading-relaxed text-zinc-500">
+                        위에서 로그인한 {activeWebProviderLabel} 계정으로 사용할 모델입니다.
+                        API 키 설정은 숨기고 사이트 로그인 모델 설정만 저장합니다.
+                      </p>
+                      <div className="pt-2 text-[10px] text-zinc-500">
+                        Web {activeWebProviderLabel}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <label className="mb-3 block text-[11px] font-semibold text-zinc-500">
+                        모델 선택
+                      </label>
+                      <select
+                        value={conversationProvider}
+                        onChange={(event) =>
+                          handleConversationProviderChange(event.target.value as ConversationProvider)
+                        }
+                        className="mb-4 h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        <option value="auto">사이트 로그인 / WebUI 우선</option>
+                        <option value="openai">GPT / OpenAI API</option>
+                        <option value="openai-cli">GPT / Codex CLI OAuth</option>
+                        <option value="anthropic">Anthropic API</option>
+                        <option value="claude-code">Claude Code CLI OAuth</option>
+                        <option value="gemini">Gemini API</option>
+                        <option value="gemini-cli">Gemini CLI OAuth</option>
+                        <option value="ollama">로컬 모델 / Ollama</option>
+                      </select>
+
+                  {conversationProvider === "openai" && (
+                    <div className="space-y-2">
+                      <Input
+                        type="password"
+                        value={openaiApiKey}
+                        onChange={(event) => setOpenaiApiKey(event.target.value)}
+                        placeholder={
+                          conversationSettings?.openai?.configured
+                            ? "OpenAI API Key 저장됨 - 변경할 때만 입력"
+                            : "OpenAI API Key"
+                        }
+                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
+                      />
+                      <select
+                        value={openaiModel}
+                        onChange={(event) => setOpenaiModel(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        {openaiModelOptions.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        value={openaiBaseUrl}
+                        onChange={(event) => setOpenaiBaseUrl(event.target.value)}
+                        placeholder="Base URL 선택 사항"
+                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
+                      />
+                    </div>
+                  )}
+
+                  {conversationProvider === "openai-cli" && (
+                    <div className="space-y-2">
+                      <select
+                        value={openaiModel}
+                        onChange={(event) => setOpenaiModel(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        {openaiModelOptions.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
+                        로컬 Codex CLI를 `codex exec` 모드로 호출합니다.
+                        OpenAI API 키는 저장하지 않고, Codex CLI의 로그인 상태를 그대로 사용합니다.
+                        먼저 Codex CLI에서 `codex login`을 완료해 주세요.
+                      </p>
+                    </div>
+                  )}
+
+                  {conversationProvider === "anthropic" && (
+                    <div className="space-y-2">
+                      <Input
+                        type="password"
+                        value={anthropicApiKey}
+                        onChange={(event) => setAnthropicApiKey(event.target.value)}
+                        placeholder={
+                          conversationSettings?.anthropic?.configured
+                            ? "Anthropic API Key 저장됨 - 변경할 때만 입력"
+                            : "Anthropic API Key"
+                        }
+                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
+                      />
+                      <select
+                        value={anthropicModel}
+                        onChange={(event) => setAnthropicModel(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        {anthropicModelOptions.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        value={anthropicBaseUrl}
+                        onChange={(event) => setAnthropicBaseUrl(event.target.value)}
+                        placeholder="Base URL 선택 사항"
+                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
+                      />
+                    </div>
+                  )}
+
+                  {conversationProvider === "claude-code" && (
+                    <div className="space-y-2">
+                      <select
+                        value={anthropicModel}
+                        onChange={(event) => setAnthropicModel(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        {anthropicModelOptions.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
+                        로컬에 설치된 Claude Code CLI를 `claude -p` 모드로 호출합니다.
+                        Anthropic API 키는 저장하지 않고, Claude Code의 OAuth 로그인 상태를 그대로 사용합니다.
+                        먼저 Claude Code를 설치하고 `claude auth login` 또는 `claude`로 로그인해 주세요.
+                      </p>
+                    </div>
+                  )}
+
+                  {conversationProvider === "auto" && (
+                    <div className="space-y-2">
+                      {connectedWebModelProvider ? (
+                        <>
+                          <p className="text-[11px] font-semibold text-zinc-500">
+                            {activeWebProviderLabel} 사이트 모델
+                          </p>
+                          <select
+                            value={webModel}
+                            onChange={(event) => handleWebModelChange(event.target.value)}
+                            className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                          >
+                            {webModelOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[11px] leading-relaxed text-zinc-500">
+                            사이트 로그인 모델은 연결된 계정의 웹 모델 선택 UI를 자동으로 맞춥니다.
+                            실제 사용 가능 모델은 계정 요금제와 사이트 상태에 따라 달라질 수 있어요.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
+                          위에서 ChatGPT, Gemini, Claude 계정을 연결하면 해당 회사의 모델 선택지가 여기에 표시됩니다.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {conversationProvider === "gemini" && (
+                    <div className="space-y-2">
+                      <Input
+                        type="password"
+                        value={geminiApiKey}
+                        onChange={(event) => setGeminiApiKey(event.target.value)}
+                        placeholder={
+                          conversationSettings?.gemini?.configured
+                            ? "Gemini API Key 저장됨 - 변경할 때만 입력"
+                            : "Gemini API Key"
+                        }
+                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
+                      />
+                      <select
+                        value={geminiModel}
+                        onChange={(event) => setGeminiModel(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        {geminiModelOptions.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {conversationProvider === "gemini-cli" && (
+                    <div className="space-y-2">
+                      <select
+                        value={geminiModel}
+                        onChange={(event) => setGeminiModel(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        {geminiModelOptions.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
+                        로컬 Gemini CLI를 `gemini -p` 모드로 호출합니다.
+                        Gemini API 키는 저장하지 않고, Gemini CLI의 Google 로그인 상태를 그대로 사용합니다.
+                        먼저 Gemini CLI를 설치하고 `gemini`로 로그인해 주세요.
+                      </p>
+                    </div>
+                  )}
+
+                  {conversationProvider === "ollama" && (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <Input
+                          value={ollamaUrl}
+                          onChange={(event) => setOllamaUrl(event.target.value)}
+                          placeholder="http://127.0.0.1:11434"
+                          className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={ollamaLoading}
+                          onClick={() => void refreshOllamaModels(true)}
+                          className="h-10 shrink-0 rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10"
+                        >
+                          <RefreshCwIcon
+                            className={cn("size-4", ollamaLoading && "animate-spin")}
+                          />
+                        </Button>
+                      </div>
+                      <select
+                        value={ollamaModel}
+                        onChange={(event) => setOllamaModel(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      >
+                        {ollamaModelOptions.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] text-zinc-500 sm:grid-cols-4">
+                    <span>
+                      Web {connectedWebModelProvider ? activeWebProviderLabel : "미연결"}
+                    </span>
+                    <span>
+                      GPT {conversationSettings?.openai?.configured ? "저장됨" : "미설정"}
+                    </span>
+                    <span>
+                      Anthropic {conversationSettings?.anthropic?.configured ? "저장됨" : "미설정"}
+                    </span>
+                    <span>
+                      Gemini {conversationSettings?.gemini?.configured ? "저장됨" : "미설정"}
+                    </span>
+                  </div>
+                    </>
+                  )}
+
+                  {conversationStatus && (
+                    <p className="mt-3 text-xs text-emerald-300">{conversationStatus}</p>
+                  )}
+
+                  <Button
+                    type="button"
+                    disabled={conversationSaving}
+                    onClick={() =>
+                      void saveConversationModelSettings(
+                        hasConnectedWebAi ? "auto" : conversationProvider,
+                        hasConnectedWebAi
+                          ? { provider: connectedWebModelProvider, model: webModelRef.current }
+                          : undefined,
+                      )
+                    }
+                    className="mt-4 h-10 w-full rounded-xl bg-white font-semibold text-black hover:bg-zinc-200"
+                  >
+                    {conversationSaving
+                      ? t("저장 중...", "Saving...")
+                      : t("모델 연결 저장", "Save Model Connection")}
+                  </Button>
                 </div>
 
                 {webAiStatus === "connected" && (

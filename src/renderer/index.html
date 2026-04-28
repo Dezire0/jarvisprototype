@@ -28,6 +28,75 @@
             <p class="sidebar-hint" id="shortcutHint"></p>
           </section>
 
+          <details class="sidebar-panel sidebar-ai-manager" id="aiManagerPanel" open>
+            <summary class="ai-manager-summary">
+              <span>WebUI 연동 및 관리</span>
+              <span id="aiManagerBadge">확인 중</span>
+            </summary>
+
+            <div class="stack compact-stack">
+              <div class="controls-row ai-webui-actions">
+                <button type="button" class="secondary" id="chatgptWebLoginButton">ChatGPT</button>
+                <button type="button" class="secondary" id="geminiWebLoginButton">Gemini</button>
+                <button type="button" class="secondary" id="webUiLogoutButton">Logout</button>
+              </div>
+              <p class="sidebar-hint" id="webUiStatus">WebUI 연결 상태를 확인하고 있어요.</p>
+
+              <label class="field-group">
+                <span>대화 모델</span>
+                <select id="conversationProvider">
+                  <option value="auto">자동 선택</option>
+                  <option value="openai-compatible">GPT / OpenAI API</option>
+                  <option value="openai-cli">GPT / Codex CLI</option>
+                  <option value="anthropic">Anthropic API</option>
+                  <option value="claude-code">Claude Code CLI</option>
+                  <option value="gemini">Gemini API</option>
+                  <option value="gemini-cli">Gemini CLI</option>
+                  <option value="ollama">로컬 모델 연결 (Ollama / Qwen 14B)</option>
+                </select>
+              </label>
+
+              <details class="provider-card provider-card-compact" open>
+                <summary>GPT API / Codex CLI</summary>
+                <div class="stack">
+                  <input id="openaiChatApiKey" type="password" placeholder="OpenAI API Key (Codex CLI 사용 시 비워둠)" />
+                  <input id="openaiChatModel" type="text" placeholder="모델 ID 예: gpt-4o-mini" />
+                  <input id="openaiChatBaseUrl" type="text" placeholder="Base URL 선택사항" />
+                </div>
+              </details>
+
+              <details class="provider-card provider-card-compact">
+                <summary>Claude API / Claude Code</summary>
+                <div class="stack">
+                  <input id="anthropicApiKey" type="password" placeholder="Anthropic API Key (Claude Code 사용 시 비워둠)" />
+                  <input id="anthropicModel" type="text" placeholder="Claude 모델 ID 예: claude-sonnet-4-6" />
+                </div>
+              </details>
+
+              <details class="provider-card provider-card-compact">
+                <summary>Gemini / Ollama</summary>
+                <div class="stack">
+                  <input id="geminiChatApiKey" type="password" placeholder="Gemini API Key (Gemini CLI 사용 시 비워둠)" />
+                  <input id="geminiChatModel" type="text" placeholder="Gemini 모델 ID" />
+                  <input id="ollamaChatUrl" type="text" placeholder="Ollama URL 선택사항 예: http://127.0.0.1:11434/api/chat" />
+                  <div class="controls-row">
+                    <select id="ollamaModelSelect">
+                      <option value="">설치된 Ollama 모델 불러오는 중</option>
+                    </select>
+                    <button type="button" class="secondary" id="refreshOllamaModelsButton">Models</button>
+                  </div>
+                  <input id="ollamaChatModel" type="text" placeholder="직접 입력 예: llama3.1:8b, qwen3:14b" />
+                </div>
+              </details>
+
+              <div class="controls-row">
+                <button type="button" id="saveConversationModelButton">Save</button>
+                <button type="button" class="secondary" id="refreshConversationModelButton">Refresh</button>
+              </div>
+              <p class="sidebar-hint" id="conversationModelStatus">저장된 대화 모델 설정을 불러오는 중이에요.</p>
+            </div>
+          </details>
+
           <section class="sidebar-panel sidebar-compose">
             <button type="button" id="newThreadButton" class="thread-new-button">+ New chat</button>
             <div class="sidebar-mini-note">

@@ -4,33 +4,267 @@ const {
   detectLanguageCode,
   FAST_ROUTER_MODEL,
   FAST_PLANNER_MODEL,
-  getTierProviderLabel
+  getTierProviderLabel,
+  getExternalLlmSettings,
+  getRequestedProviderForTier,
+  resolveConfig,
+  isUnconfiguredAutoFallback
 } = require("./ollama-service.cjs");
 
 const unofficialAI = require("./unofficial-ai-provider.cjs");
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
+const JARVIS_CLOUD_API_BASE =
+  String(process.env.JARVIS_CLOUD_API_BASE || "").trim() ||
+  "https://jarvis-auth-service.dexproject.workers.dev";
+const ENABLE_CLOUD_AI_FALLBACK =
+  String(process.env.JARVIS_ENABLE_CLOUD_AI_FALLBACK || "").trim() === "1";
+let electronNetFetch = null;
+
+try {
+  const electronModule = require("electron");
+  if (
+    electronModule &&
+    typeof electronModule === "object" &&
+    electronModule.net &&
+    typeof electronModule.net.fetch === "function"
+  ) {
+    electronNetFetch = electronModule.net.fetch.bind(electronModule.net);
+  }
+} catch (_error) {
+  electronNetFetch = null;
+}
+
+function formatFetchError(error, url = "") {
+  const cause = error?.cause;
+  const details = [
+    cause?.code,
+    cause?.errno,
+    cause?.syscall,
+    cause?.hostname,
+    cause?.message,
+    error?.message
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+
+  const unique = [...new Set(details)];
+  const host = (() => {
+    try {
+      return new URL(url).host;
+    } catch (_error) {
+      return "";
+    }
+  })();
+
+  return unique.length
+    ? `${host ? `${host} · ` : ""}${unique.join(" / ")}`
+    : host || "unknown network error";
+}
+
+async function fetchWithRuntime(url, options = {}) {
+  if (electronNetFetch) {
+    try {
+      return await electronNetFetch(url, options);
+    } catch (electronError) {
+      try {
+        return await fetch(url, options);
+      } catch (fallbackError) {
+        fallbackError.message = formatFetchError(fallbackError, url);
+        throw fallbackError;
+      }
+    }
+  }
+
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    error.message = formatFetchError(error, url);
+    throw error;
+  }
+}
+
+function buildModelConnectionReply(text = "") {
+  return detectLanguageCode(text) === "ko"
+    ? "대화 모델이 아직 연결되어 있지 않아요. 왼쪽 위의 WebUI 연동 및 관리에서 ChatGPT/Gemini/Claude 사이트 로그인을 연결하거나 GPT/Anthropic/Gemini API 키를 저장해 주세요. CLI OAuth를 쓰려면 GPT/Codex CLI, Gemini CLI, 또는 Claude Code CLI를 선택한 뒤 로컬 CLI를 설치하고 로그인하면 됩니다. 로컬로 쓰려면 로컬 모델 연결을 선택하면 됩니다."
+    : "No conversation model is connected yet. Open WebUI Integration & Management in the upper-left and connect ChatGPT/Gemini/Claude site login, save a GPT/Anthropic/Gemini API key, or choose Local Model Connection. To use CLI OAuth, select GPT/Codex CLI, Gemini CLI, or Claude Code CLI and make sure the local CLI is installed and signed in.";
+}
+
+function buildModelFailureReply(text = "", error, config = {}) {
+  const message = String(error?.message || error || "").trim();
+  const isKo = detectLanguageCode(text) === "ko";
+  const providerLabel = config.provider === "gemini"
+    ? "Gemini"
+    : config.provider === "gemini-cli"
+      ? "Gemini CLI"
+    : config.provider === "openai-cli"
+      ? "GPT/Codex CLI"
+    : config.provider === "claude-code"
+      ? "Claude Code"
+    : config.provider === "anthropic"
+      ? "Anthropic"
+      : config.provider === "openai-compatible"
+        ? "GPT/OpenAI"
+        : "로컬 모델";
+  const modelLabel = config.model ? ` ${config.model}` : "";
+
+  if (config.provider === "gemini" && /high demand|try again later|overloaded|temporar/i.test(message)) {
+    return isKo
+      ? `Gemini${modelLabel} 모델이 지금 요청이 많아서 일시적으로 응답하지 못하고 있어요. API 키나 저장 설정 문제는 아니고, Google 쪽 모델 수요/용량 문제에 가깝습니다. 잠시 뒤 다시 시도하거나 Web AI 관리에서 Gemini 3 Flash Preview, Gemini 2.5 Pro, 또는 다른 연결 모델로 바꿔 주세요.`
+      : `Gemini${modelLabel} is temporarily unable to respond because the model is under high demand. This is not an API key or saved-settings issue. Please try again later or switch to Gemini 3 Flash Preview, Gemini 2.5 Pro, or another connected model in Web AI Management.`;
+  }
+
+  if (config.provider === "claude-code") {
+    return isKo
+      ? `Claude Code${modelLabel} 연결 중 문제가 있었어요. 이 경로는 Anthropic API 키가 아니라 로컬 Claude Code CLI의 OAuth 로그인 상태를 사용합니다. Claude Code가 설치되어 있는지, \`claude auth login\` 또는 \`claude\`로 로그인되어 있는지 확인해 주세요.\n\n${message}`
+      : `Claude Code${modelLabel} ran into a connection problem. This path uses the local Claude Code CLI OAuth session instead of an Anthropic API key. Check that Claude Code is installed and signed in with \`claude auth login\` or by running \`claude\`.\n\n${message}`;
+  }
+
+  if (config.provider === "openai-cli" || config.provider === "gemini-cli") {
+    const label = config.provider === "openai-cli" ? "GPT/Codex CLI" : "Gemini CLI";
+    const loginHintKo = config.provider === "openai-cli"
+      ? "`codex login` 또는 Codex 확장/CLI 로그인"
+      : "`gemini` 실행 후 Google 로그인";
+    const loginHintEn = config.provider === "openai-cli"
+      ? "`codex login` or the Codex extension/CLI login"
+      : "Google login after running `gemini`";
+    return isKo
+      ? `${label}${modelLabel} 연결 중 문제가 있었어요. 이 경로는 API 키가 아니라 로컬 CLI의 로그인 상태를 사용합니다. CLI가 설치되어 있고 ${loginHintKo}이 완료되어 있는지 확인해 주세요.\n\n${message}`
+      : `${label}${modelLabel} ran into a connection problem. This path uses the local CLI login session instead of an API key. Check that the CLI is installed and signed in via ${loginHintEn}.\n\n${message}`;
+  }
+
+  return isKo
+    ? `${providerLabel}${modelLabel} 연결 중 문제가 있었어요. Web AI 관리에서 API 키와 모델 선택을 확인해 주세요.\n\n${message}`
+    : `${providerLabel}${modelLabel} ran into a connection problem. Check the API key and selected model in Web AI Management.\n\n${message}`;
+}
+
+function buildWebAiFailureReply(text = "", error, provider = "") {
+  const message = String(error?.message || error || "").trim();
+  const isKo = detectLanguageCode(text) === "ko";
+  const label = provider === "gemini"
+    ? "Gemini"
+    : provider === "claude"
+      ? "Claude"
+      : provider === "chatgpt"
+        ? "ChatGPT"
+        : "Web AI";
+
+  return isKo
+    ? `${label} 사이트 로그인 연결에서 응답을 가져오지 못했어요. API 키 문제라기보다 웹사이트 로그인 세션, 모델 선택 UI, 또는 페이지 자동화가 막힌 상태일 가능성이 큽니다. Web AI 관리에서 해당 계정을 다시 연결하거나, API 키/Ollama 연결로 전환해 주세요.\n\n${message}`
+    : `${label} site-login connection could not return a reply. This is more likely a web login session, model picker, or page automation issue than an API key issue. Reconnect the account in Web AI Management, or switch to API/Ollama.\n\n${message}`;
+}
+
+function withTimeout(promise, ms, message) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
+}
+
+function extractWebAiUserPrompt(userPrompt = "") {
+  const text = String(userPrompt || "").trim();
+  const markerMatch = text.match(/(?:^|\n)User request:\s*\n([\s\S]*)$/i);
+  if (markerMatch?.[1]?.trim()) {
+    return markerMatch[1].trim();
+  }
+  return text;
+}
 
 // Override chat to use unofficial Web AI session if configured
 const chat = async (options) => {
+  let config = null;
+  let usedWebProvider = null;
   try {
-    const connectedProvider = await unofficialAI.isConnected();
-    if (connectedProvider && !options.localOnly) {
-      const prompt = options.systemPrompt 
-        ? `${options.systemPrompt}\n\n${options.userPrompt}`
-        : options.userPrompt;
-      return await unofficialAI.chat(prompt, connectedProvider);
+    const effectiveOptions = options.localOnly
+      ? {
+          ...options,
+          provider: "ollama",
+          apiKey: ""
+        }
+      : options;
+    const savedLlmSettings = getExternalLlmSettings() || {};
+    const savedProvider = savedLlmSettings.provider || "auto";
+    const savedWebProvider = String(savedLlmSettings.web?.provider || "").trim();
+    const shouldPreferSavedWebProvider =
+      !effectiveOptions.localOnly &&
+      !effectiveOptions.provider &&
+      Boolean(savedWebProvider);
+    let connectedProvider = null;
+
+    if (shouldPreferSavedWebProvider) {
+      const webState = await unofficialAI.getConnectionState({
+        provider: savedWebProvider
+      });
+      connectedProvider = webState.connected ? savedWebProvider : null;
+    } else {
+      connectedProvider = await unofficialAI.isConnected();
+    }
+    config = resolveConfig({
+      tier: effectiveOptions.tier || "complex",
+      provider: effectiveOptions.provider,
+      model: effectiveOptions.model,
+      url: effectiveOptions.url,
+      apiKey: effectiveOptions.apiKey
+    });
+    const requestedProvider = getRequestedProviderForTier(
+      effectiveOptions.tier || "complex",
+      effectiveOptions.provider
+    );
+    const directApiSelected = ["gemini", "openai-compatible", "anthropic"].includes(config.provider);
+    const explicitNonWebProviderSelected =
+      !shouldPreferSavedWebProvider &&
+      requestedProvider !== "auto" &&
+      (Boolean(effectiveOptions.provider) || savedProvider !== "auto");
+    const explicitDirectApiSelected =
+      explicitNonWebProviderSelected &&
+      ["gemini", "openai-compatible", "anthropic"].includes(requestedProvider);
+    const directApiReady = directApiSelected && Boolean(config.apiKey);
+    const needsModelConnection =
+      !effectiveOptions.localOnly &&
+      !connectedProvider &&
+      (isUnconfiguredAutoFallback({
+        tier: effectiveOptions.tier || "complex",
+        provider: effectiveOptions.provider
+      }) ||
+        (directApiSelected && !directApiReady));
+
+    if (needsModelConnection) {
+      return buildModelConnectionReply(effectiveOptions.userPrompt);
+    }
+
+    if (shouldPreferSavedWebProvider && !connectedProvider) {
+      return buildWebAiFailureReply(
+        effectiveOptions.userPrompt,
+        new Error(`${savedWebProvider} site login is not connected. Reconnect it in Web AI Management to use your subscribed plan tokens.`),
+        savedWebProvider
+      );
+    }
+
+    if (connectedProvider && !effectiveOptions.localOnly && !explicitNonWebProviderSelected) {
+      const prompt = extractWebAiUserPrompt(effectiveOptions.userPrompt);
+      usedWebProvider = connectedProvider;
+      return await withTimeout(
+        unofficialAI.chat(prompt, connectedProvider),
+        35000,
+        `${connectedProvider} site login did not return a reply within 35 seconds. The web page may be blocked, logged out, or its UI changed.`
+      );
     } else {
       // 연결되지 않았거나 로컬 모델 전용 요청이면 Ollama로 바로 라우팅
-      return await officialChat(options);
+      return await officialChat(effectiveOptions);
     }
   } catch (err) {
-    console.error("Unofficial AI failed:", err.message);
-    
-    // [임시 디버깅 용도] 오류 원인 파악을 위해 로컬 모델 폴백을 비활성화하고 에러를 그대로 출력합니다.
-    const errorMessage = `[🚨 Web AI 오류 발생]\n\n현재 로컬 모델(Gemma) 폴백이 임시로 비활성화되어 있습니다. 아래의 에러 내용을 확인해 주세요:\n\n${err.message}\n\n${err.stack}`;
-    
-    return errorMessage;
+    console.error("Conversation model failed:", err.message);
+    if (usedWebProvider) {
+      return buildWebAiFailureReply(options.userPrompt, err, usedWebProvider);
+    }
+    return buildModelFailureReply(options.userPrompt, err, config || {});
   }
 };
 
@@ -861,6 +1095,118 @@ function chooseChatModelTier(input = "", history = []) {
   }
 
   return "fast";
+}
+
+function looksLikeModelIdentityQuestion(input = "") {
+  const normalized = normalizePlanText(input).toLowerCase();
+
+  return /(?:무슨|어떤|뭐|뭔|현재|지금|선택|연결|사용|정확|정확한|명칭|이름|알려|궁금|확인|버전).{0,32}(?:모델|model|버전|version)|(?:모델|model|버전|version).{0,32}(?:무슨|어떤|뭐|뭔|현재|지금|선택|연결|사용|정확|정확한|명칭|이름|알려|궁금|확인)|which model|what model|model name|model id/i.test(normalized);
+}
+
+function formatConfiguredConversationModel(settings = {}) {
+  const provider = settings.provider || "auto";
+
+  if (provider === "gemini") {
+    return {
+      label: "Gemini API",
+      model: settings.gemini?.model || "gemini-2.5-flash"
+    };
+  }
+
+  if (provider === "openai" || provider === "openai-compatible") {
+    return {
+      label: "GPT / OpenAI API",
+      model: settings.openai?.model || "gpt-4o-mini"
+    };
+  }
+
+  if (provider === "anthropic") {
+    return {
+      label: "Anthropic API",
+      model: settings.anthropic?.model || "claude-haiku-4-5"
+    };
+  }
+
+  if (provider === "openai-cli") {
+    return {
+      label: "GPT / Codex CLI",
+      model: settings.openai?.model || "gpt-4o-mini"
+    };
+  }
+
+  if (provider === "gemini-cli") {
+    return {
+      label: "Gemini CLI",
+      model: settings.gemini?.model || "gemini-2.5-flash"
+    };
+  }
+
+  if (provider === "claude-code") {
+    return {
+      label: "Claude Code CLI",
+      model: settings.anthropic?.model || "claude-haiku-4-5"
+    };
+  }
+
+  if (provider === "ollama") {
+    return {
+      label: "Ollama 로컬 모델",
+      model: settings.ollama?.model || "qwen3:14b"
+    };
+  }
+
+  if (provider === "auto" && settings.web?.provider) {
+    const webLabel = settings.web.provider === "chatgpt"
+      ? "ChatGPT 사이트 로그인"
+      : settings.web.provider === "gemini"
+        ? "Gemini 사이트 로그인"
+        : settings.web.provider === "claude"
+          ? "Claude 사이트 로그인"
+          : "사이트 로그인";
+    return {
+      label: webLabel,
+      model: settings.web?.model || "auto"
+    };
+  }
+
+  if (settings.gemini?.configured) {
+    return {
+      label: "자동 선택 / Gemini API",
+      model: settings.gemini?.model || "gemini-2.5-flash"
+    };
+  }
+
+  if (settings.openai?.configured) {
+    return {
+      label: "자동 선택 / GPT API",
+      model: settings.openai?.model || "gpt-4o-mini"
+    };
+  }
+
+  if (settings.anthropic?.configured) {
+    return {
+      label: "자동 선택 / Anthropic API",
+      model: settings.anthropic?.model || "claude-haiku-4-5"
+    };
+  }
+
+  return {
+    label: "자동 선택",
+    model: "연결된 대화 모델 없음"
+  };
+}
+
+function buildConfiguredModelIdentityResult(input = "", language = detectReplyLanguage(input), settings = {}) {
+  const configuredModel = formatConfiguredConversationModel(settings);
+
+  return {
+    reply: language === "ko"
+      ? `현재 앱에 설정된 대화 모델은 ${configuredModel.label}의 ${configuredModel.model}입니다. 모델 자체가 자기 이름을 추측해서 답한 것이 아니라, Jarvis 설정에 저장된 연결값을 기준으로 확인한 정보예요.`
+      : `The conversation model currently configured in the app is ${configuredModel.label}: ${configuredModel.model}. This is based on the saved Jarvis connection settings, not on the model guessing its own identity.`,
+    actions: [],
+    provider: "model-settings",
+    language
+  };
 }
 
 function isFastBrowserPlan(plan = {}) {
@@ -3985,7 +4331,11 @@ class AssistantService {
     return chat({
       systemPrompt: options.systemPrompt || buildBasePrompt(),
       tier: options.tier || "complex",
+      provider: options.provider,
       model: options.model,
+      url: options.url,
+      apiKey: options.apiKey,
+      localOnly: options.localOnly,
       history: includeHistory ? this.getRecentHistory() : [],
       userPrompt: finalUserPrompt
     });
@@ -4870,6 +5220,14 @@ class AssistantService {
     let reply = "";
     let provider = "jarvis-cloud";
 
+    if (looksLikeModelIdentityQuestion(input)) {
+      return buildConfiguredModelIdentityResult(
+        input,
+        language,
+        this.settings?.getConversationModelSettingsView?.() || {},
+      );
+    }
+
     const langInstruction = preferredLang === "ko"
       ? "무조건 한국어로만 대답하세요. 영어 질문이 들어와도 한국어로 번역해서 답변하세요."
       : preferredLang === "en"
@@ -4886,6 +5244,47 @@ class AssistantService {
       "만약 앱을 설치해야 하는 경우 [ACTION: INSTALL_APP] 앱이름 형식을 포함하세요.",
       "일상적인 대화라면 풍부하고 친절하게 답변하세요."
     ].join("\n");
+
+    const tier = chooseChatModelTier(input, this.getRecentHistory());
+
+    try {
+      const modelReply = await this.replyWithModel(
+        input,
+        [
+          "Follow the conversation naturally.",
+          `Reply only in ${buildLanguageName(language)}.`,
+          "Sound like Jarvis as a modern everyday assistant: calm, polished, warm, and capable.",
+          "If the user is chatting casually, answer like a strong general chatbot.",
+          "If the user asks for recommendations, suggest two or three concrete options when useful.",
+          "If the user greets you, greet them back naturally and invite the next request.",
+          "Do not sound like a status banner or system message."
+        ].join("\n"),
+        {
+          tier,
+          systemPrompt
+        }
+      );
+
+      return {
+        reply: modelReply,
+        actions: [],
+        provider: modelReply === buildModelConnectionReply(input) ? "model-required" : getTierProviderLabel(tier)
+      };
+    } catch (error) {
+      console.error("Configured chat model failed:", error.message);
+      if (!ENABLE_CLOUD_AI_FALLBACK) {
+        const fallbackConfig = resolveConfig({
+          tier,
+          provider: undefined
+        });
+
+        return {
+          reply: buildModelFailureReply(input, error, fallbackConfig),
+          actions: [],
+          provider: "model-error"
+        };
+      }
+    }
 
     // Build conversation history for context
     const recentHistory = this.getRecentHistory().slice(-10).map(h => ({
@@ -4931,8 +5330,7 @@ class AssistantService {
 
       let res;
       if (plan === "pro") {
-        const API_BASE = "https://jarvis-backend.a01044622139.workers.dev";
-        res = await fetch(`${API_BASE}/api/ai/chat`, {
+        res = await fetchWithRuntime(`${JARVIS_CLOUD_API_BASE}/api/ai/chat`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -4952,7 +5350,7 @@ class AssistantService {
         
         const systemInstruction = { parts: [{ text: systemPrompt }] };
 
-        res = await fetch(`${GEMINI_API_BASE}/models/${MODEL}:generateContent?key=${userGeminiKey}`, {
+        res = await fetchWithRuntime(`${GEMINI_API_BASE}/models/${MODEL}:generateContent?key=${userGeminiKey}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -5072,6 +5470,17 @@ class AssistantService {
         provider: "local",
         language: detectReplyLanguage(input)
       };
+    }
+
+    if (looksLikeModelIdentityQuestion(cleanInput)) {
+      const result = buildConfiguredModelIdentityResult(
+        cleanInput,
+        detectReplyLanguage(cleanInput),
+        this.settings?.getConversationModelSettingsView?.() || {},
+      );
+      this.rememberTurn("user", cleanInput);
+      this.rememberTurn("assistant", result.reply);
+      return result;
     }
 
     const pendingClarificationResult = await this.continuePendingClarification(cleanInput);

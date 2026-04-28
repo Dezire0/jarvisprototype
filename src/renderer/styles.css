@@ -94,7 +94,7 @@ h2 {
 .sidebar-frame {
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto minmax(180px, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(160px, 1fr) auto;
   gap: 6px;
   padding: 10px;
 }
@@ -152,8 +152,57 @@ h2 {
 }
 
 .sidebar-compose,
-.sidebar-runtime {
+.sidebar-runtime,
+.sidebar-ai-manager {
   padding: 8px 10px 10px;
+}
+
+.sidebar-ai-manager {
+  max-height: 42vh;
+  overflow: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ai-manager-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  list-style: none;
+}
+
+.ai-manager-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-manager-summary span:last-child {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ai-webui-actions {
+  flex-wrap: nowrap;
+}
+
+.ai-webui-actions button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-inline: 8px;
+}
+
+.provider-card-compact {
+  border-radius: 12px;
+  box-shadow: none;
 }
 
 .sidebar-threads {

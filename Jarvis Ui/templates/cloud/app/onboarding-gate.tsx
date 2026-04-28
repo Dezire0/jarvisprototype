@@ -32,9 +32,11 @@ import {
   CheckIcon,
 } from "lucide-react";
 import {
+  clearAuthSession,
   restoreAuthSession,
   persistAuthSession,
   isAuthRemembered,
+  setAuthRemembered,
   type AuthUser,
 } from "@/components/jarvis/auth-session";
 import { Assistant } from "./assistant";
@@ -110,6 +112,26 @@ export function OnboardingGate() {
     setSelectedPlan(selectInitialPlan(user || {}));
   }
 
+  async function handleRememberLoginChange(remember: boolean) {
+    setRememberLogin(remember);
+    setAuthRemembered(remember);
+
+    if (!remember) {
+      await clearAuthSession();
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setAuthRemembered(rememberLogin);
+
+    if (!rememberLogin) {
+      await clearAuthSession();
+    }
+
+    // Open the Google OAuth URL from the backend.
+    window.location.href = `${API_BASE}/api/auth/google`;
+  }
+
   const currentPlan = planCards[selectedPlan];
 
   // Check session on mount + Auto-wipe on version change
@@ -132,7 +154,6 @@ export function OnboardingGate() {
           
           // 2. Electron 저장소 삭제 (zombie session 방지)
           try {
-            const { clearAuthSession } = await import("@/components/jarvis/auth-session");
             await clearAuthSession();
           } catch (e) {
             console.error("Failed to clear electron session:", e);
@@ -314,7 +335,9 @@ export function OnboardingGate() {
 
       const updatedUser = markPlanConfirmed(session.user, selectedPlan) as AuthUser;
 
-      await persistAuthSession(session.token, updatedUser);
+      await persistAuthSession(session.token, updatedUser, {
+        remember: isAuthRemembered(),
+      });
       setStep("ready");
     } finally {
       setSetupLoading(false);
@@ -352,10 +375,10 @@ export function OnboardingGate() {
               <input
                 type="checkbox"
                 checked={rememberLogin}
-                onChange={(e) => setRememberLogin(e.target.checked)}
+                onChange={(e) => void handleRememberLoginChange(e.target.checked)}
                 className="size-3.5 rounded border border-white/15 bg-white/5 accent-white"
               />
-              <span>{t("로그인 유지", "Keep me signed in")}</span>
+              <span>{t("자동 로그인", "Auto login")}</span>
             </label>
             <Button disabled={authLoading} className="h-11 rounded-xl bg-white text-black font-medium transition-all active:scale-95">{authLoading ? <LoaderCircleIcon className="animate-spin" /> : t("이메일로 계속하기", "Continue with Email")}</Button>
             
@@ -368,10 +391,7 @@ export function OnboardingGate() {
               type="button"
               variant="outline"
               className="h-11 rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all active:scale-95 flex gap-2"
-              onClick={() => {
-                // Open the Google OAuth URL from the backend
-                window.location.href = `${API_BASE}/api/auth/google`;
-              }}
+              onClick={() => void handleGoogleLogin()}
             >
               <svg className="size-4" viewBox="0 0 24 24">
                 <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

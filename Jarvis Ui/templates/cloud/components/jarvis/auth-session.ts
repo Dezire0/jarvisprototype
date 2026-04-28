@@ -57,6 +57,10 @@ function readLocalSession(): StoredAuthSession {
     return session;
   }
 
+  if (!isAuthRemembered()) {
+    return { token: null, user: null };
+  }
+
   return readStorageSession(window.localStorage);
 }
 
@@ -68,7 +72,7 @@ export function isAuthRemembered(): boolean {
   return window.localStorage.getItem(AUTH_REMEMBER_KEY) !== "0";
 }
 
-function setRememberPreference(remember: boolean) {
+export function setAuthRemembered(remember: boolean) {
   if (typeof window === "undefined") {
     return;
   }
@@ -82,7 +86,11 @@ export async function restoreAuthSession(): Promise<StoredAuthSession> {
     return local;
   }
 
-  if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
+  if (
+    typeof window === "undefined" ||
+    !isAuthRemembered() ||
+    !(window as any).assistantAPI?.invokeTool
+  ) {
     return local;
   }
 
@@ -130,7 +138,7 @@ export async function persistAuthSession(
   targetStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
   otherStorage.removeItem(AUTH_TOKEN_KEY);
   otherStorage.removeItem(AUTH_USER_KEY);
-  setRememberPreference(remember);
+  setAuthRemembered(remember);
 
   try {
     if (remember) {

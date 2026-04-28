@@ -303,6 +303,22 @@ function mergeMessagesWithOptimistic(
   return merged;
 }
 
+function trimCancelledRunMessages(messages: readonly TransportMessage[]) {
+  const next = [...messages];
+  const last = next[next.length - 1];
+
+  if (last?.role === "assistant" && last.status === "running") {
+    next.pop();
+  }
+
+  const previous = next[next.length - 1];
+  if (previous?.role === "user") {
+    next.pop();
+  }
+
+  return next;
+}
+
 function transportConverter(
   state: TransportState,
   connectionMetadata: AssistantTransportConnectionMetadata,
@@ -346,6 +362,12 @@ function useJarvisTransportRuntime() {
     api: CHAT_API_PATH,
     headers,
     converter: transportConverter,
+    onCancel: ({ updateState }) => {
+      updateState((state) => ({
+        ...state,
+        messages: trimCancelledRunMessages(state.messages),
+      }));
+    },
     onError: (error) => {
       console.error("Jarvis transport error:", error);
     },

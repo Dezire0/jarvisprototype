@@ -21,6 +21,26 @@ const previewVoiceButton = document.getElementById("previewVoiceButton");
 const speakReplies = document.getElementById("speakReplies");
 const voiceStatus = document.getElementById("voiceStatus");
 const callModeHint = document.getElementById("callModeHint");
+const aiManagerBadge = document.getElementById("aiManagerBadge");
+const webUiStatus = document.getElementById("webUiStatus");
+const chatgptWebLoginButton = document.getElementById("chatgptWebLoginButton");
+const geminiWebLoginButton = document.getElementById("geminiWebLoginButton");
+const webUiLogoutButton = document.getElementById("webUiLogoutButton");
+const conversationProvider = document.getElementById("conversationProvider");
+const openaiChatApiKey = document.getElementById("openaiChatApiKey");
+const openaiChatModel = document.getElementById("openaiChatModel");
+const openaiChatBaseUrl = document.getElementById("openaiChatBaseUrl");
+const anthropicApiKey = document.getElementById("anthropicApiKey");
+const anthropicModel = document.getElementById("anthropicModel");
+const geminiChatApiKey = document.getElementById("geminiChatApiKey");
+const geminiChatModel = document.getElementById("geminiChatModel");
+const ollamaChatModel = document.getElementById("ollamaChatModel");
+const ollamaChatUrl = document.getElementById("ollamaChatUrl");
+const ollamaModelSelect = document.getElementById("ollamaModelSelect");
+const refreshOllamaModelsButton = document.getElementById("refreshOllamaModelsButton");
+const saveConversationModelButton = document.getElementById("saveConversationModelButton");
+const refreshConversationModelButton = document.getElementById("refreshConversationModelButton");
+const conversationModelStatus = document.getElementById("conversationModelStatus");
 const ttsProviderStatus = document.getElementById("ttsProviderStatus");
 const ttsProviderSummary = document.getElementById("ttsProviderSummary");
 const updateBanner = document.getElementById("updateBanner");
@@ -1126,6 +1146,228 @@ function buildProviderConfiguredLabel(name, configured) {
   return `${name} ${configured ? "연결됨" : "미연결"}`;
 }
 
+function updateConversationModelSummary(settings = {}) {
+  const providerNames = {
+    auto: "자동 선택",
+    "openai-compatible": "GPT / OpenAI API",
+    "openai-cli": "GPT / Codex CLI",
+    anthropic: "Anthropic API",
+    "claude-code": "Claude Code CLI",
+    gemini: "Gemini API",
+    "gemini-cli": "Gemini CLI",
+    ollama: "로컬 모델 연결"
+  };
+  const configured = [
+    buildProviderConfiguredLabel("GPT", settings.openai?.configured),
+    buildProviderConfiguredLabel("Claude", settings.anthropic?.configured),
+    buildProviderConfiguredLabel("Gemini", settings.gemini?.configured)
+  ].join(" · ");
+  const providerLabel = providerNames[settings.provider || "auto"] || settings.provider || "자동 선택";
+
+  conversationModelStatus.textContent = settings.provider === "ollama"
+    ? `현재 선택: ${providerLabel} / ${settings.ollama?.model || "qwen3:14b"}`
+    : settings.provider === "openai-cli"
+      ? `현재 선택: ${providerLabel} / ${settings.openai?.model || "gpt-4o-mini"}`
+    : settings.provider === "gemini-cli"
+      ? `현재 선택: ${providerLabel} / ${settings.gemini?.model || "gemini-2.5-flash"}`
+    : settings.provider === "claude-code"
+      ? `현재 선택: ${providerLabel} / ${settings.anthropic?.model || "claude-haiku-4-5"}`
+    : `현재 선택: ${providerLabel} / ${configured}`;
+  aiManagerBadge.textContent = ["openai-cli", "gemini-cli", "claude-code"].includes(settings.provider)
+    ? "oauth"
+    : settings.openai?.configured || settings.anthropic?.configured || settings.gemini?.configured
+      ? "API ready"
+    : settings.provider === "ollama"
+      ? "local"
+    : "local";
+}
+
+function populateConversationModelSettings(payload = {}) {
+  const settings = payload.settings || {};
+  const openai = settings.openai || {};
+  const anthropic = settings.anthropic || {};
+  const gemini = settings.gemini || {};
+  const ollama = settings.ollama || {};
+
+  conversationProvider.value = settings.provider || "auto";
+  openaiChatModel.value = openai.model || "gpt-4o-mini";
+  openaiChatBaseUrl.value = openai.baseUrl || "";
+  anthropicModel.value = anthropic.model || "claude-haiku-4-5";
+  geminiChatModel.value = gemini.model || "gemini-2.5-flash";
+  ollamaChatModel.value = ollama.model || "qwen3:14b";
+  ollamaChatUrl.value = ollama.url || "";
+
+  openaiChatApiKey.value = "";
+  anthropicApiKey.value = "";
+  geminiChatApiKey.value = "";
+
+  updateConversationModelSummary(settings);
+}
+
+function renderOllamaModelOptions(models = [], selectedModel = ollamaChatModel.value.trim()) {
+  if (!ollamaModelSelect) {
+    return;
+  }
+
+  const cleanModels = [...new Set(models.map((model) => String(model || "").trim()).filter(Boolean))];
+  const selected = String(selectedModel || "").trim();
+  ollamaModelSelect.innerHTML = "";
+
+  if (!cleanModels.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "설치된 모델 없음 - 직접 입력";
+    ollamaModelSelect.appendChild(option);
+    ollamaModelSelect.value = "";
+    return;
+  }
+
+  if (selected && !cleanModels.includes(selected)) {
+    const currentOption = document.createElement("option");
+    currentOption.value = selected;
+    currentOption.textContent = `${selected} (현재 입력값)`;
+    ollamaModelSelect.appendChild(currentOption);
+  }
+
+  cleanModels.forEach((model) => {
+    const option = document.createElement("option");
+    option.value = model;
+    option.textContent = model;
+    ollamaModelSelect.appendChild(option);
+  });
+
+  ollamaModelSelect.value = selected && Array.from(ollamaModelSelect.options).some((option) => option.value === selected)
+    ? selected
+    : cleanModels[0];
+
+  if (!selected && ollamaModelSelect.value) {
+    ollamaChatModel.value = ollamaModelSelect.value;
+  }
+}
+
+async function loadOllamaModels(showMessage = false) {
+  if (!ollamaModelSelect) {
+    return;
+  }
+
+  const previousLabel = ollamaModelSelect.options[ollamaModelSelect.selectedIndex]?.textContent || "";
+  ollamaModelSelect.innerHTML = '<option value="">Ollama 모델 읽는 중</option>';
+
+  try {
+    const result = await window.assistantAPI.invokeTool("ai:ollama-models", {
+      forceRefresh: true,
+      url: ollamaChatUrl.value.trim()
+    });
+    renderOllamaModelOptions(result.models || [], ollamaChatModel.value.trim());
+
+    if (showMessage) {
+      const count = result.models?.length || 0;
+      addMessage("assistant", count ? `Ollama 모델 ${count}개를 불러왔어요.` : "Ollama에서 설치된 모델을 찾지 못했어요. 모델명을 직접 입력해 주세요.");
+    }
+  } catch (error) {
+    ollamaModelSelect.innerHTML = "";
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = previousLabel || "Ollama 연결 실패 - 직접 입력";
+    ollamaModelSelect.appendChild(option);
+    conversationModelStatus.textContent = `Ollama 모델 목록을 읽지 못했어요: ${error.message}`;
+  }
+}
+
+async function loadConversationModelSettings(showMessage = false) {
+  try {
+    const payload = await window.assistantAPI.getConversationModelSettings();
+    populateConversationModelSettings(payload);
+    await loadOllamaModels(false);
+
+    if (showMessage) {
+      addMessage("assistant", "대화 모델 설정을 새로 읽어왔어요.");
+    }
+  } catch (error) {
+    conversationModelStatus.textContent = `대화 모델 설정을 읽지 못했어요: ${error.message}`;
+  }
+}
+
+async function saveConversationModelSettings() {
+  const payload = {
+    provider: conversationProvider.value,
+    openai: {
+      apiKey: openaiChatApiKey.value,
+      model: openaiChatModel.value.trim(),
+      baseUrl: openaiChatBaseUrl.value.trim()
+    },
+    anthropic: {
+      apiKey: anthropicApiKey.value,
+      model: anthropicModel.value.trim()
+    },
+    gemini: {
+      apiKey: geminiChatApiKey.value,
+      model: geminiChatModel.value.trim()
+    },
+    ollama: {
+      model: ollamaChatModel.value.trim(),
+      url: ollamaChatUrl.value.trim()
+    }
+  };
+
+  try {
+    const result = await window.assistantAPI.saveConversationModelSettings(payload);
+    populateConversationModelSettings(result);
+    await loadOllamaModels(false);
+    addMessage("assistant", "대화 모델 설정을 저장했어요. 다음 요청부터 선택한 모델 흐름을 사용합니다.");
+  } catch (error) {
+    addMessage("assistant", `대화 모델 설정 저장 중 문제가 있었어요: ${error.message}`);
+  }
+}
+
+async function refreshWebUiStatus(showMessage = false) {
+  try {
+    const result = await window.assistantAPI.invokeTool("ai:web-status", {
+      forceRefresh: true
+    });
+    const provider = result.connected ? result.provider || "web" : "";
+    webUiStatus.textContent = result.connected
+      ? `WebUI 연결됨: ${provider}`
+      : "WebUI는 아직 연결되지 않았어요.";
+
+    if (result.connected) {
+      aiManagerBadge.textContent = "WebUI";
+    }
+
+    if (showMessage) {
+      addMessage("assistant", webUiStatus.textContent);
+    }
+  } catch (error) {
+    webUiStatus.textContent = `WebUI 상태 확인 실패: ${error.message}`;
+  }
+}
+
+async function connectWebUiProvider(provider) {
+  webUiStatus.textContent = `${provider === "gemini" ? "Gemini" : "ChatGPT"} WebUI 로그인 창을 여는 중이에요...`;
+
+  try {
+    const result = await window.assistantAPI.invokeTool("ai:web-login", {
+      provider
+    });
+    webUiStatus.textContent = result.ok
+      ? `WebUI 연결됨: ${result.provider || provider}`
+      : `WebUI 연결을 완료하지 못했어요: ${result.reason || "login required"}`;
+    await refreshWebUiStatus(false);
+  } catch (error) {
+    webUiStatus.textContent = `WebUI 연결 중 문제가 있었어요: ${error.message}`;
+  }
+}
+
+async function disconnectWebUi() {
+  try {
+    await window.assistantAPI.invokeTool("ai:web-logout", {});
+    webUiStatus.textContent = "WebUI 연결을 해제했어요.";
+    await refreshWebUiStatus(false);
+  } catch (error) {
+    webUiStatus.textContent = `WebUI 연결 해제 실패: ${error.message}`;
+  }
+}
+
 function updateTtsSummary(status, settings) {
   const configured = status?.configuredProviders || {};
   const summaryParts = [
@@ -1978,6 +2220,37 @@ previewVoiceButton.addEventListener("click", () => {
   void speakText(previewText, speechLanguage.value.startsWith("ko") ? "ko" : "en");
 });
 
+chatgptWebLoginButton?.addEventListener("click", () => {
+  void connectWebUiProvider("chatgpt");
+});
+
+geminiWebLoginButton?.addEventListener("click", () => {
+  void connectWebUiProvider("gemini");
+});
+
+webUiLogoutButton?.addEventListener("click", () => {
+  void disconnectWebUi();
+});
+
+ollamaModelSelect?.addEventListener("change", () => {
+  if (ollamaModelSelect.value) {
+    ollamaChatModel.value = ollamaModelSelect.value;
+  }
+});
+
+refreshOllamaModelsButton?.addEventListener("click", () => {
+  void loadOllamaModels(true);
+});
+
+saveConversationModelButton?.addEventListener("click", () => {
+  void saveConversationModelSettings();
+});
+
+refreshConversationModelButton?.addEventListener("click", () => {
+  void loadConversationModelSettings(true);
+  void refreshWebUiStatus(true);
+});
+
 saveTtsSettingsButton.addEventListener("click", () => {
   void saveTtsSettings();
 });
@@ -2246,6 +2519,8 @@ async function bootstrap() {
 
   refreshCredentialList();
   refreshAppCatalog();
+  loadConversationModelSettings();
+  refreshWebUiStatus();
   loadTtsSettings();
 
   window.assistantAPI.onUpdateStatus((payload) => {

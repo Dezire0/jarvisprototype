@@ -1,7 +1,7 @@
 {
   "name": "jarvis-prototype",
-  "version": "1.8.4",
-  "description": "Jarvis Desktop v1.6.2 (Login & Plan Fix), with local automation, packaged UI, and auto-update support.",
+  "version": "1.8.7",
+  "description": "Jarvis Desktop v1.8.7, with local automation, packaged UI, and auto-update support.",
   "author": {
     "name": "JYH",
     "email": "a01044622139@gmail.com"

@@ -259,6 +259,38 @@ const ComposerAction: FC<{
   startOnce: () => void;
   toggleContinuous: () => void;
 }> = ({ supported, status, continuous, startOnce, toggleContinuous }) => {
+  const aui = useAui();
+  const messages = useAuiState((state) => state.thread.messages);
+
+  function extractText(value: unknown): string {
+    if (!value) return "";
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) {
+      return value.map(extractText).filter(Boolean).join(" ").trim();
+    }
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (typeof record.text === "string") return record.text.trim();
+      if ("content" in record) return extractText(record.content);
+      if ("parts" in record) return extractText(record.parts);
+    }
+    return "";
+  }
+
+  function restoreLastUserMessageAndCancel() {
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "user");
+    const text = extractText(lastUserMessage);
+
+    aui.thread().cancelRun();
+    if (text) {
+      queueMicrotask(() => {
+        aui.composer().setText(text);
+      });
+    }
+  }
+
   return (
     <div className="aui-composer-action-wrapper relative flex items-center gap-2">
       <ComposerAddAttachment />
@@ -308,17 +340,16 @@ const ComposerAction: FC<{
         </ComposerPrimitive.Send>
       </AuiIf>
       <AuiIf condition={(state) => state.thread.isRunning}>
-        <ComposerPrimitive.Cancel asChild>
-          <Button
-            type="button"
-            variant="default"
-            size="icon"
-            className="aui-composer-cancel size-9 rounded-full bg-white text-black"
-            aria-label="Stop generating"
-          >
-            <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
-          </Button>
-        </ComposerPrimitive.Cancel>
+        <Button
+          type="button"
+          variant="default"
+          size="icon"
+          className="aui-composer-cancel size-9 rounded-full bg-white text-black"
+          aria-label="Stop generating"
+          onClick={restoreLastUserMessageAndCancel}
+        >
+          <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
+        </Button>
       </AuiIf>
     </div>
   );
