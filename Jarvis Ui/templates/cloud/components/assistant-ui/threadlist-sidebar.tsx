@@ -109,11 +109,7 @@ type LauncherApp = {
 type ConversationProvider =
   | "auto"
   | "openai"
-  | "openai-cli"
-  | "anthropic"
-  | "claude-code"
   | "gemini"
-  | "gemini-cli"
   | "ollama";
 type StoredConversationProvider = ConversationProvider | "openai-compatible";
 
@@ -144,16 +140,12 @@ type ConversationModelSettingsView = {
 };
 
 const OPENAI_MODEL_OPTIONS = [
+  "gpt-5.4",
+  "gpt-5.4-mini",
   "gpt-4.1-mini",
   "gpt-4.1",
   "gpt-4o-mini",
   "gpt-4o",
-];
-
-const ANTHROPIC_MODEL_OPTIONS = [
-  "claude-haiku-4-5",
-  "claude-sonnet-4-6",
-  "claude-opus-4-7",
 ];
 
 const GEMINI_MODEL_OPTIONS = [
@@ -180,11 +172,6 @@ const WEB_MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }>>
     { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite" },
     { value: "gemini-1.5-flash-latest", label: "gemini-1.5-flash-latest" },
   ],
-  claude: [
-    { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-    { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
-  ],
 };
 
 function getWebModelOptions(provider?: string | null) {
@@ -194,19 +181,14 @@ function getWebModelOptions(provider?: string | null) {
 function getWebProviderLabel(provider?: string | null) {
   if (provider === "chatgpt") return "ChatGPT";
   if (provider === "gemini") return "Gemini";
-  if (provider === "claude") return "Claude";
-  return "사이트 로그인";
+  return "웹 로그인";
 }
 
 function getConversationProviderLabel(provider?: ConversationProvider | StoredConversationProvider | null) {
   if (provider === "openai" || provider === "openai-compatible") return "GPT";
-  if (provider === "openai-cli") return "Codex CLI";
-  if (provider === "anthropic") return "Anthropic";
-  if (provider === "claude-code") return "Claude Code";
   if (provider === "gemini") return "Gemini";
-  if (provider === "gemini-cli") return "Gemini CLI";
   if (provider === "ollama") return "Ollama";
-  return "WebUI";
+  return "자동 선택";
 }
 
 function withSelectedModelOption(options: string[], selectedModel: string) {
@@ -222,11 +204,7 @@ function normalizeConversationProviderForUi(provider?: string | null): Conversat
   if (
     provider === "auto" ||
     provider === "openai" ||
-    provider === "openai-cli" ||
-    provider === "anthropic" ||
-    provider === "claude-code" ||
     provider === "gemini" ||
-    provider === "gemini-cli" ||
     provider === "ollama"
   ) {
     return provider;
@@ -241,32 +219,41 @@ function getConversationModelSummary(settings?: ConversationModelSettingsView | 
   if (provider === "openai") {
     return `GPT / ${settings?.openai?.model || "gpt-4o-mini"}`;
   }
-  if (provider === "openai-cli") {
-    return `Codex CLI / ${settings?.openai?.model || "gpt-4o-mini"}`;
-  }
-  if (provider === "anthropic") {
-    return `Anthropic / ${settings?.anthropic?.model || "claude-haiku-4-5"}`;
-  }
-  if (provider === "claude-code") {
-    return `Claude Code / ${settings?.anthropic?.model || "claude-haiku-4-5"}`;
-  }
   if (provider === "gemini") {
     return `Gemini / ${settings?.gemini?.model || "gemini-2.5-flash"}`;
-  }
-  if (provider === "gemini-cli") {
-    return `Gemini CLI / ${settings?.gemini?.model || "gemini-2.5-flash"}`;
   }
   if (provider === "ollama") {
     return `Ollama / ${settings?.ollama?.model || "qwen3:14b"}`;
   }
-  if (provider === "auto" && settings?.web?.provider) {
-    const option = getWebModelOptions(settings.web.provider).find(
-      (item) => item.value === settings.web?.model,
-    );
-    return `사이트 로그인 / ${settings.web.provider} / ${option?.label || settings.web.model || "자동 선택"}`;
+  return "자동 선택 / API 또는 Ollama";
+}
+
+function getConversationConnectionState(settings?: ConversationModelSettingsView | null) {
+  const provider = normalizeConversationProviderForUi(settings?.provider);
+
+  if (provider === "openai" && settings?.openai?.configured) {
+    return { connected: true, label: "GPT", model: settings.openai?.model || "gpt-4o-mini" };
   }
 
-  return "사이트 로그인 / WebUI 우선";
+  if (provider === "gemini" && settings?.gemini?.configured) {
+    return { connected: true, label: "Gemini", model: settings.gemini?.model || "gemini-2.5-flash" };
+  }
+
+  if (provider === "ollama") {
+    return { connected: true, label: "Ollama", model: settings?.ollama?.model || "qwen3:14b" };
+  }
+
+  if (provider === "auto") {
+    if (settings?.gemini?.configured) {
+      return { connected: true, label: "Gemini", model: settings.gemini?.model || "gemini-2.5-flash" };
+    }
+
+    if (settings?.openai?.configured) {
+      return { connected: true, label: "GPT", model: settings.openai?.model || "gpt-4o-mini" };
+    }
+  }
+
+  return { connected: false, label: "API", model: "" };
 }
 
 function readSidebarState(): StoredSidebarState {
@@ -421,9 +408,6 @@ export function ThreadListSidebar({
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
-  const [anthropicApiKey, setAnthropicApiKey] = useState("");
-  const [anthropicModel, setAnthropicModel] = useState("claude-haiku-4-5");
-  const [anthropicBaseUrl, setAnthropicBaseUrl] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
   const [ollamaUrl, setOllamaUrl] = useState("http://127.0.0.1:11434");
@@ -462,10 +446,6 @@ export function ThreadListSidebar({
     () => withSelectedModelOption(OPENAI_MODEL_OPTIONS, openaiModel),
     [openaiModel],
   );
-  const anthropicModelOptions = useMemo(
-    () => ANTHROPIC_MODEL_OPTIONS,
-    [],
-  );
   const geminiModelOptions = useMemo(
     () => withSelectedModelOption(GEMINI_MODEL_OPTIONS, geminiModel),
     [geminiModel],
@@ -478,6 +458,10 @@ export function ThreadListSidebar({
   const connectedWebModelProvider =
     webAiStatus === "connected" ? activeWebModelProvider : null;
   const hasConnectedWebAi = Boolean(connectedWebModelProvider);
+  const conversationConnection = useMemo(
+    () => getConversationConnectionState(conversationSettings),
+    [conversationSettings],
+  );
   const webModelOptions = useMemo(
     () => getWebModelOptions(connectedWebModelProvider),
     [connectedWebModelProvider],
@@ -780,67 +764,18 @@ export function ThreadListSidebar({
   }
 
   async function checkWebAiStatus(forceRefresh = false, preferredProvider = selectedWebAiProvider) {
-    if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
-      setWebAiStatus("disconnected");
-      return;
-    }
-
-    try {
-      const result = (await (window as any).assistantAPI.invokeTool("ai:web-status", {
-        forceRefresh,
-        provider: preferredProvider || undefined,
-      })) as {
-        connected?: boolean;
-        provider?: string | null;
-        reason?: string | null;
-      };
-
-      if (result.connected) {
-        setWebAiStatus("connected");
-      } else if (result.reason === "expired") {
-        setWebAiStatus("expired");
-      } else {
-        setWebAiStatus("disconnected");
-      }
-
-      setWebAiProvider(result.provider || null);
-      setWebAiReason(result.reason || null);
-    } catch {
-      setWebAiStatus("disconnected");
-      setWebAiProvider(null);
-      setWebAiReason("status_check_failed");
-    }
+    void forceRefresh;
+    void preferredProvider;
+    setWebAiStatus("disconnected");
+    setWebAiProvider(null);
+    setWebAiReason("web_login_removed");
   }
 
   async function connectWebAi(provider: string = "chatgpt") {
-    if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
-      return;
-    }
-
-    setWebAiStatus("checking");
+    setWebAiStatus("disconnected");
     setSelectedWebAiProvider(provider);
-    try {
-      const result = (await (window as any).assistantAPI.invokeTool("ai:web-login", {
-        provider: provider,
-      })) as {
-        ok?: boolean;
-        provider?: string | null;
-      };
-      if (result?.ok) {
-        const connectedProvider = result.provider || provider;
-        const nextWebModel = getWebModelOptions(connectedProvider)[0]?.value || "auto";
-        setConversationProvider("auto");
-        webModelRef.current = nextWebModel;
-        setWebModel(nextWebModel);
-        await saveConversationModelSettings("auto", {
-          provider: connectedProvider,
-          model: nextWebModel,
-        });
-      }
-      await checkWebAiStatus(true, provider);
-    } catch {
-      setWebAiStatus("disconnected");
-    }
+    setWebAiProvider(null);
+    setWebAiReason("web_login_removed");
   }
 
   function syncConversationModelSettings(settings?: ConversationModelSettingsView | null) {
@@ -849,13 +784,6 @@ export function ThreadListSidebar({
     setConversationProvider(normalizeConversationProviderForUi(next.provider));
     setOpenaiModel(next.openai?.model || "gpt-4o-mini");
     setOpenaiBaseUrl(next.openai?.baseUrl || "");
-    const nextAnthropicModel = next.anthropic?.model || "claude-haiku-4-5";
-    setAnthropicModel(
-      ANTHROPIC_MODEL_OPTIONS.includes(nextAnthropicModel)
-        ? nextAnthropicModel
-        : "claude-haiku-4-5",
-    );
-    setAnthropicBaseUrl(next.anthropic?.baseUrl || "");
     setGeminiModel(next.gemini?.model || "gemini-2.5-flash");
     setOllamaUrl(next.ollama?.url || "http://127.0.0.1:11434");
     setOllamaModel(next.ollama?.model || "qwen2.5:14b");
@@ -866,7 +794,6 @@ export function ThreadListSidebar({
       setSelectedWebAiProvider(next.web.provider);
     }
     setOpenaiApiKey("");
-    setAnthropicApiKey("");
     setGeminiApiKey("");
   }
 
@@ -945,8 +872,7 @@ export function ThreadListSidebar({
 
     setConversationSaving(true);
     setConversationStatus("");
-    const nextWebProvider = webOverride?.provider ?? connectedWebModelProvider ?? "";
-    const nextWebModel = webOverride?.model ?? webModelRef.current;
+    void webOverride;
 
     try {
       const result = (await (window as any).assistantAPI.saveConversationModelSettings({
@@ -955,11 +881,6 @@ export function ThreadListSidebar({
           apiKey: openaiApiKey,
           model: openaiModel,
           baseUrl: openaiBaseUrl,
-        },
-        anthropic: {
-          apiKey: anthropicApiKey,
-          model: anthropicModel,
-          baseUrl: anthropicBaseUrl,
         },
         gemini: {
           apiKey: geminiApiKey,
@@ -970,8 +891,8 @@ export function ThreadListSidebar({
           url: ollamaUrl,
         },
         web: {
-          provider: nextWebProvider,
-          model: nextWebModel,
+          provider: "",
+          model: "auto",
         },
       })) as {
         settings?: ConversationModelSettingsView;
@@ -983,8 +904,8 @@ export function ThreadListSidebar({
           ...(result?.settings || {}),
           provider: result?.settings?.provider || provider,
           web: {
-            provider: result?.settings?.web?.provider ?? nextWebProvider,
-            model: result?.settings?.web?.model ?? nextWebModel,
+            provider: "",
+            model: "auto",
           },
         };
         const summary = getConversationModelSummary(summarySettings);
@@ -1325,7 +1246,7 @@ export function ThreadListSidebar({
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
               <label className="flex items-center justify-between gap-3 text-sm">
-                <span>가능하면 Web AI 우선 사용</span>
+                <span>가능하면 자동 선택 사용</span>
                 <input
                   type="checkbox"
                   checked={profilePreferWebAi}
@@ -1361,34 +1282,32 @@ export function ThreadListSidebar({
             onClick={() => setWebAiModalOpen(true)}
             className={cn(
               "mb-2 flex w-full items-center gap-2 rounded-xl border border-white/5 px-3 py-2.5 text-left font-semibold text-xs transition-all",
-              webAiStatus === "connected"
+              conversationConnection.connected
                 ? "bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/25 hover:bg-emerald-500/18 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20 dark:hover:bg-emerald-500/20"
                 : "bg-card/80 text-foreground/78 ring-1 ring-border hover:bg-accent hover:text-foreground dark:bg-zinc-800/60 dark:text-zinc-300 dark:ring-zinc-700/30 dark:hover:bg-zinc-700/60 dark:hover:text-white",
-              webAiStatus === "expired" &&
-                "bg-amber-500/12 text-amber-700 ring-1 ring-amber-500/25 hover:bg-amber-500/18 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20 dark:hover:bg-amber-900/40",
             )}
           >
             <SparklesIcon className="size-3.5 shrink-0" />
             <span className="flex-1 truncate">
-              {webAiStatus === "connected"
-                ? `${webAiProvider?.toUpperCase() || "Web AI"} 활성화됨`
-                : webAiStatus === "checking"
-                  ? "상태 확인 중..."
-                  : "Web AI 연동 및 관리"}
+              {webAiStatus === "checking"
+                ? "상태 확인 중..."
+                : conversationConnection.connected
+                  ? `${conversationConnection.label} 연결됨`
+                  : "AI 모델 연동 및 관리"}
             </span>
             <div
               className={cn(
                 "flex items-center gap-1.5 rounded-full px-1.5 py-0.5 font-bold text-[9px] uppercase tracking-wider",
-                webAiStatus === "connected"
+                conversationConnection.connected
                   ? "bg-emerald-900/12 text-emerald-800 dark:bg-black/20 dark:text-emerald-300"
                   : "bg-foreground/8 text-foreground/75 dark:bg-black/20 dark:text-zinc-300"
               )}
             >
-              {webAiStatus === "connected" ? "Connected" : "Setup"}
+              {conversationConnection.connected ? conversationConnection.label : "API"}
             </div>
           </button>
 
-          {/* Web AI Management Modal */}
+          {/* AI Model Management Modal */}
           <Dialog open={webAiModalOpen} onOpenChange={setWebAiModalOpen}>
             <DialogContent className="max-h-[86dvh] max-w-[560px] overflow-y-auto border-none bg-[#171717] p-0 text-white shadow-2xl">
               <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
@@ -1396,101 +1315,12 @@ export function ThreadListSidebar({
                 <DialogHeader className="mb-4">
                   <DialogTitle className="flex items-center gap-2 text-xl">
                     <SparklesIcon className="size-5 text-emerald-400" />
-                    Web AI 관리
+                    AI 모델 관리
                   </DialogTitle>
                   <DialogDescription className="text-zinc-400">
-                    사이트 계정 로그인, API 키, Ollama 로컬 모델을 여기서 연결합니다.
+                    OpenAI API, Gemini API, Ollama를 연결하여 Jarvis를 사용할 수 있습니다.
                   </DialogDescription>
                 </DialogHeader>
-
-                <div className="space-y-3">
-                  {/* ChatGPT Option */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWebAiModalOpen(false);
-                      void connectWebAi("chatgpt");
-                    }}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-xl border p-4 transition-all hover:scale-[1.02]",
-                      webAiProvider === "chatgpt" && webAiStatus === "connected"
-                        ? "border-emerald-500/50 bg-emerald-500/10 ring-1 ring-emerald-500/20"
-                        : "border-white/5 bg-white/5 hover:bg-white/10",
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 font-bold text-emerald-400">
-                        C
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-sm">ChatGPT</p>
-                        <p className="text-xs text-zinc-500">OpenAI 계정으로 Jarvis 연결</p>
-                      </div>
-                    </div>
-                    {webAiProvider === "chatgpt" &&
-                      webAiStatus === "connected" && (
-                        <BadgeCheckIcon className="size-5 text-emerald-400" />
-                      )}
-                  </button>
-
-                  {/* Gemini Option */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWebAiModalOpen(false);
-                      void connectWebAi("gemini");
-                    }}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-xl border p-4 transition-all hover:scale-[1.02]",
-                      webAiProvider === "gemini" && webAiStatus === "connected"
-                        ? "border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20"
-                        : "border-white/5 bg-white/5 hover:bg-white/10",
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 font-bold text-blue-400">
-                        G
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-sm">Gemini</p>
-                        <p className="text-xs text-zinc-500">Google 계정으로 Jarvis 연결</p>
-                      </div>
-                    </div>
-                    {webAiProvider === "gemini" &&
-                      webAiStatus === "connected" && (
-                        <BadgeCheckIcon className="size-5 text-blue-400" />
-                      )}
-                  </button>
-
-                  {/* Claude Option */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWebAiModalOpen(false);
-                      void connectWebAi("claude");
-                    }}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded-xl border p-4 transition-all hover:scale-[1.02]",
-                      webAiProvider === "claude" && webAiStatus === "connected"
-                        ? "border-orange-500/50 bg-orange-500/10 ring-1 ring-orange-500/20"
-                        : "border-white/5 bg-white/5 hover:bg-white/10",
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800 font-bold text-orange-300">
-                        A
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-sm">Claude</p>
-                        <p className="text-xs text-zinc-500">Anthropic 계정으로 Jarvis 연결</p>
-                      </div>
-                    </div>
-                    {webAiProvider === "claude" &&
-                      webAiStatus === "connected" && (
-                        <BadgeCheckIcon className="size-5 text-orange-300" />
-                      )}
-                  </button>
-                </div>
 
                 <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -1499,9 +1329,7 @@ export function ThreadListSidebar({
                       <p className="text-xs text-zinc-500">
                         {hasConnectedWebAi
                           ? `${activeWebProviderLabel} 계정으로 사용할 모델을 선택합니다.`
-                          : ["openai-cli", "gemini-cli", "claude-code"].includes(conversationProvider)
-                            ? "로컬 CLI의 OAuth 로그인 상태를 사용합니다."
-                            : "API 키는 기기 안에 암호화해서 저장됩니다."}
+                          : "API 키는 기기 안에 암호화해서 저장됩니다."}
                       </p>
                     </div>
                     <span className="rounded-full bg-white/8 px-2 py-1 text-[10px] font-bold uppercase text-zinc-400">
@@ -1547,13 +1375,9 @@ export function ThreadListSidebar({
                         }
                         className="mb-4 h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
                       >
-                        <option value="auto">사이트 로그인 / WebUI 우선</option>
+                        <option value="auto">자동 선택 / API 우선</option>
                         <option value="openai">GPT / OpenAI API</option>
-                        <option value="openai-cli">GPT / Codex CLI OAuth</option>
-                        <option value="anthropic">Anthropic API</option>
-                        <option value="claude-code">Claude Code CLI OAuth</option>
                         <option value="gemini">Gemini API</option>
-                        <option value="gemini-cli">Gemini CLI OAuth</option>
                         <option value="ollama">로컬 모델 / Ollama</option>
                       </select>
 
@@ -1590,109 +1414,12 @@ export function ThreadListSidebar({
                     </div>
                   )}
 
-                  {conversationProvider === "openai-cli" && (
-                    <div className="space-y-2">
-                      <select
-                        value={openaiModel}
-                        onChange={(event) => setOpenaiModel(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        {openaiModelOptions.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
-                        로컬 Codex CLI를 `codex exec` 모드로 호출합니다.
-                        OpenAI API 키는 저장하지 않고, Codex CLI의 로그인 상태를 그대로 사용합니다.
-                        먼저 Codex CLI에서 `codex login`을 완료해 주세요.
-                      </p>
-                    </div>
-                  )}
-
-                  {conversationProvider === "anthropic" && (
-                    <div className="space-y-2">
-                      <Input
-                        type="password"
-                        value={anthropicApiKey}
-                        onChange={(event) => setAnthropicApiKey(event.target.value)}
-                        placeholder={
-                          conversationSettings?.anthropic?.configured
-                            ? "Anthropic API Key 저장됨 - 변경할 때만 입력"
-                            : "Anthropic API Key"
-                        }
-                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
-                      />
-                      <select
-                        value={anthropicModel}
-                        onChange={(event) => setAnthropicModel(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        {anthropicModelOptions.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                      <Input
-                        value={anthropicBaseUrl}
-                        onChange={(event) => setAnthropicBaseUrl(event.target.value)}
-                        placeholder="Base URL 선택 사항"
-                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
-                      />
-                    </div>
-                  )}
-
-                  {conversationProvider === "claude-code" && (
-                    <div className="space-y-2">
-                      <select
-                        value={anthropicModel}
-                        onChange={(event) => setAnthropicModel(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        {anthropicModelOptions.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
-                        로컬에 설치된 Claude Code CLI를 `claude -p` 모드로 호출합니다.
-                        Anthropic API 키는 저장하지 않고, Claude Code의 OAuth 로그인 상태를 그대로 사용합니다.
-                        먼저 Claude Code를 설치하고 `claude auth login` 또는 `claude`로 로그인해 주세요.
-                      </p>
-                    </div>
-                  )}
-
                   {conversationProvider === "auto" && (
                     <div className="space-y-2">
-                      {connectedWebModelProvider ? (
-                        <>
-                          <p className="text-[11px] font-semibold text-zinc-500">
-                            {activeWebProviderLabel} 사이트 모델
-                          </p>
-                          <select
-                            value={webModel}
-                            onChange={(event) => handleWebModelChange(event.target.value)}
-                            className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                          >
-                            {webModelOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-[11px] leading-relaxed text-zinc-500">
-                            사이트 로그인 모델은 연결된 계정의 웹 모델 선택 UI를 자동으로 맞춥니다.
-                            실제 사용 가능 모델은 계정 요금제와 사이트 상태에 따라 달라질 수 있어요.
-                          </p>
-                        </>
-                      ) : (
-                        <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
-                          위에서 ChatGPT, Gemini, Claude 계정을 연결하면 해당 회사의 모델 선택지가 여기에 표시됩니다.
-                        </p>
-                      )}
+                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
+                        자동 선택은 저장된 API 설정을 우선 사용하고, 원격 API가 연결되지 않은 경우 Ollama로 내려갑니다.
+                        웹 로그인 세션이나 사이트 토큰은 더 이상 사용하지 않아요.
+                      </p>
                     </div>
                   )}
 
@@ -1720,27 +1447,6 @@ export function ThreadListSidebar({
                           </option>
                         ))}
                       </select>
-                    </div>
-                  )}
-
-                  {conversationProvider === "gemini-cli" && (
-                    <div className="space-y-2">
-                      <select
-                        value={geminiModel}
-                        onChange={(event) => setGeminiModel(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        {geminiModelOptions.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
-                        로컬 Gemini CLI를 `gemini -p` 모드로 호출합니다.
-                        Gemini API 키는 저장하지 않고, Gemini CLI의 Google 로그인 상태를 그대로 사용합니다.
-                        먼저 Gemini CLI를 설치하고 `gemini`로 로그인해 주세요.
-                      </p>
                     </div>
                   )}
 
@@ -1779,15 +1485,12 @@ export function ThreadListSidebar({
                     </div>
                   )}
 
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] text-zinc-500 sm:grid-cols-4">
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] text-zinc-500 sm:grid-cols-3">
                     <span>
-                      Web {connectedWebModelProvider ? activeWebProviderLabel : "미연결"}
+                      API-only 모드
                     </span>
                     <span>
                       GPT {conversationSettings?.openai?.configured ? "저장됨" : "미설정"}
-                    </span>
-                    <span>
-                      Anthropic {conversationSettings?.anthropic?.configured ? "저장됨" : "미설정"}
                     </span>
                     <span>
                       Gemini {conversationSettings?.gemini?.configured ? "저장됨" : "미설정"}
@@ -1848,27 +1551,27 @@ export function ThreadListSidebar({
             <Button
               variant="ghost"
               onClick={() => void startNewChat()}
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
+              className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 text-foreground hover:bg-zinc-100 dark:hover:bg-[#212121]"
             >
-              <EditIcon className="size-4.5" />
+              <EditIcon className="size-4.5 text-foreground/85" />
               <span className="font-medium text-[15px]">{t("새 채팅", "New Chat")}</span>
             </Button>
  
              <Button
                variant="ghost"
                onClick={() => setSearchOpen(true)}
-               className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
+               className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 text-foreground hover:bg-zinc-100 dark:hover:bg-[#212121]"
              >
-               <SearchIcon className="size-4.5" />
+               <SearchIcon className="size-4.5 text-foreground/85" />
                <span className="font-medium text-[15px]">{t("채팅 검색", "Search")}</span>
              </Button>
  
              <Button
                variant="ghost"
                onClick={() => void openLauncher()}
-               className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 hover:bg-[#212121]"
+               className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 text-foreground hover:bg-zinc-100 dark:hover:bg-[#212121]"
              >
-               <MoreHorizontalIcon className="size-4.5" />
+               <MoreHorizontalIcon className="size-4.5 text-foreground/85" />
                <span className="font-medium text-[15px]">{t("더 보기", "More")}</span>
              </Button>
           </div>
@@ -1894,9 +1597,9 @@ export function ThreadListSidebar({
             <Button
               variant="ghost"
               onClick={() => setProjectDialogOpen(true)}
-              className="flex items-center justify-start gap-3 rounded-lg px-3 py-5 hover:bg-[#212121]"
+              className="flex items-center justify-start gap-3 rounded-lg px-3 py-5 text-foreground hover:bg-zinc-100 dark:hover:bg-[#212121]"
             >
-              <FolderPlusIcon className="size-4.5" />
+              <FolderPlusIcon className="size-4.5 text-foreground/85" />
               <span className="font-medium text-sm">{t("새 프로젝트", "New Project")}</span>
             </Button>
 
@@ -1916,8 +1619,9 @@ export function ThreadListSidebar({
                       )
                     }
                     className={cn(
-                      "flex items-center justify-start gap-3 rounded-lg px-3 py-5 transition-colors hover:bg-[#212121]",
-                      selectedProjectId === project.id && "bg-[#252525]",
+                      "flex items-center justify-start gap-3 rounded-lg px-3 py-5 text-foreground transition-colors hover:bg-zinc-100 dark:hover:bg-[#212121]",
+                      selectedProjectId === project.id &&
+                        "bg-zinc-900 text-white dark:bg-[#252525]",
                     )}
                   >
                       <FolderIcon className="size-4.5 text-foreground/55 dark:text-zinc-400" />
@@ -1951,10 +1655,10 @@ export function ThreadListSidebar({
                   variant="ghost"
                   onClick={() => void switchToThread(thread.id)}
                   className={cn(
-                    "group relative flex items-center justify-start overflow-hidden rounded-lg px-3 py-5 text-left transition-colors",
+                    "group relative flex items-center justify-start overflow-hidden rounded-lg px-3 py-5 text-left text-foreground transition-colors",
                     thread.id === threadsState.mainThreadId
-                      ? "bg-[#2f2f2f] text-white"
-                      : "hover:bg-[#212121]",
+                      ? "bg-zinc-900 text-white dark:bg-[#2f2f2f]"
+                      : "hover:bg-zinc-100 dark:hover:bg-[#212121]",
                   )}
                 >
                   <span className="flex-1 truncate font-medium text-sm">
@@ -1995,9 +1699,9 @@ export function ThreadListSidebar({
                   setLoginOpen(true);
                 }
               }}
-              className="flex flex-1 items-center justify-start gap-3 rounded-xl px-2 py-6 hover:bg-[#212121]"
+              className="flex flex-1 items-center justify-start gap-3 rounded-xl px-2 py-6 text-foreground hover:bg-zinc-100 dark:hover:bg-[#212121]"
             >
-              <div className="flex size-8 items-center justify-center rounded-full bg-zinc-700 font-bold text-sm text-white">
+              <div className="flex size-8 items-center justify-center rounded-full bg-zinc-700 font-bold text-sm text-white dark:bg-zinc-700">
                 {userDisplayName.charAt(0).toUpperCase()}
               </div>
               <div className="flex min-w-0 flex-1 flex-col items-start text-left">
@@ -2015,7 +1719,7 @@ export function ThreadListSidebar({
                   {userSubLabel}
                 </span>
               </div>
-              <UserRoundIcon className="size-4 text-foreground/55 dark:text-zinc-500" />
+              <UserRoundIcon className="size-4 text-foreground/75 dark:text-zinc-500" />
             </Button>
 
             {authUser && (
@@ -2023,7 +1727,7 @@ export function ThreadListSidebar({
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => void handleLogout()}
-                className="shrink-0 rounded-xl text-foreground/55 hover:bg-accent hover:text-foreground dark:text-zinc-500 dark:hover:bg-[#212121] dark:hover:text-white"
+                className="shrink-0 rounded-xl text-foreground/75 hover:bg-zinc-100 hover:text-foreground dark:text-zinc-500 dark:hover:bg-[#212121] dark:hover:text-white"
                 title={t("로그아웃", "Logout")}
               >
                 <LogOutIcon className="size-4" />

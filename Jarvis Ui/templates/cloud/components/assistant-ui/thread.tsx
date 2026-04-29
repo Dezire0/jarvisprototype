@@ -144,7 +144,7 @@ const ThreadWelcome: FC = () => {
             {t("오늘 무엇을 도와드릴까요?", "How can I help you?")}
           </h1>
           <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-base text-muted-foreground delay-75 duration-200 md:text-lg">
-            {t("자비스는 브라우징, 자동화, 정보 분석을 돕는 AI 비서입니다.", "Jarvis can plan, browse, and automate your tasks.")}
+            {t("자비스는 일정 정리, 글 초안, 브라우징, 자동화를 돕는 실무형 AI 비서입니다.", "Jarvis is a practical AI assistant for planning, drafting, browsing, and automation.")}
           </p>
         </div>
       </div>

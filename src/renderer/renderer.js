@@ -1321,51 +1321,20 @@ async function saveConversationModelSettings() {
 }
 
 async function refreshWebUiStatus(showMessage = false) {
-  try {
-    const result = await window.assistantAPI.invokeTool("ai:web-status", {
-      forceRefresh: true
-    });
-    const provider = result.connected ? result.provider || "web" : "";
-    webUiStatus.textContent = result.connected
-      ? `WebUI 연결됨: ${provider}`
-      : "WebUI는 아직 연결되지 않았어요.";
+  webUiStatus.textContent = "웹 로그인 연동은 제거되었어요. API, CLI OAuth, 또는 Ollama를 사용해 주세요.";
+  aiManagerBadge.textContent = "API";
 
-    if (result.connected) {
-      aiManagerBadge.textContent = "WebUI";
-    }
-
-    if (showMessage) {
-      addMessage("assistant", webUiStatus.textContent);
-    }
-  } catch (error) {
-    webUiStatus.textContent = `WebUI 상태 확인 실패: ${error.message}`;
+  if (showMessage) {
+    addMessage("assistant", webUiStatus.textContent);
   }
 }
 
 async function connectWebUiProvider(provider) {
-  webUiStatus.textContent = `${provider === "gemini" ? "Gemini" : "ChatGPT"} WebUI 로그인 창을 여는 중이에요...`;
-
-  try {
-    const result = await window.assistantAPI.invokeTool("ai:web-login", {
-      provider
-    });
-    webUiStatus.textContent = result.ok
-      ? `WebUI 연결됨: ${result.provider || provider}`
-      : `WebUI 연결을 완료하지 못했어요: ${result.reason || "login required"}`;
-    await refreshWebUiStatus(false);
-  } catch (error) {
-    webUiStatus.textContent = `WebUI 연결 중 문제가 있었어요: ${error.message}`;
-  }
+  webUiStatus.textContent = `${provider === "gemini" ? "Gemini" : "ChatGPT"} 웹 로그인 연동은 제거되었어요. API 또는 CLI OAuth를 사용해 주세요.`;
 }
 
 async function disconnectWebUi() {
-  try {
-    await window.assistantAPI.invokeTool("ai:web-logout", {});
-    webUiStatus.textContent = "WebUI 연결을 해제했어요.";
-    await refreshWebUiStatus(false);
-  } catch (error) {
-    webUiStatus.textContent = `WebUI 연결 해제 실패: ${error.message}`;
-  }
+  webUiStatus.textContent = "웹 로그인 세션은 더 이상 사용되지 않아요.";
 }
 
 function updateTtsSummary(status, settings) {

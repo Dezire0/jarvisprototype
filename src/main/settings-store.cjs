@@ -138,9 +138,6 @@ function normalizeConversationProvider(value = "", fallback = "auto") {
     "gpt-cli": "openai-cli",
     "codex-cli": "openai-cli",
     codex: "openai-cli",
-    "claude-code": "claude-code",
-    anthropic: "anthropic",
-    claude: "anthropic",
     gemini: "gemini",
     "gemini-cli": "gemini-cli",
     google: "gemini"
@@ -179,8 +176,13 @@ class SettingsStore {
       return "";
     }
 
-    this.ensureEncryption();
-    return safeStorage.decryptString(Buffer.from(encoded, "base64"));
+    try {
+      this.ensureEncryption();
+      return safeStorage.decryptString(Buffer.from(encoded, "base64"));
+    } catch (error) {
+      console.warn("Ignoring stored secret that could not be decrypted:", error?.message || error);
+      return "";
+    }
   }
 
   normalize(raw = {}) {
@@ -212,8 +214,8 @@ class SettingsStore {
           url: String(storedConversation.ollama?.url || "").trim()
         },
         web: {
-          provider: String(storedConversation.web?.provider || "").trim(),
-          model: trimmedOrFallback(storedConversation.web?.model, defaults.conversationModel.web.model)
+          provider: "",
+          model: defaults.conversationModel.web.model
         }
       },
       tts: {
@@ -412,15 +414,10 @@ class SettingsStore {
 
   async updateConversationModelSettings(patch = {}) {
     const current = this.cache.conversationModel || createDefaultSettings().conversationModel;
-    const nextWebProvider = patch.web?.provider !== undefined
-      ? String(patch.web.provider || "").trim()
-      : current.web?.provider || "";
     const next = this.normalize({
       ...this.cache,
       conversationModel: {
-        provider: nextWebProvider
-          ? "auto"
-          : normalizeConversationProvider(patch.provider, current.provider),
+        provider: normalizeConversationProvider(patch.provider, current.provider),
         openai: {
           model: trimmedOrFallback(patch.openai?.model, current.openai.model),
           baseUrl: patch.openai?.baseUrl !== undefined
@@ -452,8 +449,8 @@ class SettingsStore {
             : current.ollama.url
         },
         web: {
-          provider: nextWebProvider,
-          model: trimmedOrFallback(patch.web?.model, current.web?.model || "auto")
+          provider: "",
+          model: "auto"
         }
       }
     });
