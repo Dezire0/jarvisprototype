@@ -2705,6 +2705,10 @@ class AssistantService {
     };
   }
 
+  async polishCommandReply(input, result, fallback) {
+    return buildCommandFallback(detectReplyLanguage(input), fallback);
+  }
+
   isCancelResponse(input = "") {
     return /(취소|그만|아니야|됐어|cancel|stop|never mind|forget it)/i.test(normalizePlanText(input));
   }
@@ -2844,7 +2848,7 @@ class AssistantService {
       return {
         url: targetUrl,
         title: "",
-        openMode: "external-browser"
+        openMode: "system-browser"
       };
     } catch (_error) {
       const page = await this.browser.open(targetUrl);
@@ -4441,6 +4445,36 @@ class AssistantService {
    */
   async handleBrowser(input) {
     const language = detectReplyLanguage(input);
+    const plan = buildHeuristicBrowserPlan(input);
+
+    if (plan?.login?.required && plan.login.mode === "manual") {
+      return this.beginPendingBrowserContinuation(input, plan);
+    }
+
+    if (isSimpleExternalBrowserPlan(plan)) {
+      const targetUrl = buildExternalBrowserTarget(plan.steps[0]);
+      const opened = await this.openBrowserTargetForUser(targetUrl);
+      const fallback = buildCompactBrowserReply(
+        input,
+        plan.steps,
+        {
+          title: opened.title || "",
+          url: opened.url || targetUrl
+        }
+      );
+
+      return {
+        reply: fallback,
+        actions: [this.makeAction("open_url", opened.url || targetUrl)],
+        provider: opened.openMode,
+        details: {
+          title: opened.title || "",
+          url: opened.url || targetUrl,
+          openMode: opened.openMode
+        }
+      };
+    }
+
     const actions = [];
     const maxSteps = AssistantService.REACT_MAX_STEPS;
 

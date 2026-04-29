@@ -586,6 +586,10 @@ class UpdaterService {
       enabled: this.enabled
     };
 
+    if (!BrowserWindow?.getAllWindows) {
+      return;
+    }
+
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send("assistant:update-status", this.status);
     }
