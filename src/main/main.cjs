@@ -45,7 +45,6 @@ const { SttService } = require("./stt-service.cjs");
 const { TtsService } = require("./tts-service.cjs");
 const { UpdaterService } = require("./updater-service.cjs");
 
-const unofficialAI = require("./unofficial-ai-provider.cjs");
 const piiManager = require("./pii-manager.cjs");
 const osAutomation = require("./os-automation.cjs");
 const notificationMonitor = require("./notification-monitor.cjs");
@@ -120,13 +119,9 @@ async function createServices() {
     if (provider === "openai" || provider === "openai-compatible") {
       return settings.getConversationModelSettings().openai.apiKey;
     }
-    if (provider === "anthropic" || provider === "claude") {
-      return settings.getConversationModelSettings().anthropic.apiKey;
-    }
     return null;
   });
   setExternalLlmSettingsProvider(() => settings.getConversationModelSettings());
-  unofficialAI.setWebModelProvider(() => settings.getConversationModelSettings().web);
   const extensions = new ExtensionsService({ app });
   await extensions.load();
   const browser = new BrowserService({
@@ -924,39 +919,24 @@ async function dispatchTool(tool, payload = {}) {
       return { ok: true, tool };
     }
     case "ai:web-login": {
-      const provider = payload.provider || "chatgpt";
-      const token = await unofficialAI.requireLogin(provider);
-      const state = await unofficialAI.getConnectionState({
-        forceRefresh: true,
-        provider
-      });
-      if (state.connected) {
-        unofficialAI.setActiveWebProvider(provider);
-      }
       return {
-        ok: state.connected,
+        ok: false,
         tool,
-        token: !!token,
-        provider: state.provider,
-        reason: state.reason
+        provider: null,
+        reason: "web_login_removed"
       };
     }
     case "ai:web-logout": {
-      await unofficialAI.logout();
-      return { ok: true, tool };
+      return { ok: true, tool, reason: "web_login_removed" };
     }
     case "ai:web-status": {
-      const state = await unofficialAI.getConnectionState({
-        forceRefresh: Boolean(payload.forceRefresh),
-        provider: payload.provider || null
-      });
       return {
         ok: true,
         tool,
-        connected: state.connected,
-        provider: state.provider,
-        reason: state.reason,
-        checkedAt: state.checkedAt
+        connected: false,
+        provider: null,
+        reason: "web_login_removed",
+        checkedAt: Date.now()
       };
     }
     case "ai:ollama-models": {

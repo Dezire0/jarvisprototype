@@ -124,7 +124,7 @@ test("llm service does not treat explicitly selected Ollama as an unconfigured f
   );
 });
 
-test("llm service uses saved Claude settings when selected", () => {
+test("llm service ignores legacy Claude providers and falls back when no supported provider is configured", () => {
   withFreshLlmModule({}, (service) => {
     service.setExternalLlmSettingsProvider(() => ({
       provider: "anthropic",
@@ -137,29 +137,40 @@ test("llm service uses saved Claude settings when selected", () => {
 
     const config = service.resolveConfig({ tier: "complex" });
 
-    assert.equal(config.provider, "anthropic");
-    assert.equal(config.model, "claude-test-model");
-    assert.equal(config.apiKey, "claude-test-key");
-    assert.equal(config.url, "https://api.anthropic.com/v1/messages");
+    assert.equal(config.provider, "ollama");
+    assert.equal(config.model, "qwen3:14b");
+    assert.equal(config.apiKey, "");
   });
 });
 
-test("llm service resolves Claude Code provider using the shared Claude model selection", () => {
-  withFreshLlmModule({}, (service) => {
-    service.setExternalLlmSettingsProvider(() => ({
-      provider: "claude-code",
-      anthropic: {
-        model: "claude-sonnet-4-6"
-      }
-    }));
+test("llm service auto mode ignores Anthropic-only environment configuration", () => {
+  withFreshLlmModule(
+    {
+      JARVIS_FAST_LLM_PROVIDER: "auto",
+      JARVIS_COMPLEX_LLM_PROVIDER: "auto",
+      ANTHROPIC_API_KEY: "anthropic-test-key"
+    },
+    (service) => {
+      const config = service.resolveConfig({ tier: "complex" });
 
-    const config = service.resolveConfig({ tier: "complex" });
+      assert.equal(config.provider, "ollama");
+      assert.equal(service.isUnconfiguredAutoFallback({ tier: "complex" }), true);
+    }
+  );
+});
 
-    assert.equal(config.provider, "claude-code");
-    assert.equal(config.model, "claude-sonnet-4-6");
-    assert.equal(config.apiKey, "");
-    assert.equal(config.url, "");
-  });
+test("llm service normalizes explicit Anthropic provider requests to supported providers", () => {
+  withFreshLlmModule(
+    {
+      OPENAI_API_KEY: "sk-test-key"
+    },
+    (service) => {
+      const config = service.resolveConfig({ tier: "complex", provider: "anthropic" });
+
+      assert.equal(config.provider, "openai-compatible");
+      assert.equal(config.apiKey, "sk-test-key");
+    }
+  );
 });
 
 test("llm service resolves OpenAI CLI provider without requiring an API key", () => {

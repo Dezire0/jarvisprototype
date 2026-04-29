@@ -11,7 +11,6 @@ const {
   isUnconfiguredAutoFallback
 } = require("./ollama-service.cjs");
 
-const unofficialAI = require("./unofficial-ai-provider.cjs");
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
 const JARVIS_CLOUD_API_BASE =
@@ -87,8 +86,8 @@ async function fetchWithRuntime(url, options = {}) {
 
 function buildModelConnectionReply(text = "") {
   return detectLanguageCode(text) === "ko"
-    ? "대화 모델이 아직 연결되어 있지 않아요. 왼쪽 위의 WebUI 연동 및 관리에서 ChatGPT/Gemini/Claude 사이트 로그인을 연결하거나 GPT/Anthropic/Gemini API 키를 저장해 주세요. CLI OAuth를 쓰려면 GPT/Codex CLI, Gemini CLI, 또는 Claude Code CLI를 선택한 뒤 로컬 CLI를 설치하고 로그인하면 됩니다. 로컬로 쓰려면 로컬 모델 연결을 선택하면 됩니다."
-    : "No conversation model is connected yet. Open WebUI Integration & Management in the upper-left and connect ChatGPT/Gemini/Claude site login, save a GPT/Anthropic/Gemini API key, or choose Local Model Connection. To use CLI OAuth, select GPT/Codex CLI, Gemini CLI, or Claude Code CLI and make sure the local CLI is installed and signed in.";
+    ? "대화 모델이 아직 연결되어 있지 않아요. 왼쪽 위의 AI 모델 관리에서 GPT/Gemini API 키를 저장하거나, GPT/Codex CLI 또는 Gemini CLI로 로그인하거나, Ollama 로컬 모델을 선택해 주세요."
+    : "No conversation model is connected yet. Open AI Model Management in the upper-left and save a GPT/Gemini API key, sign in with GPT/Codex CLI or Gemini CLI, or choose an Ollama local model.";
 }
 
 function buildModelFailureReply(text = "", error, config = {}) {
@@ -100,10 +99,6 @@ function buildModelFailureReply(text = "", error, config = {}) {
       ? "Gemini CLI"
     : config.provider === "openai-cli"
       ? "GPT/Codex CLI"
-    : config.provider === "claude-code"
-      ? "Claude Code"
-    : config.provider === "anthropic"
-      ? "Anthropic"
       : config.provider === "openai-compatible"
         ? "GPT/OpenAI"
         : "로컬 모델";
@@ -111,14 +106,8 @@ function buildModelFailureReply(text = "", error, config = {}) {
 
   if (config.provider === "gemini" && /high demand|try again later|overloaded|temporar/i.test(message)) {
     return isKo
-      ? `Gemini${modelLabel} 모델이 지금 요청이 많아서 일시적으로 응답하지 못하고 있어요. API 키나 저장 설정 문제는 아니고, Google 쪽 모델 수요/용량 문제에 가깝습니다. 잠시 뒤 다시 시도하거나 Web AI 관리에서 Gemini 3 Flash Preview, Gemini 2.5 Pro, 또는 다른 연결 모델로 바꿔 주세요.`
-      : `Gemini${modelLabel} is temporarily unable to respond because the model is under high demand. This is not an API key or saved-settings issue. Please try again later or switch to Gemini 3 Flash Preview, Gemini 2.5 Pro, or another connected model in Web AI Management.`;
-  }
-
-  if (config.provider === "claude-code") {
-    return isKo
-      ? `Claude Code${modelLabel} 연결 중 문제가 있었어요. 이 경로는 Anthropic API 키가 아니라 로컬 Claude Code CLI의 OAuth 로그인 상태를 사용합니다. Claude Code가 설치되어 있는지, \`claude auth login\` 또는 \`claude\`로 로그인되어 있는지 확인해 주세요.\n\n${message}`
-      : `Claude Code${modelLabel} ran into a connection problem. This path uses the local Claude Code CLI OAuth session instead of an Anthropic API key. Check that Claude Code is installed and signed in with \`claude auth login\` or by running \`claude\`.\n\n${message}`;
+      ? `Gemini${modelLabel} 모델이 지금 요청이 많아서 일시적으로 응답하지 못하고 있어요. API 키나 저장 설정 문제는 아니고, Google 쪽 모델 수요/용량 문제에 가깝습니다. 잠시 뒤 다시 시도하거나 AI 모델 관리에서 Gemini 3 Flash Preview, Gemini 2.5 Pro, 또는 다른 연결 모델로 바꿔 주세요.`
+      : `Gemini${modelLabel} is temporarily unable to respond because the model is under high demand. This is not an API key or saved-settings issue. Please try again later or switch to Gemini 3 Flash Preview, Gemini 2.5 Pro, or another connected model in AI Model Management.`;
   }
 
   if (config.provider === "openai-cli" || config.provider === "gemini-cli") {
@@ -135,52 +124,12 @@ function buildModelFailureReply(text = "", error, config = {}) {
   }
 
   return isKo
-    ? `${providerLabel}${modelLabel} 연결 중 문제가 있었어요. Web AI 관리에서 API 키와 모델 선택을 확인해 주세요.\n\n${message}`
-    : `${providerLabel}${modelLabel} ran into a connection problem. Check the API key and selected model in Web AI Management.\n\n${message}`;
+    ? `${providerLabel}${modelLabel} 연결 중 문제가 있었어요. AI 모델 관리에서 API 키와 모델 선택을 확인해 주세요.\n\n${message}`
+    : `${providerLabel}${modelLabel} ran into a connection problem. Check the API key and selected model in AI Model Management.\n\n${message}`;
 }
 
-function buildWebAiFailureReply(text = "", error, provider = "") {
-  const message = String(error?.message || error || "").trim();
-  const isKo = detectLanguageCode(text) === "ko";
-  const label = provider === "gemini"
-    ? "Gemini"
-    : provider === "claude"
-      ? "Claude"
-      : provider === "chatgpt"
-        ? "ChatGPT"
-        : "Web AI";
-
-  return isKo
-    ? `${label} 사이트 로그인 연결에서 응답을 가져오지 못했어요. API 키 문제라기보다 웹사이트 로그인 세션, 모델 선택 UI, 또는 페이지 자동화가 막힌 상태일 가능성이 큽니다. Web AI 관리에서 해당 계정을 다시 연결하거나, API 키/Ollama 연결로 전환해 주세요.\n\n${message}`
-    : `${label} site-login connection could not return a reply. This is more likely a web login session, model picker, or page automation issue than an API key issue. Reconnect the account in Web AI Management, or switch to API/Ollama.\n\n${message}`;
-}
-
-function withTimeout(promise, ms, message) {
-  let timer = null;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  });
-}
-
-function extractWebAiUserPrompt(userPrompt = "") {
-  const text = String(userPrompt || "").trim();
-  const markerMatch = text.match(/(?:^|\n)User request:\s*\n([\s\S]*)$/i);
-  if (markerMatch?.[1]?.trim()) {
-    return markerMatch[1].trim();
-  }
-  return text;
-}
-
-// Override chat to use unofficial Web AI session if configured
 const chat = async (options) => {
   let config = null;
-  let usedWebProvider = null;
   try {
     const effectiveOptions = options.localOnly
       ? {
@@ -189,23 +138,6 @@ const chat = async (options) => {
           apiKey: ""
         }
       : options;
-    const savedLlmSettings = getExternalLlmSettings() || {};
-    const savedProvider = savedLlmSettings.provider || "auto";
-    const savedWebProvider = String(savedLlmSettings.web?.provider || "").trim();
-    const shouldPreferSavedWebProvider =
-      !effectiveOptions.localOnly &&
-      !effectiveOptions.provider &&
-      Boolean(savedWebProvider);
-    let connectedProvider = null;
-
-    if (shouldPreferSavedWebProvider) {
-      const webState = await unofficialAI.getConnectionState({
-        provider: savedWebProvider
-      });
-      connectedProvider = webState.connected ? savedWebProvider : null;
-    } else {
-      connectedProvider = await unofficialAI.isConnected();
-    }
     config = resolveConfig({
       tier: effectiveOptions.tier || "complex",
       provider: effectiveOptions.provider,
@@ -217,18 +149,10 @@ const chat = async (options) => {
       effectiveOptions.tier || "complex",
       effectiveOptions.provider
     );
-    const directApiSelected = ["gemini", "openai-compatible", "anthropic"].includes(config.provider);
-    const explicitNonWebProviderSelected =
-      !shouldPreferSavedWebProvider &&
-      requestedProvider !== "auto" &&
-      (Boolean(effectiveOptions.provider) || savedProvider !== "auto");
-    const explicitDirectApiSelected =
-      explicitNonWebProviderSelected &&
-      ["gemini", "openai-compatible", "anthropic"].includes(requestedProvider);
+    const directApiSelected = ["gemini", "openai-compatible"].includes(config.provider);
     const directApiReady = directApiSelected && Boolean(config.apiKey);
     const needsModelConnection =
       !effectiveOptions.localOnly &&
-      !connectedProvider &&
       (isUnconfiguredAutoFallback({
         tier: effectiveOptions.tier || "complex",
         provider: effectiveOptions.provider
@@ -238,32 +162,9 @@ const chat = async (options) => {
     if (needsModelConnection) {
       return buildModelConnectionReply(effectiveOptions.userPrompt);
     }
-
-    if (shouldPreferSavedWebProvider && !connectedProvider) {
-      return buildWebAiFailureReply(
-        effectiveOptions.userPrompt,
-        new Error(`${savedWebProvider} site login is not connected. Reconnect it in Web AI Management to use your subscribed plan tokens.`),
-        savedWebProvider
-      );
-    }
-
-    if (connectedProvider && !effectiveOptions.localOnly && !explicitNonWebProviderSelected) {
-      const prompt = extractWebAiUserPrompt(effectiveOptions.userPrompt);
-      usedWebProvider = connectedProvider;
-      return await withTimeout(
-        unofficialAI.chat(prompt, connectedProvider),
-        35000,
-        `${connectedProvider} site login did not return a reply within 35 seconds. The web page may be blocked, logged out, or its UI changed.`
-      );
-    } else {
-      // 연결되지 않았거나 로컬 모델 전용 요청이면 Ollama로 바로 라우팅
-      return await officialChat(effectiveOptions);
-    }
+    return await officialChat(effectiveOptions);
   } catch (err) {
     console.error("Conversation model failed:", err.message);
-    if (usedWebProvider) {
-      return buildWebAiFailureReply(options.userPrompt, err, usedWebProvider);
-    }
     return buildModelFailureReply(options.userPrompt, err, config || {});
   }
 };
@@ -1120,13 +1021,6 @@ function formatConfiguredConversationModel(settings = {}) {
     };
   }
 
-  if (provider === "anthropic") {
-    return {
-      label: "Anthropic API",
-      model: settings.anthropic?.model || "claude-haiku-4-5"
-    };
-  }
-
   if (provider === "openai-cli") {
     return {
       label: "GPT / Codex CLI",
@@ -1141,31 +1035,10 @@ function formatConfiguredConversationModel(settings = {}) {
     };
   }
 
-  if (provider === "claude-code") {
-    return {
-      label: "Claude Code CLI",
-      model: settings.anthropic?.model || "claude-haiku-4-5"
-    };
-  }
-
   if (provider === "ollama") {
     return {
       label: "Ollama 로컬 모델",
       model: settings.ollama?.model || "qwen3:14b"
-    };
-  }
-
-  if (provider === "auto" && settings.web?.provider) {
-    const webLabel = settings.web.provider === "chatgpt"
-      ? "ChatGPT 사이트 로그인"
-      : settings.web.provider === "gemini"
-        ? "Gemini 사이트 로그인"
-        : settings.web.provider === "claude"
-          ? "Claude 사이트 로그인"
-          : "사이트 로그인";
-    return {
-      label: webLabel,
-      model: settings.web?.model || "auto"
     };
   }
 
@@ -1180,13 +1053,6 @@ function formatConfiguredConversationModel(settings = {}) {
     return {
       label: "자동 선택 / GPT API",
       model: settings.openai?.model || "gpt-4o-mini"
-    };
-  }
-
-  if (settings.anthropic?.configured) {
-    return {
-      label: "자동 선택 / Anthropic API",
-      model: settings.anthropic?.model || "claude-haiku-4-5"
     };
   }
 
@@ -3394,17 +3260,6 @@ class AssistantService {
   }
 
   async executeRoute(cleanInput, route) {
-    // 로그인 진행 중에는 자동화 동작이 간섭하지 않도록 제한합니다.
-    if (unofficialAI.isLoggingIn && ["browser", "app_action", "browser_login"].includes(route.route)) {
-      return {
-        reply: detectReplyLanguage(cleanInput) === "ko"
-          ? "현재 로그인 창이 열려 있어 자동화 동작을 수행할 수 없습니다. 로그인을 완료하거나 창을 닫은 후 다시 시도해 주세요."
-          : "Automation actions are disabled while the login window is open. Please complete the login or close the window and try again.",
-        actions: [],
-        provider: "local-lock"
-      };
-    }
-
     // 사용자의 입력 의도(Route)에 따라 적절한 핸들러를 호출합니다.
     switch (route.route) {
       case "system_briefing":
@@ -5237,12 +5092,16 @@ class AssistantService {
           : "Respond in English.";
 
     const systemPrompt = [
-      "당신은 유능하고 친절한 AI 비서 Jarvis입니다.",
+      "당신은 유능하고 침착한 AI 비서 Jarvis입니다.",
       langInstruction,
+      "일반 챗봇처럼 두루뭉술하게 대화하기보다, 사용자의 일과 결정을 앞당기는 개인 비서처럼 행동하세요.",
+      "답변은 가능하면 먼저 핵심 정리, 실행안, 다음 단계 중 하나를 바로 제시하세요.",
+      "사용자가 자기소개를 요청하면 길게 홍보하지 말고, 어떤 방식으로 실무를 돕는지 짧고 자연스럽게 설명하세요.",
+      "장황한 기능 나열보다 지금 바로 도움이 되는 제안, 정리, 초안을 우선하세요.",
       "만약 유튜브, 네이버, 구글 검색 등 웹사이트 작업이 필요하면 답변 맨 끝에 [ACTION: BROWSE] 검색어 또는 URL 형식을 포함하세요.",
       "만약 컴퓨터에 설치된 로컬 앱(예: 메모장, 계산기, 크롬 등)을 실행해야 한다면 [ACTION: OPEN_APP] 앱이름 형식을 포함하세요.",
       "만약 앱을 설치해야 하는 경우 [ACTION: INSTALL_APP] 앱이름 형식을 포함하세요.",
-      "일상적인 대화라면 풍부하고 친절하게 답변하세요."
+      "일상적인 대화에서도 비서답게 정리하고 이어서 도울 수 있는 방향을 제안하세요."
     ].join("\n");
 
     const tier = chooseChatModelTier(input, this.getRecentHistory());
@@ -5253,10 +5112,13 @@ class AssistantService {
         [
           "Follow the conversation naturally.",
           `Reply only in ${buildLanguageName(language)}.`,
-          "Sound like Jarvis as a modern everyday assistant: calm, polished, warm, and capable.",
-          "If the user is chatting casually, answer like a strong general chatbot.",
+          "Sound like Jarvis as a modern personal assistant: calm, polished, warm, and capable.",
+          "Do not sound like a generic chatbot.",
+          "Prefer concise, useful, action-oriented replies over broad conversational filler.",
+          "If the user is chatting casually, still answer like a sharp assistant who can organize thoughts and suggest the next step.",
           "If the user asks for recommendations, suggest two or three concrete options when useful.",
-          "If the user greets you, greet them back naturally and invite the next request.",
+          "If the user greets you, greet them back naturally and invite the next task briefly.",
+          "If the user asks you to introduce yourself, keep it short and practical rather than promotional.",
           "Do not sound like a status banner or system message."
         ].join("\n"),
         {
@@ -5523,27 +5385,18 @@ class AssistantService {
       return extensionWebhookResult;
     }
 
-    let route;
-    const connectedProvider = await unofficialAI.isConnected();
+    let route = await this.routeInput(cleanInput);
 
-    if (connectedProvider) {
-      // Web AI가 연결된 경우, 로컬 라우터를 거치지 않고 바로 handleGeneral(ChatGPT)로 보냅니다.
-      // ChatGPT가 답변 과정에서 [ACTION: ...] 태그를 통해 스스로 라우팅을 수행합니다.
-      route = { route: "chat", language: detectReplyLanguage(cleanInput) };
-    } else {
-      route = await this.routeInput(cleanInput);
-
-      if (
-        route.route === "chat" &&
-        looksLikeAppAction(cleanInput) &&
-        this.lastActiveApp
-      ) {
-        route = {
-          ...route,
-          route: "app_action",
-          appName: this.lastActiveApp
-        };
-      }
+    if (
+      route.route === "chat" &&
+      looksLikeAppAction(cleanInput) &&
+      this.lastActiveApp
+    ) {
+      route = {
+        ...route,
+        route: "app_action",
+        appName: this.lastActiveApp
+      };
     }
 
     let result;

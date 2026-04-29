@@ -41,7 +41,7 @@ function getUrlOrigin(url = "") {
 
 function normalizeWebProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
-  return ["chatgpt", "gemini", "claude"].includes(normalized) ? normalized : null;
+  return ["chatgpt", "gemini"].includes(normalized) ? normalized : null;
 }
 
 function uniqueTextParts(parts = []) {
@@ -299,12 +299,9 @@ class UnofficialAIProvider {
 
       // Gemini 검증
       const geminiConnected = !!geminiCookie;
-      const claudeConnected = this.claudeSessionVerified || await this.hasClaudeChatAccess();
-
       const activeProviderConnected =
         (this.activeWebProvider === "chatgpt" && chatgptConnected) ||
-        (this.activeWebProvider === "gemini" && geminiConnected) ||
-        (this.activeWebProvider === "claude" && claudeConnected);
+        (this.activeWebProvider === "gemini" && geminiConnected);
 
       // 상태 결정 로직
       // 요청된 provider가 있다면 그 결과를 최우선으로 반영
@@ -320,13 +317,6 @@ class UnofficialAIProvider {
           connected: geminiConnected,
           provider: "gemini",
           reason: geminiConnected ? "ok" : "disconnected",
-          checkedAt: now
-        };
-      } else if (provider === "claude") {
-        nextState = {
-          connected: claudeConnected,
-          provider: "claude",
-          reason: claudeConnected ? "ok" : "disconnected",
           checkedAt: now
         };
       } else {
@@ -349,13 +339,6 @@ class UnofficialAIProvider {
           nextState = {
             connected: true,
             provider: "gemini",
-            reason: "ok",
-            checkedAt: now
-          };
-        } else if (claudeConnected) {
-          nextState = {
-            connected: true,
-            provider: "claude",
             reason: "ok",
             checkedAt: now
           };
@@ -809,31 +792,106 @@ class UnofficialAIProvider {
     const script = `
       (async function() {
         try {
+          const isUsable = (element) => {
+            if (!element) return false;
+            const style = window.getComputedStyle(element);
+            return style.visibility !== "hidden" && style.display !== "none" && !element.disabled;
+          };
+
+          const findInput = () => {
+            const selectors = [
+              '#prompt-textarea',
+              'textarea',
+              'div[contenteditable="true"][role="textbox"]',
+              'div[contenteditable="true"]'
+            ];
+            for (const selector of selectors) {
+              const element = Array.from(document.querySelectorAll(selector)).find(isUsable);
+              if (element) return element;
+            }
+            return null;
+          };
+
+          const setInputValue = (input, value) => {
+            input.focus();
+            if ("value" in input) {
+              input.value = value;
+              input.dispatchEvent(new Event("input", { bubbles: true }));
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+              return;
+            }
+
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(input);
+            selection.removeAllRanges();
+            selection.addRange(range);
+
+            let inserted = false;
+            try {
+              const dataTransfer = new DataTransfer();
+              dataTransfer.setData("text/plain", value);
+              const pasteEvent = new ClipboardEvent("paste", {
+                bubbles: true,
+                cancelable: true,
+                clipboardData: dataTransfer
+              });
+              input.dispatchEvent(pasteEvent);
+              inserted = (input.innerText || input.textContent || "").includes(value);
+            } catch (_error) {
+              inserted = false;
+            }
+
+            if (!inserted) {
+              input.dispatchEvent(new InputEvent("beforeinput", {
+                bubbles: true,
+                cancelable: true,
+                inputType: "insertText",
+                data: value
+              }));
+              input.textContent = value;
+            }
+
+            input.dispatchEvent(new InputEvent("input", {
+              bubbles: true,
+              inputType: "insertText",
+              data: value
+            }));
+          };
+
+          const findSendButton = () => {
+            const directMatch = document.querySelector('button[data-testid="send-button"]');
+            if (isUsable(directMatch) && directMatch.getAttribute("aria-disabled") !== "true") {
+              return directMatch;
+            }
+
+            const buttons = Array.from(document.querySelectorAll("button, div[role='button']"));
+            return buttons.find((button) => {
+              if (!isUsable(button) || button.getAttribute("aria-disabled") === "true") return false;
+              const text = [
+                button.getAttribute("aria-label"),
+                button.getAttribute("data-testid"),
+                button.textContent,
+                button.innerText
+              ].filter(Boolean).join(" ");
+              return /send|submit|전송|보내기/i.test(text) && !/stop|cancel|중지/i.test(text);
+            }) || null;
+          };
+
           // 입력창이 렌더링될 때까지 최대 5초 대기 (Polling)
           let textarea = null;
           for (let i = 0; i < 50; i++) {
-            textarea = document.querySelector('#prompt-textarea') || 
-                       document.querySelector('div[contenteditable="true"]') ||
-                       document.querySelector('textarea');
+            textarea = findInput();
             if (textarea) break;
             await new Promise(r => setTimeout(r, 100));
           }
 
           if (!textarea) return { error: "Chat input not found after 5 seconds." };
           
-          // Clear and set value
-          textarea.value = ${escapedPrompt};
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-          textarea.dispatchEvent(new Event('change', { bubbles: true }));
+          setInputValue(textarea, ${escapedPrompt});
 
           // Wait a moment for the Send button to enable
           await new Promise((resolve) => setTimeout(resolve, 500));
-
-          const findSendButton = () => {
-            return document.querySelector('button[data-testid="send-button"]') ||
-                   document.querySelector('button[aria-label="Send message"]') ||
-                   document.querySelector('button.absolute.bottom-1.5');
-          };
 
           const sendBtn = findSendButton();
           if (sendBtn && !sendBtn.disabled) {
