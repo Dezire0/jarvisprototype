@@ -7,3 +7,4 @@
 - Changed external browser open mode back to `system-browser` for compatibility with existing route results.
 - Guarded `UpdaterService.updateStatus()` so Electron-free test runtimes do not crash when `BrowserWindow.getAllWindows()` is unavailable.
 - Verification passed: `npm run check`, `npm run test:node` with 66/66 passing, and `npm run dev` reached Next ready state plus Electron login screen render.
+- Release prep: bumped desktop app version metadata to `1.8.9` for the next GitHub Release workflow.
