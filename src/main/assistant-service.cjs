@@ -5047,12 +5047,16 @@ class AssistantService {
 
     if (route.route === "browser") {
       const plan = buildHeuristicBrowserPlan(input);
+      const normalizedInput = normalizePlanText(input);
 
       if (plan?.login?.required && plan.login.mode === "manual") {
         return this.beginPendingBrowserContinuation(input, plan);
       }
 
-      if (isSimpleExternalBrowserPlan(plan)) {
+      // Check if user is asking for multi-step reasoning (e.g. check emails, read content)
+      const isComplexBrowserTask = /(read|읽어|summarize|요약|확인|check|뭐가|어떤|어떻게|알려|로그인|해줄|해 줘)/i.test(normalizedInput);
+
+      if (!isComplexBrowserTask && isSimpleExternalBrowserPlan(plan)) {
         const targetUrl = buildExternalBrowserTarget(plan.steps[0]);
         const opened = await this.openBrowserTargetForUser(targetUrl, {
           preferAssistant: shouldUseAssistantBrowserForSimplePlan(input, plan)
@@ -5099,8 +5103,7 @@ class AssistantService {
       }
       actions.push(this.makeAction("browser_navigate", initialUrl));
 
-      const isSimpleOpen = /^(open|go to|visit|열어|들어가|켜)/i.test(normalizePlanText(input)) &&
-        !/(search|검색|찾아|play|틀어|read|읽어|summarize|요약)/i.test(normalizePlanText(input));
+      const isSimpleOpen = /^(open|go to|visit|열어|들어가|켜)/i.test(normalizedInput) && !isComplexBrowserTask;
 
       if (isSimpleOpen && !state.anomalies?.length) {
         const label = inferFriendlyBrowserLabel(state.title || initialUrl, language) || initialUrl;
