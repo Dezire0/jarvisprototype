@@ -112,18 +112,19 @@ test("buildRouteFallback treats bare workspace app open as app_open", () => {
   assert.deepEqual(buildRouteFallback("디스코드 열어줘"), {
     route: "app_open",
     language: "ko",
-    appName: "디스코드"
+    appName: "Discord"
   });
 });
 
-test("buildRouteFallback strips polite Korean launch suffixes", () => {
+test("buildRouteFallback extracts app names from known app mentions without launch suffix rules", () => {
   assert.deepEqual(buildRouteFallback("디스코드 열어줄래?"), {
     route: "app_open",
     language: "ko",
-    appName: "디스코드"
+    appName: "Discord"
   });
-  assert.equal(extractAppName("크롬 켜줄래"), "크롬");
-  assert.equal(extractAppName("노션 실행해줄래"), "노션");
+  assert.equal(extractAppName("크롬 켜줄래"), "Google Chrome");
+  assert.equal(extractAppName("노션 실행해줄래"), "Notion");
+  assert.equal(extractAppName("계산기 열어줄래"), "");
 });
 
 test("buildRouteFallback extracts mixed app and web open targets", () => {
@@ -362,6 +363,42 @@ test("handleInput opens Chrome and navigates Gmail for mixed Korean open command
   assert.equal(result.provider, "local");
   assert.match(result.reply, /Google Chrome/);
   assert.match(result.reply, /Gmail/);
+});
+
+test("handleAppOpen asks again instead of executing unresolved full-sentence app names", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async listInstalledApps() {
+        return {
+          apps: []
+        };
+      },
+      async resolveAppTarget() {
+        return null;
+      },
+      async execute(action) {
+        calls.push(action);
+        assert.fail("unresolved app names should not be executed directly");
+      }
+    },
+    browser: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleAppOpen("디스코드 열어줄래?", {
+    route: "app_open",
+    language: "ko",
+    appName: "디스코드 열어줄래"
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.provider, "local-clarify");
+  assert.match(result.reply, /앱을 찾지 못했어요/);
 });
 
 test("handleBrowser waits for manual login before running the rest of a chained site workflow", async () => {

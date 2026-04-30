@@ -1,20 +1,21 @@
 # Latest test errors
 
-Current status: resolved in source and unit tests.
+Current status: resolved.
 
-Observed error:
+Observed issue:
 
-- `디스코드 열어줄래?` routed to `app_open`, but `extractAppName()` did not strip the polite Korean launch suffix `열어줄래`.
-- Because the extracted app name stayed as `디스코드 열어줄래`, macOS execution called `open -a "디스코드 열어줄래"`.
-- macOS then failed with `Unable to find application named '디스코드 열어줄래'`.
+- The previous fix kept adding Korean launch-suffix variants such as `열어줄래`, `켜줄래`, and `실행해줄래`.
+- That approach was inefficient because app/action intent should be judged by the LLM router, not by expanding local execution-verb cases.
 
-Root cause:
+Root problem:
 
-- The local deterministic app-launch parser recognized `열어줘`, `열어`, `켜줘`, `켜`, `실행해줘`, and similar short forms, but not polite request forms like `열어줄래`, `켜줄래`, `실행해줄래`, `시작해줄래`.
+- `routeInput()` was bypassing the LLM router for many non-chat fallback routes, including `app_open`, `app_action`, `open_targets`, and `browser`.
+- The router also forced `localOnly: true` plus a router model override, so the connected conversation model such as Gemini was not the primary semantic router.
+- `extractAppName()` depended on launch-verb stripping, which made every new polite form a new regex case.
 
-Verification:
+Verification after redesign:
 
-- Direct parser check now returns `appName: "디스코드"` for `디스코드 열어줄래?`.
 - `npm run check` passed.
 - `node --test tests/node/assistant-service.test.cjs` passed.
-- `npm run test:node` passed with 71/71 tests.
+- `npm run test:node` passed with 72/72 tests.
+- Dev `/api/chat` request for `디스코드 열어줄래?` returned `open_app -> Discord`.

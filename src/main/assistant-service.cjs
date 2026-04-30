@@ -2,7 +2,6 @@ const {
   chat: officialChat,
   buildBasePrompt,
   detectLanguageCode,
-  FAST_ROUTER_MODEL,
   FAST_PLANNER_MODEL,
   getTierProviderLabel,
   getExternalLlmSettings,
@@ -1309,38 +1308,7 @@ function isFastAppPlan(plan = {}) {
 }
 
 function shouldUseFallbackRouteDirectly(input, route = {}) {
-  if (!route?.route || route.route === "chat") {
-    return false;
-  }
-
-  if (route.route === "open_targets") {
-    return true;
-  }
-
-  if (looksComplexChainedRequest(input)) {
-    return false;
-  }
-
-  return [
-    "open_targets",
-    "app_open",
-    "app_action",
-    "app_list",
-    "browser",
-    "browser_login",
-    "code_project",
-    "game_install",
-    "game_list",
-    "game_update",
-    "system_briefing",
-    "spotify_play",
-    "obs_connect",
-    "obs_status",
-    "obs_start",
-    "obs_stop",
-    "obs_scene",
-    "file_list"
-  ].includes(route.route);
+  return false;
 }
 
 function shouldSkipCommandPolish(input, result = {}) {
@@ -1939,15 +1907,14 @@ function looksLikeWebOpen(text) {
 }
 
 function extractAppName(text) {
-  return normalizePlanText(text)
-    .replace(
-      /^(please\s+)?(open|launch|run|start|execute|open app|open the app|켜|켜줘|켜줄래|켜줄래요|실행|실행해|실행해줘|실행해줄래|실행해줄래요|열어|열어줘|열어줄래|열어줄래요|시작해|시작해줘|시작해줄래|시작해줄래요)\s*/i,
-      ""
-    )
-    .replace(/\s*(open|launch|run|start|execute|열어줘|열어줄래|열어줄래요|열어|켜줘|켜줄래|켜줄래요|켜|실행해줘|실행해줄래|실행해줄래요|실행해|실행|시작해줘|시작해줄래|시작해줄래요|시작해)\s*$/i, "")
-    .replace(/\s+(app|application|앱)\s*$/i, "")
-    .replace(/^["']|["']$/g, "")
-    .trim();
+  const quoted = extractQuotedText(text);
+
+  if (quoted) {
+    return cleanupParsedText(quoted);
+  }
+
+  const directTarget = findDirectTargets(text, DIRECT_APP_TARGETS)[0];
+  return directTarget?.label || "";
 }
 
 function extractFileWriteParts(input) {
@@ -4503,13 +4470,27 @@ class AssistantService {
     if (shouldUseFallbackRouteDirectly(input, fallback)) {
       return fallback;
     }
+    const appCatalog = this.automation?.listInstalledApps
+      ? await this.automation.listInstalledApps({
+          limit: 80
+        }).catch(() => ({
+          apps: []
+        }))
+      : {
+          apps: []
+        };
+    const installedAppNames = Array.isArray(appCatalog?.apps)
+      ? appCatalog.apps.map((app) => app.name).filter(Boolean).slice(0, 80)
+      : [];
     const routerPrompt = [
       "You are the intent router for a bilingual desktop assistant.",
       "Respond with valid JSON only.",
-      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|system_briefing|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|spotify_play|game_install|game_update|game_list|code_project","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","platform":"steam|epic|both","reason":"","confidence":0,"missing":[]}',
+      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|system_briefing|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|open_targets|spotify_play|game_install|game_update|game_list|code_project","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","platform":"steam|epic|both","targets":{"apps":[],"web":[]},"reason":"","confidence":0,"missing":[]}',
       "Use chat for general conversation, recommendations, ideas, opinions, follow-up discussion, or questions that do not clearly require a desktop action.",
       "Use app_open for opening a local desktop app like Chrome, Finder, Terminal, Slack, Spotify, Notion, Steam, OBS, or VS Code.",
+      "For app_open, appName must contain only the app/product name. Never include request verbs, politeness endings, punctuation, or the full user sentence.",
       "Use app_action when the user wants to do something inside a desktop app, such as typing, sending a message in Slack or Discord, pressing a key, running a shortcut, searching, opening a folder or tab, creating a new item, using a menu, or performing a multi-step workflow inside that app.",
+      "Use open_targets when the user asks to open multiple local apps or a local app plus one or more websites in the same request. Fill targets.apps with app names and targets.web with URLs or site names.",
       "Use app_list when the user asks to list installed or available desktop apps.",
       "Use spotify_play when the user wants Spotify to play, pause, resume, skip, search, or open a playlist, song, or music request inside Spotify.",
       "Use game_install, game_update, and game_list for Steam or Epic game management requests.",
@@ -4524,18 +4505,22 @@ class AssistantService {
       "Use obs_* only for OBS connection, status, stream control, or scene switching.",
       "Use file_* only for local file tasks.",
       "If unsure, return chat.",
-      "language must be ko if the user is mainly speaking Korean, otherwise en."
+      "language must be ko if the user is mainly speaking Korean, otherwise en.",
+      installedAppNames.length
+        ? `Installed app hints: ${installedAppNames.join(", ")}`
+        : "Installed app hints are unavailable; infer common app names when the user clearly names one."
     ].join(" ");
 
     try {
       const raw = await chat({
         systemPrompt: routerPrompt,
         tier: "fast",
-        localOnly: true,
-        model: FAST_ROUTER_MODEL,
         userPrompt: [
           "Recent conversation:",
           this.buildHistorySnippet(),
+          "",
+          "Weak local fallback route, for reference only. Prefer your own semantic judgment:",
+          JSON.stringify(fallback),
           "",
           "Current user input:",
           input
@@ -4555,6 +4540,8 @@ class AssistantService {
       return {
         ...fallback,
         ...parsed,
+        targets: parsed.targets || fallback.targets,
+        appName: parsed.appName || fallback.appName || "",
         language: parsed.language === "ko" ? "ko" : fallback.language
       };
     } catch (_error) {
@@ -5367,9 +5354,31 @@ class AssistantService {
       throw new Error("I could not tell which app you wanted to open.");
     }
 
+    const resolved = await this.automation.resolveAppTarget?.(requestedApp, {
+      allowDirect: false
+    }).catch(() => null);
+
+    if (!resolved?.resolvedTarget) {
+      return this.beginClarification(
+        input,
+        {
+          ...route,
+          appName: requestedApp
+        },
+        detectReplyLanguage(input) === "ko"
+          ? `"${requestedApp}" 앱을 찾지 못했어요. 열 앱 이름만 다시 말씀해 주세요.`
+          : `I could not find an app named "${requestedApp}". Tell me just the app name to open.`,
+        {
+          field: "appName",
+          kind: "app_open_name",
+          language: detectReplyLanguage(input)
+        }
+      );
+    }
+
     const data = await this.automation.execute({
       type: "open_app",
-      target: requestedApp
+      target: resolved.resolvedTarget
     });
     const openedName = data.resolvedTarget || data.appName || requestedApp;
     this.rememberAppContext(openedName);
