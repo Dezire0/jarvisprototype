@@ -5,7 +5,8 @@ const {
   AssistantService,
   buildHeuristicBrowserPlan,
   buildRouteFallback,
-  chooseChatModelTier
+  chooseChatModelTier,
+  extractAppName
 } = require("../../src/main/assistant-service.cjs");
 
 test("chooseChatModelTier keeps short casual prompts on the fast tier", () => {
@@ -113,6 +114,16 @@ test("buildRouteFallback treats bare workspace app open as app_open", () => {
     language: "ko",
     appName: "디스코드"
   });
+});
+
+test("buildRouteFallback strips polite Korean launch suffixes", () => {
+  assert.deepEqual(buildRouteFallback("디스코드 열어줄래?"), {
+    route: "app_open",
+    language: "ko",
+    appName: "디스코드"
+  });
+  assert.equal(extractAppName("크롬 켜줄래"), "크롬");
+  assert.equal(extractAppName("노션 실행해줄래"), "노션");
 });
 
 test("buildRouteFallback extracts mixed app and web open targets", () => {

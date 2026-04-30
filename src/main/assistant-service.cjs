@@ -1941,10 +1941,10 @@ function looksLikeWebOpen(text) {
 function extractAppName(text) {
   return normalizePlanText(text)
     .replace(
-      /^(please\s+)?(open|launch|run|start|execute|open app|open the app|켜|실행|열어|실행해|실행해줘|열어줘|켜줘|시작해줘)\s*/i,
+      /^(please\s+)?(open|launch|run|start|execute|open app|open the app|켜|켜줘|켜줄래|켜줄래요|실행|실행해|실행해줘|실행해줄래|실행해줄래요|열어|열어줘|열어줄래|열어줄래요|시작해|시작해줘|시작해줄래|시작해줄래요)\s*/i,
       ""
     )
-    .replace(/\s*(open|launch|run|start|execute|열어줘|열어|켜줘|켜|실행해줘|실행해|실행|시작해줘|시작해)\s*$/i, "")
+    .replace(/\s*(open|launch|run|start|execute|열어줘|열어줄래|열어줄래요|열어|켜줘|켜줄래|켜줄래요|켜|실행해줘|실행해줄래|실행해줄래요|실행해|실행|시작해줘|시작해줄래|시작해줄래요|시작해)\s*$/i, "")
     .replace(/\s+(app|application|앱)\s*$/i, "")
     .replace(/^["']|["']$/g, "")
     .trim();

@@ -1,20 +1,20 @@
 # Latest test errors
 
-Current status: resolved.
+Current status: resolved in source and unit tests.
 
-Observed errors during this automation:
+Observed error:
 
-- Natural-language open command routing bug: `크롬 켜고 Gmail 열어줘` was parsed as one fake app name, `크롬 켜고 Gmail`, and the running app resolved it to `Mail`, returning `Mail 열었어요.` instead of opening Chrome plus Gmail.
-- Bare workspace-app open bug: `디스코드 열어줘` was routed to `app_action` and attempted a workspace target switch instead of opening/focusing the Discord app itself.
-- Direct Gmail browser label bug: `Gmail 열어줘` opened `https://mail.google.com/` correctly but replied `구글 열었어요.` because `mail.google.com` was labeled as Google.
-- Initial regression-test failure after adding coverage: `handleBrowser labels Gmail direct opens as Gmail` expected `Gmail 열었어요.`, while Korean locale intentionally returns `지메일 열었어요.`.
-- UI/DOM verification note: unauthenticated browser loads the login gate first, so `textarea[aria-label="Message input"]` is not present until an auth session exists. With a seeded local session, the composer textarea and send button render and submit successfully.
-- UI submit verification note: seeded fake auth token caused expected cloud-sync `401` console errors, but local command submission still returned `지메일 열었어요.`.
+- `디스코드 열어줄래?` routed to `app_open`, but `extractAppName()` did not strip the polite Korean launch suffix `열어줄래`.
+- Because the extracted app name stayed as `디스코드 열어줄래`, macOS execution called `open -a "디스코드 열어줄래"`.
+- macOS then failed with `Unable to find application named '디스코드 열어줄래'`.
 
-Verification after fixes:
+Root cause:
 
+- The local deterministic app-launch parser recognized `열어줘`, `열어`, `켜줘`, `켜`, `실행해줘`, and similar short forms, but not polite request forms like `열어줄래`, `켜줄래`, `실행해줄래`, `시작해줄래`.
+
+Verification:
+
+- Direct parser check now returns `appName: "디스코드"` for `디스코드 열어줄래?`.
 - `npm run check` passed.
-- `npm run test:node` passed with 70/70 tests.
-- `npm run dev` started the Next UI at `http://127.0.0.1:3310` and Electron transport on a dynamic localhost port.
-- Direct `/api/chat` verification passed for `Gmail 열어줘` with `open_url -> https://mail.google.com/`.
-- Direct `/api/chat` verification passed for `크롬 켜고 Gmail 열어줘` with `open_app -> Google Chrome` and `chrome_navigate -> https://mail.google.com/`.
+- `node --test tests/node/assistant-service.test.cjs` passed.
+- `npm run test:node` passed with 71/71 tests.
