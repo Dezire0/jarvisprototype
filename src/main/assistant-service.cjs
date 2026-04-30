@@ -315,6 +315,72 @@ const DIRECT_APP_TARGETS = [
   }
 ];
 
+const OFFICIAL_APP_FALLBACKS = [
+  {
+    label: "Discord",
+    aliases: ["discord", "디스코드"],
+    webUrl: "https://discord.com/app",
+    installUrl: "https://discord.com/download",
+    webRunnable: true
+  },
+  {
+    label: "Slack",
+    aliases: ["slack", "슬랙"],
+    webUrl: "https://app.slack.com/client",
+    installUrl: "https://slack.com/downloads",
+    webRunnable: true
+  },
+  {
+    label: "Notion",
+    aliases: ["notion", "노션"],
+    webUrl: "https://www.notion.so/login",
+    installUrl: "https://www.notion.com/desktop",
+    webRunnable: true
+  },
+  {
+    label: "Spotify",
+    aliases: ["spotify", "스포티파이"],
+    webUrl: "https://open.spotify.com/",
+    installUrl: "https://www.spotify.com/download/",
+    webRunnable: true
+  },
+  {
+    label: "Visual Studio Code",
+    aliases: ["visual studio code", "vs code", "vscode", "code", "브이에스코드", "비주얼스튜디오코드"],
+    webUrl: "https://vscode.dev/",
+    installUrl: "https://code.visualstudio.com/download",
+    webRunnable: true
+  },
+  {
+    label: "Figma",
+    aliases: ["figma", "피그마"],
+    webUrl: "https://www.figma.com/files/",
+    installUrl: "https://www.figma.com/downloads/",
+    webRunnable: true
+  },
+  {
+    label: "GitHub Desktop",
+    aliases: ["github desktop", "깃허브 데스크톱", "깃허브 데스크탑"],
+    webUrl: "https://github.com/",
+    installUrl: "https://desktop.github.com/download/",
+    webRunnable: true
+  },
+  {
+    label: "OpenClaw",
+    aliases: ["openclaw", "open claw", "오픈클로", "오픈 클로"],
+    webUrl: "https://openclaw.ai/",
+    installUrl: "https://openclawdoc.com/docs/getting-started/installation/",
+    webRunnable: false,
+    kind: "cli",
+    installCommands: [
+      "curl -fsSL https://openclaw.ai/install.sh | bash",
+      "npm install -g openclaw@latest && openclaw onboard --install-daemon",
+      "git clone https://github.com/openclaw/openclaw.git && cd openclaw && pnpm install && pnpm ui:build && pnpm build && pnpm link --global"
+    ],
+    runCommands: ["openclaw doctor", "openclaw status", "openclaw dashboard"]
+  }
+];
+
 function hasAny(text, keywords) {
   return keywords.some((keyword) => text.includes(keyword));
 }
@@ -410,6 +476,27 @@ function normalizeEntityToken(value = "") {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9가-힣]+/g, "");
+}
+
+function findOfficialAppFallback(appName = "") {
+  const normalized = normalizeEntityToken(appName);
+
+  if (!normalized) {
+    return null;
+  }
+
+  return (
+    OFFICIAL_APP_FALLBACKS.find((entry) =>
+      [entry.label, ...(entry.aliases || [])].some((alias) => normalizeEntityToken(alias) === normalized)
+    ) ||
+    OFFICIAL_APP_FALLBACKS.find((entry) =>
+      [entry.label, ...(entry.aliases || [])].some((alias) => {
+        const token = normalizeEntityToken(alias);
+        return token && (normalized.includes(token) || token.includes(normalized));
+      })
+    ) ||
+    null
+  );
 }
 
 function textMentionsToken(text = "", token = "") {
@@ -675,6 +762,16 @@ function isSimpleExternalBrowserPlan(plan = {}) {
   return (
     steps.length === 1 &&
     ["open_url", "search_google", "search_youtube"].includes(steps[0]?.action)
+  );
+}
+
+function shouldUseAssistantBrowserForSimplePlan(input = "", plan = {}) {
+  const normalized = normalizePlanText(input);
+  const steps = Array.isArray(plan.steps) ? plan.steps : [];
+  const target = `${steps[0]?.target || ""} ${steps[0]?.query || ""}`;
+
+  return /(?:공식|설치|다운로드|실행\s*가능|웹에서|웹으로|확인|판단|official|install|download|run online|web app|check|verify)/i.test(
+    `${normalized} ${target}`
   );
 }
 
@@ -2977,6 +3074,38 @@ class AssistantService {
       };
     }
 
+    if (pending.kind === "app_missing_recovery") {
+      const normalizedAnswer = normalizePlanText(input).toLowerCase();
+      let choice = "";
+
+      if (/(웹|web|browser|브라우저|online|온라인|사이트|site)/i.test(normalizedAnswer)) {
+        choice = "web";
+      } else if (/(설치|install|download|다운로드|setup|셋업)/i.test(normalizedAnswer)) {
+        choice = "install";
+      } else if (/(명령|command|terminal|터미널|cli|doctor|dashboard|대시보드|status)/i.test(normalizedAnswer)) {
+        choice = "commands";
+      }
+
+      if (!choice) {
+        return {
+          reply: pending.question,
+          actions: [],
+          provider: "local-clarify",
+          details: {
+            pendingClarification: true,
+            kind: pending.kind
+          }
+        };
+      }
+
+      this.pendingClarification = null;
+
+      return this.executeRoute(pending.originalInput || input, {
+        ...(pending.route || {}),
+        appRecoveryChoice: choice
+      });
+    }
+
     let resolvedValue = cleanupParsedText(input);
 
     if (Array.isArray(pending.candidates) && pending.candidates.length) {
@@ -3022,9 +3151,24 @@ class AssistantService {
     return this.executeRoute(pending.originalInput || input, mergedRoute);
   }
 
-  async openBrowserTargetForUser(targetUrl) {
+  async openBrowserTargetForUser(targetUrl, options = {}) {
     if (!targetUrl) {
       throw new Error("A browser target is required.");
+    }
+
+    if (options.preferAssistant && this.browser?.navigate) {
+      try {
+        const page = await this.browser.navigate(targetUrl);
+
+        return {
+          url: page.url || targetUrl,
+          title: page.title || "",
+          openMode: "assistant-browser",
+          provider: this.browser.getProviderLabel?.() || "playwright"
+        };
+      } catch (_error) {
+        // Fall through to the system browser below.
+      }
     }
 
     try {
@@ -3039,13 +3183,154 @@ class AssistantService {
         openMode: "system-browser"
       };
     } catch (_error) {
-      const page = await this.browser.open(targetUrl);
+      const page = this.browser?.navigate
+        ? await this.browser.navigate(targetUrl)
+        : await this.browser.open(targetUrl);
 
       return {
         ...page,
         openMode: "assistant-browser"
       };
     }
+  }
+
+  buildMissingAppRecoveryQuestion(input, requestedApp, officialFallback = null) {
+    const language = detectReplyLanguage(input);
+    const label = officialFallback?.label || requestedApp;
+
+    if (officialFallback?.webRunnable && officialFallback.webUrl) {
+      return language === "ko"
+        ? `"${label}" 앱을 이 컴퓨터에서 찾지 못했어요. 대신 공식 웹에서 실행할 수 있어요: ${officialFallback.webUrl}\n앱 설치 페이지를 열까요, 아니면 웹으로 열까요?`
+        : `I could not find "${label}" on this computer. It can run from its official web app: ${officialFallback.webUrl}\nShould I open the install page or open the web app?`;
+    }
+
+    if (officialFallback?.kind === "cli") {
+      const installPreview = (officialFallback.installCommands || []).slice(0, 2).join(" / ");
+      const runPreview = (officialFallback.runCommands || []).join(" / ");
+
+      return language === "ko"
+        ? `"${label}" 명령을 이 컴퓨터에서 찾지 못했어요. 공식 실행 흐름상 먼저 설치와 온보딩이 필요합니다.\n설치 예: ${installPreview}\n설치 후 점검/실행: ${runPreview}\n공식 설치 문서를 열까요, 아니면 명령만 다시 보여드릴까요?`
+        : `I could not find the "${label}" command on this computer. The official flow requires installation and onboarding first.\nInstall examples: ${installPreview}\nAfter install: ${runPreview}\nShould I open the official install docs or show the commands again?`;
+    }
+
+    if (officialFallback?.installUrl) {
+      return language === "ko"
+        ? `"${label}" 앱을 이 컴퓨터에서 찾지 못했어요. 공식 웹 실행 경로는 확인되지 않았고, 설치 페이지는 확인돼요.\n설치 페이지를 열까요?`
+        : `I could not find "${label}" on this computer. I do not have a verified web-app route for it, but I found an official install page.\nShould I open the install page?`;
+    }
+
+    return language === "ko"
+      ? `"${requestedApp}" 앱을 이 컴퓨터에서 찾지 못했어요. 공식 웹 실행 가능 여부도 아직 확인된 목록에 없어요.\n공식 사이트나 다운로드 페이지를 Playwright로 찾아볼까요?`
+      : `I could not find "${requestedApp}" on this computer, and it is not in the verified web-app list yet.\nShould I use Playwright to look for its official site or download page?`;
+  }
+
+  buildCliFallbackReply(input, requestedApp, officialFallback) {
+    const language = detectReplyLanguage(input);
+    const label = officialFallback?.label || requestedApp;
+    const installLines = (officialFallback?.installCommands || []).map((command) => `- ${command}`).join("\n");
+    const runLines = (officialFallback?.runCommands || []).map((command) => `- ${command}`).join("\n");
+
+    return language === "ko"
+      ? `"${label}"는 아직 로컬에서 실행할 수 없어요. 공식 흐름은 아래 중 하나로 설치한 뒤 온보딩하고 실행 상태를 확인하는 방식입니다.\n\n설치:\n${installLines}\n\n설치 후:\n${runLines}`
+      : `"${label}" is not runnable locally yet. The official flow is to install it, onboard it, then verify or open the dashboard.\n\nInstall:\n${installLines}\n\nAfter install:\n${runLines}`;
+  }
+
+  async handleMissingAppRecovery(input, route = {}, requestedApp = "") {
+    const language = detectReplyLanguage(input);
+    const officialFallback = findOfficialAppFallback(requestedApp);
+    const label = officialFallback?.label || requestedApp;
+    const choice = String(route.appRecoveryChoice || "").trim();
+
+    if (choice === "web" && officialFallback?.webRunnable && officialFallback.webUrl) {
+      const opened = await this.openBrowserTargetForUser(officialFallback.webUrl, {
+        preferAssistant: true
+      });
+
+      return {
+        reply:
+          language === "ko"
+            ? `${label} 앱은 로컬에 없어서 공식 웹 앱을 Playwright 브라우저로 열었어요.`
+            : `${label} is not installed locally, so I opened the official web app in the Playwright browser.`,
+        actions: [this.makeAction("open_url", opened.url || officialFallback.webUrl)],
+        provider: opened.openMode || "assistant-browser",
+        details: {
+          missingApp: true,
+          appName: label,
+          recovery: "web",
+          officialWebUrl: officialFallback.webUrl,
+          title: opened.title || "",
+          url: opened.url || officialFallback.webUrl
+        }
+      };
+    }
+
+    if (choice === "commands" && officialFallback?.kind === "cli") {
+      return {
+        reply: this.buildCliFallbackReply(input, requestedApp, officialFallback),
+        actions: [this.makeAction("app_missing", label, "needs-install")],
+        provider: "local-clarify",
+        details: {
+          missingApp: true,
+          appName: label,
+          recovery: "commands",
+          installCommands: officialFallback.installCommands || [],
+          runCommands: officialFallback.runCommands || []
+        }
+      };
+    }
+
+    if (choice === "install") {
+      const targetUrl = officialFallback?.installUrl || `${requestedApp} 공식 사이트 다운로드`;
+      const opened = await this.openBrowserTargetForUser(targetUrl, {
+        preferAssistant: true
+      });
+
+      return {
+        reply:
+          language === "ko"
+            ? `${label} 앱은 로컬에 없어서 공식 설치 경로를 Playwright 브라우저로 열었어요.${officialFallback?.kind === "cli" ? "\n\n" + this.buildCliFallbackReply(input, requestedApp, officialFallback) : ""}`
+            : `${label} is not installed locally, so I opened the official install route in the Playwright browser.${officialFallback?.kind === "cli" ? "\n\n" + this.buildCliFallbackReply(input, requestedApp, officialFallback) : ""}`,
+        actions: [this.makeAction("open_url", opened.url || targetUrl)],
+        provider: opened.openMode || "assistant-browser",
+        details: {
+          missingApp: true,
+          appName: label,
+          recovery: "install",
+          installUrl: officialFallback?.installUrl || "",
+          title: opened.title || "",
+          url: opened.url || targetUrl,
+          installCommands: officialFallback?.installCommands || [],
+          runCommands: officialFallback?.runCommands || []
+        }
+      };
+    }
+
+    return this.beginClarification(
+      input,
+      {
+        ...route,
+        route: "app_open",
+        appName: requestedApp
+      },
+      this.buildMissingAppRecoveryQuestion(input, requestedApp, officialFallback),
+      {
+        field: "appRecoveryChoice",
+        kind: "app_missing_recovery",
+        language,
+        recovery: officialFallback
+          ? {
+              appName: label,
+              webRunnable: Boolean(officialFallback.webRunnable),
+              webUrl: officialFallback.webUrl || "",
+              installUrl: officialFallback.installUrl || "",
+              kind: officialFallback.kind || "app"
+            }
+          : {
+              appName: requestedApp,
+              webRunnable: false
+            }
+      }
+    );
   }
 
   async beginPendingBrowserContinuation(input, plan) {
@@ -4557,6 +4842,9 @@ class AssistantService {
     "당신은 자율형 컴퓨터 에이전트 Jarvis입니다. 브라우저(Headless)와 OS 접근성 권한을 사용하여 컴퓨터를 제어합니다.",
     "한 번에 하나의 행동(Action)만 수행하며, 각 행동 후에는 새로운 상태(DOM 요소 또는 OS 컨텍스트)를 전달받습니다.",
     "사용자의 현재 화면을 방해하지 않고 백그라운드(Headless)에서 작업을 완료하는 것을 목표로 합니다.",
+    "이 브라우저 작업은 기존 대화의 연장입니다. 최근 대화, 사용자 의도, 로컬 폴백 상태를 새 세션처럼 잊지 말고 유지하세요.",
+    "앱이나 CLI 도구가 로컬에 없으면 없다고 말하고, 공식 웹 앱 실행 가능성 또는 공식 설치 문서/명령을 우선 판단하세요.",
+    "OpenClaw 관련 요청은 공식 GitHub/문서 흐름 기준으로 Node.js 22+, npm 또는 source 설치, onboard, doctor/status/dashboard 실행이 필요하다고 판단하세요.",
     "",
     "사용 가능한 행동 (JSON 형식으로만 응답):",
     '  {"action":"navigate","url":"https://..."} — 특정 URL로 이동 (Headless)',
@@ -4738,7 +5026,9 @@ class AssistantService {
 
     if (isSimpleExternalBrowserPlan(plan)) {
       const targetUrl = buildExternalBrowserTarget(plan.steps[0]);
-      const opened = await this.openBrowserTargetForUser(targetUrl);
+      const opened = await this.openBrowserTargetForUser(targetUrl, {
+        preferAssistant: shouldUseAssistantBrowserForSimplePlan(input, plan)
+      });
       const fallback = buildCompactBrowserReply(
         input,
         plan.steps,
@@ -4823,9 +5113,15 @@ class AssistantService {
           systemPrompt: AssistantService.REACT_AGENT_SYSTEM_PROMPT,
           tier: "fast",
           model: FAST_PLANNER_MODEL,
-          history: agentHistory.slice(-8),  // Keep last 4 exchanges
-          userPrompt,
-          localOnly: true // ReAct loop is faster and safer on local models
+          history: [
+            ...this.getRecentHistory(6),
+            ...agentHistory.slice(-8)
+          ],
+          userPrompt: [
+            "Keep the user's broader conversation context intact while controlling the browser.",
+            "If a local fallback is needed later, it will receive this same context; do not assume a fresh session.",
+            userPrompt
+          ].join("\n\n")
         });
       } catch {
         finalSummary = language === "ko"
@@ -4834,10 +5130,33 @@ class AssistantService {
         break;
       }
 
+      // Parse AI action
+      let parsed = safeJsonParse(aiResponse);
+      if (!parsed?.action) {
+        const localResponse = await chat({
+          systemPrompt: AssistantService.REACT_AGENT_SYSTEM_PROMPT,
+          tier: "fast",
+          model: FAST_PLANNER_MODEL,
+          history: agentHistory.slice(-8),
+          userPrompt: [
+            "The configured API response was not a valid browser action. Continue as a local fallback without losing context.",
+            "Recent user conversation:",
+            this.buildHistorySnippet(),
+            "",
+            userPrompt
+          ].join("\n"),
+          localOnly: true
+        }).catch(() => "");
+        const localParsed = safeJsonParse(localResponse);
+
+        if (localParsed?.action) {
+          aiResponse = localResponse;
+          parsed = localParsed;
+        }
+      }
+
       agentHistory.push({ role: "assistant", content: aiResponse });
 
-      // Parse AI action
-      const parsed = safeJsonParse(aiResponse);
       if (!parsed?.action) {
         lastError = "Invalid AI response (not valid JSON with an action field). Try again.";
         continue;
@@ -4882,12 +5201,13 @@ class AssistantService {
           [
             "The user asked you to do something in the browser. Here is the result.",
             `Reply only in ${buildLanguageName(language)}.`,
+            "Preserve the existing conversation context; this browser task is part of the same session, not a reset.",
             `Final page URL: ${finalState.url || "(unknown)"}`,
             `Final page title: ${finalState.title || "(untitled)"}`,
             `Actions taken: ${actions.map(a => a.type).join(" → ")}`,
             finalState.visibleText ? `Visible text:\n${finalState.visibleText.slice(0, 2000)}` : ""
           ].join("\n\n"),
-          { tier: "fast", includeHistory: false, localOnly: true }
+          { tier: "fast", includeHistory: true }
         );
       } catch {
         reply = language === "ko"
@@ -5359,21 +5679,7 @@ class AssistantService {
     }).catch(() => null);
 
     if (!resolved?.resolvedTarget) {
-      return this.beginClarification(
-        input,
-        {
-          ...route,
-          appName: requestedApp
-        },
-        detectReplyLanguage(input) === "ko"
-          ? `"${requestedApp}" 앱을 찾지 못했어요. 열 앱 이름만 다시 말씀해 주세요.`
-          : `I could not find an app named "${requestedApp}". Tell me just the app name to open.`,
-        {
-          field: "appName",
-          kind: "app_open_name",
-          language: detectReplyLanguage(input)
-        }
-      );
+      return this.handleMissingAppRecovery(input, route, requestedApp);
     }
 
     const data = await this.automation.execute({
@@ -5441,7 +5747,9 @@ class AssistantService {
       "장황한 기능 나열보다 지금 바로 도움이 되는 제안, 정리, 초안을 우선하세요.",
       "만약 유튜브, 네이버, 구글 검색 등 웹사이트 작업이 필요하면 답변 맨 끝에 [ACTION: BROWSE] 검색어 또는 URL 형식을 포함하세요.",
       "만약 컴퓨터에 설치된 로컬 앱(예: 메모장, 계산기, 크롬 등)을 실행해야 한다면 [ACTION: OPEN_APP] 앱이름 형식을 포함하세요.",
-      "만약 앱을 설치해야 하는 경우 [ACTION: INSTALL_APP] 앱이름 형식을 포함하세요.",
+      "앱이나 CLI 도구가 없을 수 있으면 없다고 명확히 말하고, 설치를 진행할지 또는 공식 웹사이트에서 실행 가능한지 판단해야 합니다.",
+      "사용자가 설치를 명확히 허락하지 않은 상태에서는 자동 설치하지 말고, [ACTION: INSTALL_APP] 앱이름은 공식 설치 페이지/문서를 여는 용도로만 사용하세요.",
+      "OpenClaw는 공식 흐름상 Node.js 22+ 이후 npm 설치, 온보딩, doctor/status/dashboard 확인이 필요한 CLI 도구로 판단하세요.",
       "일상적인 대화에서도 비서답게 정리하고 이어서 도울 수 있는 방향을 제안하세요."
     ].join("\n");
 
@@ -5623,24 +5931,12 @@ class AssistantService {
         if (openMatch) {
           const appName = openMatch[1].trim();
           const cleanReply = reply.replace(/\[ACTION: OPEN_APP\].*/i, "").trim();
-          try {
-            const appResult = await this.handleAppOpen(input, { appName });
-            return {
-              ...appResult,
-              reply: cleanReply ? `${cleanReply}\n\n${appResult.reply}` : appResult.reply,
-              provider: `${provider}-autonomous`
-            };
-          } catch (appErr) {
-            // 앱이 없는 경우 자동으로 설치 페이지로 이동
-            const installResult = await this.handleBrowser(`${appName} 다운로드 공식 사이트`);
-            return {
-              ...installResult,
-              reply: language === "ko"
-                ? `${appName}이(가) 설치되어 있지 않습니다. 설치 페이지를 열었습니다.`
-                : `${appName} is not installed. Opening the download page for you.`,
-              provider: `${provider}-autonomous`
-            };
-          }
+          const appResult = await this.handleAppOpen(input, { appName });
+          return {
+            ...appResult,
+            reply: cleanReply ? `${cleanReply}\n\n${appResult.reply}` : appResult.reply,
+            provider: `${provider}-autonomous`
+          };
         }
       }
 

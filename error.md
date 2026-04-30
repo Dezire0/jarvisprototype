@@ -2,20 +2,21 @@
 
 Current status: resolved.
 
-Observed issue:
+Observed issue for this automation:
 
-- The previous fix kept adding Korean launch-suffix variants such as `열어줄래`, `켜줄래`, and `실행해줄래`.
-- That approach was inefficient because app/action intent should be judged by the LLM router, not by expanding local execution-verb cases.
+- Missing local apps or CLI tools were handled too generically.
+- Jarvis could say an app was not found, but it did not clearly distinguish:
+  - not installed locally,
+  - official web app can run in browser,
+  - official install page or CLI setup is required.
+- Autonomous `[ACTION: OPEN_APP]` fallback could still drift toward opening install pages automatically instead of asking first.
+- Browser ReAct planning was biased to local-only model calls, which could lose broader API conversation context during local fallback.
+- Simple official install/download checks were still allowed to use the system browser first, instead of using Playwright for inspectable browser automation.
 
-Root problem:
-
-- `routeInput()` was bypassing the LLM router for many non-chat fallback routes, including `app_open`, `app_action`, `open_targets`, and `browser`.
-- The router also forced `localOnly: true` plus a router model override, so the connected conversation model such as Gemini was not the primary semantic router.
-- `extractAppName()` depended on launch-verb stripping, which made every new polite form a new regex case.
-
-Verification after redesign:
+Verification:
 
 - `npm run check` passed.
-- `node --test tests/node/assistant-service.test.cjs` passed.
-- `npm run test:node` passed with 72/72 tests.
-- Dev `/api/chat` request for `디스코드 열어줄래?` returned `open_app -> Discord`.
+- `node --test tests/node/assistant-service.test.cjs` passed with 29/29 tests.
+- `npm run test:node` passed with 75/75 tests.
+- `npm run dev` started successfully, built the app, launched the Electron window, and finished loading.
+- Playwright opened `http://127.0.0.1:3310`, read the Jarvis sign-in UI, found 4 interactive controls, and reported no page or console errors.

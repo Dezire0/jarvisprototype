@@ -1,12 +1,17 @@
 # Latest error fixes
 
-- Changed routing policy so local fallback routes are no longer executed directly before the LLM router gets a chance to judge the command.
-- Removed the router's `localOnly: true` path and model override, allowing the configured fast conversation provider, such as Gemini, to perform semantic intent routing.
-- Expanded the router schema/prompt to include `open_targets`, `targets.apps`, and `targets.web`.
-- Added installed-app names as router context so the LLM can return clean app names instead of full user sentences.
-- Replaced launch-verb-based `extractAppName()` with known-app mention extraction:
-  - quoted app names are preserved,
-  - known app aliases return canonical app labels,
-  - unknown app names are left empty for the LLM/router or clarification flow.
-- Hardened `handleAppOpen()` so unresolved app names are not passed directly to `open -a`; Jarvis asks for clarification instead.
-- Added regression tests for LLM-first/fallback behavior, known-app mention extraction, and unresolved full-sentence app-name safety.
+- Added verified missing-app recovery metadata for web-runnable apps and CLI-style tools.
+- When a requested app is not installed, Jarvis now says it is missing and asks whether to open the official web app, open the install route, or show commands where applicable.
+- Added OpenClaw-specific guidance from the official install/GitHub flow:
+  - quick install via `curl -fsSL https://openclaw.ai/install.sh | bash`,
+  - npm install via `npm install -g openclaw@latest && openclaw onboard --install-daemon`,
+  - source install via `git clone https://github.com/openclaw/openclaw.git`, `pnpm install`, `pnpm ui:build`, `pnpm build`, `pnpm link --global`,
+  - post-install checks via `openclaw doctor`, `openclaw status`, and `openclaw dashboard`.
+- Changed missing app handling so Jarvis no longer auto-opens an install page from `[ACTION: OPEN_APP]`; it goes through the explicit recovery prompt.
+- Added Playwright-first handling for official install/download/verification browser tasks.
+- Updated browser ReAct prompts so configured API routing keeps the current conversation context, and local fallback receives the same context instead of behaving like a fresh session.
+- Updated platform capability reporting from generic planned browser automation to `playwright + system-browser fallback`.
+- Added regression tests for:
+  - missing app official web fallback,
+  - OpenClaw missing CLI command guidance,
+  - Playwright preference for official install/verification browser pages.

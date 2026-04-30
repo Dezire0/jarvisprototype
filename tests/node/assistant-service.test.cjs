@@ -310,6 +310,37 @@ test("handleBrowser opens YouTube playback results in the system browser", async
   assert.equal(result.reply, "I opened YouTube results so you can play something right away.");
 });
 
+test("handleBrowser prefers Playwright for official install or verification pages", async () => {
+  const service = new AssistantService({
+    automation: {
+      async execute() {
+        assert.fail("official install checks should prefer Playwright before the system browser");
+      }
+    },
+    browser: {
+      async navigate(target) {
+        return {
+          url: target,
+          title: "Download"
+        };
+      },
+      getProviderLabel() {
+        return "playwright bundled browser";
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowser("Discord 공식 다운로드 페이지 열어줘");
+
+  assert.equal(result.provider, "assistant-browser");
+  assert.match(result.details.url, /google\.com\/search/);
+});
+
 test("handleInput opens Chrome and navigates Gmail for mixed Korean open command", async () => {
   const calls = [];
   const service = new AssistantService({
@@ -398,7 +429,99 @@ test("handleAppOpen asks again instead of executing unresolved full-sentence app
 
   assert.deepEqual(calls, []);
   assert.equal(result.provider, "local-clarify");
-  assert.match(result.reply, /앱을 찾지 못했어요/);
+  assert.match(result.reply, /이 컴퓨터에서 찾지 못했어요/);
+  assert.match(result.reply, /공식 웹/);
+});
+
+test("handleAppOpen offers official web fallback for missing web-runnable apps", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async listInstalledApps() {
+        return {
+          apps: []
+        };
+      },
+      async resolveAppTarget() {
+        return null;
+      },
+      async execute(action) {
+        calls.push(action);
+        assert.fail("missing app recovery should not open local apps or system browser before the user chooses");
+      }
+    },
+    browser: {
+      async navigate(target) {
+        return {
+          url: target,
+          title: "Discord"
+        };
+      },
+      getProviderLabel() {
+        return "playwright bundled browser";
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const pending = await service.handleAppOpen("디스코드 열어줘", {
+    route: "app_open",
+    language: "ko",
+    appName: "Discord"
+  });
+
+  assert.equal(pending.provider, "local-clarify");
+  assert.match(pending.reply, /공식 웹에서 실행/);
+  assert.deepEqual(calls, []);
+
+  const resumed = await service.continuePendingClarification("웹으로 열어줘");
+
+  assert.equal(resumed.provider, "assistant-browser");
+  assert.equal(resumed.details.recovery, "web");
+  assert.equal(resumed.details.officialWebUrl, "https://discord.com/app");
+});
+
+test("handleAppOpen explains OpenClaw official install and run commands when missing", async () => {
+  const service = new AssistantService({
+    automation: {
+      async listInstalledApps() {
+        return {
+          apps: []
+        };
+      },
+      async resolveAppTarget() {
+        return null;
+      },
+      async execute() {
+        assert.fail("missing OpenClaw should not execute a local app");
+      }
+    },
+    browser: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const pending = await service.handleAppOpen("OpenClaw 실행해줘", {
+    route: "app_open",
+    language: "ko",
+    appName: "OpenClaw"
+  });
+
+  assert.equal(pending.provider, "local-clarify");
+  assert.match(pending.reply, /공식 실행 흐름/);
+
+  const commands = await service.continuePendingClarification("명령만 보여줘");
+
+  assert.equal(commands.details.recovery, "commands");
+  assert.match(commands.reply, /openclaw onboard/);
+  assert.match(commands.reply, /openclaw dashboard/);
 });
 
 test("handleBrowser waits for manual login before running the rest of a chained site workflow", async () => {

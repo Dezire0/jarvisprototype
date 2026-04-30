@@ -1844,7 +1844,7 @@ function buildCapabilitySet(currentPlatform) {
     speechToText: "planned",
     textToSpeech: "provider-based",
     screenReading: "planned",
-    browserAutomation: "planned",
+    browserAutomation: "playwright + system-browser fallback",
     appCatalog: currentPlatform === "darwin" ? "spotlight + filesystem" : "basic",
     appAutomation: currentPlatform === "darwin" ? "applescript + system events" : "basic",
     credentialHandling: "session-based or password-manager only"
