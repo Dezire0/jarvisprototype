@@ -204,6 +204,118 @@ const WEB_TARGET_ALIASES = new Set([
   "스포티파이"
 ]);
 
+const DIRECT_WEB_TARGETS = [
+  {
+    label: "Google",
+    url: "https://www.google.com/",
+    tokens: ["google", "구글"]
+  },
+  {
+    label: "YouTube",
+    url: "https://www.youtube.com/",
+    tokens: ["youtube", "유튜브"]
+  },
+  {
+    label: "GitHub",
+    url: "https://github.com/",
+    tokens: ["github", "깃허브"]
+  },
+  {
+    label: "Gmail",
+    url: "https://mail.google.com/",
+    tokens: ["gmail", "지메일"]
+  },
+  {
+    label: "Naver",
+    url: "https://www.naver.com/",
+    tokens: ["naver", "네이버"]
+  },
+  {
+    label: "Daum",
+    url: "https://www.daum.net/",
+    tokens: ["daum", "다음"]
+  },
+  {
+    label: "Instagram",
+    url: "https://www.instagram.com/",
+    tokens: ["instagram", "인스타그램"]
+  },
+  {
+    label: "Facebook",
+    url: "https://www.facebook.com/",
+    tokens: ["facebook", "페이스북"]
+  },
+  {
+    label: "X",
+    url: "https://x.com/",
+    tokens: ["x", "twitter", "트위터"]
+  },
+  {
+    label: "Spotify",
+    url: "https://open.spotify.com/",
+    tokens: ["spotify", "스포티파이"]
+  }
+];
+
+const DIRECT_APP_TARGETS = [
+  {
+    label: "Google Chrome",
+    tokens: ["google chrome", "chrome", "구글 크롬", "구글크롬", "크롬"]
+  },
+  {
+    label: "Safari",
+    tokens: ["safari", "사파리"]
+  },
+  {
+    label: "Arc",
+    tokens: ["arc", "아크"]
+  },
+  {
+    label: "Slack",
+    tokens: ["slack", "슬랙"]
+  },
+  {
+    label: "Discord",
+    tokens: ["discord", "디스코드"]
+  },
+  {
+    label: "Notion",
+    tokens: ["notion", "노션"]
+  },
+  {
+    label: "Spotify",
+    tokens: ["spotify", "스포티파이"]
+  },
+  {
+    label: "Steam",
+    tokens: ["steam", "스팀"]
+  },
+  {
+    label: "Epic Games Launcher",
+    tokens: ["epic games launcher", "epic games", "epic", "에픽게임즈런처", "에픽게임즈", "에픽"]
+  },
+  {
+    label: "Finder",
+    tokens: ["finder", "파인더"]
+  },
+  {
+    label: "Terminal",
+    tokens: ["terminal", "터미널"]
+  },
+  {
+    label: "Notes",
+    tokens: ["notes", "메모"]
+  },
+  {
+    label: "Visual Studio Code",
+    tokens: ["visual studio code", "vs code", "vscode", "code", "비주얼스튜디오코드", "브이에스코드"]
+  },
+  {
+    label: "Mail",
+    tokens: ["mail", "메일"]
+  }
+];
+
 function hasAny(text, keywords) {
   return keywords.some((keyword) => text.includes(keyword));
 }
@@ -301,6 +413,74 @@ function normalizeEntityToken(value = "") {
     .replace(/[^a-z0-9가-힣]+/g, "");
 }
 
+function textMentionsToken(text = "", token = "") {
+  const normalizedText = String(text).toLowerCase();
+  const normalizedToken = String(token).toLowerCase().trim();
+
+  if (!normalizedText || !normalizedToken) {
+    return false;
+  }
+
+  if (/^[a-z0-9 ]+$/i.test(normalizedToken)) {
+    return new RegExp(`(^|[^a-z0-9])${normalizedToken.replace(/\s+/g, "\\s+")}([^a-z0-9]|$)`, "i").test(
+      normalizedText
+    );
+  }
+
+  return normalizedText.includes(normalizedToken);
+}
+
+function findDirectTargets(text = "", definitions = []) {
+  const normalized = normalizePlanText(text);
+  const found = [];
+  const seen = new Set();
+
+  for (const definition of definitions) {
+    if (!definition.tokens.some((token) => textMentionsToken(normalized, token))) {
+      continue;
+    }
+
+    const key = definition.url || definition.label;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    found.push({
+      label: definition.label,
+      url: definition.url || "",
+      tokens: definition.tokens
+    });
+  }
+
+  return found;
+}
+
+function extractDirectOpenTargets(input = "") {
+  const normalized = normalizePlanText(input);
+  const hasOpenVerb = /(open|launch|run|start|visit|go to|열어|켜|실행|시작|들어가)/i.test(normalized);
+  const hasJoiner = /(?:그리고|및|와|과|랑|하고|열고|켜고|실행하고|한\s*번에|동시에|,|&|\+|\band\b|\btogether\b)/i.test(
+    normalized
+  );
+
+  if (!hasOpenVerb) {
+    return null;
+  }
+
+  const apps = findDirectTargets(normalized, DIRECT_APP_TARGETS);
+  const web = findDirectTargets(normalized, DIRECT_WEB_TARGETS)
+    .filter((target) => !apps.some((app) => normalizeEntityToken(app.label) === normalizeEntityToken(target.label)));
+
+  if (apps.length + web.length < 2 || !hasJoiner) {
+    return null;
+  }
+
+  return {
+    apps,
+    web
+  };
+}
+
 function stripCommandPrefix(text) {
   return normalizePlanText(text)
     .replace(
@@ -337,6 +517,13 @@ function guessSiteName(text) {
 
 function getKnownSiteUrl(siteName = "") {
   const lowered = siteName.toLowerCase();
+  const directTarget = DIRECT_WEB_TARGETS.find((target) =>
+    target.tokens.some((token) => lowered === token.toLowerCase())
+  );
+
+  if (directTarget) {
+    return directTarget.url;
+  }
 
   if (lowered === "youtube" || lowered === "유튜브") {
     return "https://www.youtube.com/";
@@ -426,6 +613,23 @@ function inferFriendlyBrowserLabel(target = "", language = "en") {
 
   if (!cleanTarget) {
     return "";
+  }
+
+  try {
+    const parsedTarget = new URL(normalizeBrowserOpenUrl(cleanTarget));
+    const directMatch = DIRECT_WEB_TARGETS.find((knownTarget) => {
+      try {
+        return new URL(knownTarget.url).hostname === parsedTarget.hostname;
+      } catch (_error) {
+        return false;
+      }
+    });
+
+    if (directMatch) {
+      return getLocalizedKnownSiteLabel(directMatch.label, language) || directMatch.label;
+    }
+  } catch (_error) {
+    // Fall through to token-based labels.
   }
 
   const guessedSite = guessSiteName(cleanTarget);
@@ -1109,11 +1313,16 @@ function shouldUseFallbackRouteDirectly(input, route = {}) {
     return false;
   }
 
+  if (route.route === "open_targets") {
+    return true;
+  }
+
   if (looksComplexChainedRequest(input)) {
     return false;
   }
 
   return [
+    "open_targets",
     "app_open",
     "app_action",
     "app_list",
@@ -2415,6 +2624,7 @@ function buildRouteFallback(input) {
   const readPath = extractFileReadPath(input);
   const workspaceApp = detectWorkspaceAppName(input);
   const complexBrowserIntent = extractComplexBrowserIntent(input);
+  const directOpenTargets = extractDirectOpenTargets(input);
 
   if (looksLikeAppListRequest(input)) {
     return {
@@ -2460,6 +2670,14 @@ function buildRouteFallback(input) {
     return {
       route: "code_project",
       language: detectReplyLanguage(input)
+    };
+  }
+
+  if (directOpenTargets) {
+    return {
+      route: "open_targets",
+      language: detectReplyLanguage(input),
+      targets: directOpenTargets
     };
   }
 
@@ -2512,7 +2730,10 @@ function buildRouteFallback(input) {
 
   if (
     workspaceApp &&
-    /(메시지|message|reply|답장|dm|대화|conversation|채널|channel|보내|send|열어|이동|switch|focus)/i.test(input)
+    (
+      /(메시지|message|reply|답장|dm|대화|conversation|채널|channel|보내|send)/i.test(input) ||
+      /(?:discord|디스코드|slack|슬랙)\s*(?:에서|안에서).*(?:열어|이동|switch|focus|open)/i.test(input)
+    )
   ) {
     return {
       route: "app_action",
@@ -3276,6 +3497,8 @@ class AssistantService {
         return this.handleBrowserLogin(cleanInput, route);
       case "browser":
         return this.handleBrowser(cleanInput);
+      case "open_targets":
+        return this.handleOpenTargets(cleanInput, route);
       case "app_action":
         return this.handleAppAction(cleanInput, route);
       case "code_project":
@@ -4044,6 +4267,81 @@ class AssistantService {
       provider: "local",
       details: data
     };
+  }
+
+  async handleOpenTargets(input, route = {}) {
+    const targets = route.targets || extractDirectOpenTargets(input) || {};
+    const apps = Array.isArray(targets.apps) ? targets.apps : [];
+    const web = Array.isArray(targets.web) ? targets.web : [];
+    const actions = [];
+    const openedLabels = [];
+    const usesChrome = apps.some((app) => normalizeEntityToken(app.label) === "googlechrome");
+
+    for (const appTarget of apps) {
+      const appName = appTarget.label || appTarget.name;
+
+      if (!appName) {
+        continue;
+      }
+
+      const data = await this.automation.execute({
+        type: "open_app",
+        target: appName
+      });
+      const openedName = data.resolvedTarget || data.appName || appName;
+      actions.push(this.makeAction("open_app", openedName));
+      openedLabels.push(openedName);
+      this.rememberAppContext(openedName);
+    }
+
+    for (const [index, webTarget] of web.entries()) {
+      const targetUrl = webTarget.url || buildDirectSiteUrl(webTarget.label);
+
+      if (!targetUrl) {
+        continue;
+      }
+
+      if (usesChrome) {
+        try {
+          await this.automation.execute({
+            type: "chrome_navigate",
+            target: targetUrl,
+            newTab: index > 0
+          });
+          actions.push(this.makeAction("chrome_navigate", `${index > 0 ? "new-tab:" : ""}${targetUrl}`));
+        } catch (_error) {
+          await this.automation.execute({
+            type: "open_url",
+            target: targetUrl
+          });
+          actions.push(this.makeAction("open_url", targetUrl));
+        }
+      } else {
+        await this.automation.execute({
+          type: "open_url",
+          target: targetUrl
+        });
+        actions.push(this.makeAction("open_url", targetUrl));
+      }
+
+      openedLabels.push(webTarget.label || inferFriendlyBrowserLabel(targetUrl, detectReplyLanguage(input)));
+    }
+
+    const uniqueLabels = [...new Set(openedLabels.filter(Boolean))];
+    const fallback = detectReplyLanguage(input) === "ko"
+      ? `${uniqueLabels.join(", ")} 열었어요.`
+      : `I opened ${uniqueLabels.join(", ")}.`;
+
+    return this.completeLocalCommand(
+      input,
+      actions,
+      {
+        mode: "open_targets",
+        apps,
+        web
+      },
+      fallback
+    );
   }
 
   async handleAppAction(input, route) {

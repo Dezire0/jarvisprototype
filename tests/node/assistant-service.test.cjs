@@ -107,6 +107,37 @@ test("buildRouteFallback still routes direct Spotify commands to spotify_play", 
   });
 });
 
+test("buildRouteFallback treats bare workspace app open as app_open", () => {
+  assert.deepEqual(buildRouteFallback("디스코드 열어줘"), {
+    route: "app_open",
+    language: "ko",
+    appName: "디스코드"
+  });
+});
+
+test("buildRouteFallback extracts mixed app and web open targets", () => {
+  assert.deepEqual(buildRouteFallback("크롬 켜고 Gmail 열어줘"), {
+    route: "open_targets",
+    language: "ko",
+    targets: {
+      apps: [
+        {
+          label: "Google Chrome",
+          url: "",
+          tokens: ["google chrome", "chrome", "구글 크롬", "구글크롬", "크롬"]
+        }
+      ],
+      web: [
+        {
+          label: "Gmail",
+          url: "https://mail.google.com/",
+          tokens: ["gmail", "지메일"]
+        }
+      ]
+    }
+  });
+});
+
 test("buildRouteFallback keeps chained login workflows on the browser route", () => {
   assert.deepEqual(buildRouteFallback("깃허브에서 openai 검색하고 로그인하고 활동 보여줘"), {
     route: "browser",
@@ -198,6 +229,40 @@ test("handleBrowser opens simple one-step navigation in the system browser", asy
   assert.equal(result.reply, "구글 열었어요.");
 });
 
+test("handleBrowser labels Gmail direct opens as Gmail", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async executePlan() {
+        assert.fail("simple Gmail open should not use Playwright automation");
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowser("Gmail 열어줘");
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_url",
+      target: "https://mail.google.com/"
+    }
+  ]);
+  assert.equal(result.reply, "지메일 열었어요.");
+});
+
 test("handleBrowser opens YouTube playback results in the system browser", async () => {
   const calls = [];
   const service = new AssistantService({
@@ -231,6 +296,61 @@ test("handleBrowser opens YouTube playback results in the system browser", async
   ]);
   assert.equal(result.provider, "system-browser");
   assert.equal(result.reply, "I opened YouTube results so you can play something right away.");
+});
+
+test("handleInput opens Chrome and navigates Gmail for mixed Korean open command", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async listInstalledApps() {
+        return {
+          apps: []
+        };
+      },
+      async resolveAppTarget(appName) {
+        return {
+          requestedTarget: appName,
+          resolvedTarget: appName,
+          strategy: "direct"
+        };
+      },
+      async execute(action) {
+        calls.push(action);
+        return {
+          appName: action.target,
+          resolvedTarget: action.target,
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async executePlan() {
+        assert.fail("mixed direct open command should not use browser plan automation");
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleInput("크롬 켜고 Gmail 열어줘");
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_app",
+      target: "Google Chrome"
+    },
+    {
+      type: "chrome_navigate",
+      target: "https://mail.google.com/",
+      newTab: false
+    }
+  ]);
+  assert.equal(result.provider, "local");
+  assert.match(result.reply, /Google Chrome/);
+  assert.match(result.reply, /Gmail/);
 });
 
 test("handleBrowser waits for manual login before running the rest of a chained site workflow", async () => {
