@@ -13,6 +13,7 @@ const {
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
 const skillRegistry = require("./skills/skill-registry.cjs");
+const notificationMonitor = require("./notification-monitor.cjs");
 const JARVIS_CLOUD_API_BASE =
   String(process.env.JARVIS_CLOUD_API_BASE || "").trim() ||
   "https://jarvis-auth-service.dexproject.workers.dev";
