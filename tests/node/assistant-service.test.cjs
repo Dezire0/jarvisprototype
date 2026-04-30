@@ -229,7 +229,7 @@ test("handleBrowser opens simple one-step navigation in the system browser", asy
     tts: {}
   });
 
-  const result = await service.handleBrowser("구글 열어줘");
+  const result = await service.handleAutonomousTask("구글 열어줘");
 
   assert.deepEqual(calls, [
     {
@@ -264,7 +264,7 @@ test("handleBrowser labels Gmail direct opens as Gmail", async () => {
     tts: {}
   });
 
-  const result = await service.handleBrowser("Gmail 열어줘");
+  const result = await service.handleAutonomousTask("Gmail 열어줘");
 
   assert.deepEqual(calls, [
     {
@@ -298,7 +298,7 @@ test("handleBrowser opens YouTube playback results in the system browser", async
     tts: {}
   });
 
-  const result = await service.handleBrowser("i said go to youtube and play some music");
+  const result = await service.handleAutonomousTask("i said go to youtube and play some music");
 
   assert.deepEqual(calls, [
     {
@@ -335,7 +335,7 @@ test("handleBrowser prefers Playwright for official install or verification page
     tts: {}
   });
 
-  const result = await service.handleBrowser("Discord 공식 다운로드 페이지 열어줘");
+  const result = await service.handleAutonomousTask("Discord 공식 다운로드 페이지 열어줘");
 
   assert.equal(result.provider, "assistant-browser");
   assert.match(result.details.url, /google\.com\/search/);
@@ -567,7 +567,7 @@ test("handleBrowser waits for manual login before running the rest of a chained 
     tts: {}
   });
 
-  const pending = await service.handleBrowser("깃허브에서 openai 검색하고 로그인하고 활동 보여줘");
+  const pending = await service.handleAutonomousTask("깃허브에서 openai 검색하고 로그인하고 활동 보여줘");
 
   assert.deepEqual(calls, [
     {

@@ -3748,11 +3748,11 @@ class AssistantService {
       case "browser_login":
         return this.handleBrowserLogin(cleanInput, route);
       case "browser":
-        return this.handleBrowser(cleanInput);
+        return this.handleAutonomousTask(cleanInput, route);
       case "open_targets":
         return this.handleOpenTargets(cleanInput, route);
       case "app_action":
-        return this.handleAppAction(cleanInput, route);
+        return this.handleAutonomousTask(cleanInput, route);
       case "code_project":
         return this.handleCodeProject(cleanInput, route);
       case "game_install":
@@ -4928,9 +4928,18 @@ class AssistantService {
     const lines = [
       `=== Step ${stepNum} Observation ===`,
       `Active OS App: ${activeApp}`,
-      `URL: ${state.url}`,
-      `Title: ${state.title || "(untitled)"}`,
     ];
+
+    if (state.url || state.title) {
+      lines.push(`URL: ${state.url || "N/A"}`);
+      lines.push(`Title: ${state.title || "(untitled)"}`);
+    }
+
+    if (state.cmd_output) {
+      lines.push(`--- Terminal Output ---`);
+      lines.push(state.cmd_output.slice(-2000));
+      lines.push(`-----------------------`);
+    }
 
     const notifs = notificationMonitor.getAIContextString();
     if (notifs) {
@@ -4958,6 +4967,21 @@ class AssistantService {
   }
 
   /**
+   * Safely observe browser state, returning a fallback OS state if browser is not active.
+   */
+  async safeObserve() {
+    try {
+      if (this.browser && typeof this.browser.observe === 'function') {
+        const state = await this.browser.observe();
+        if (state) return state;
+      }
+    } catch {
+      // Browser might not be active, which is fine for OS tasks
+    }
+    return { url: "", title: "", elements: [], elementCount: 0 };
+  }
+
+  /**
    * Execute one ReAct action returned by the AI.
    * Returns: { state, error }
    */
@@ -4980,31 +5004,31 @@ class AssistantService {
           // Check if we already have it in PII Manager
           const storedPii = piiManager.get(action.field);
           if (storedPii) {
-            return { state: { ...await this.browser.observe(), pii_retrieved: storedPii }, error: null };
+            return { state: { ...await this.safeObserve(), pii_retrieved: storedPii }, error: null };
           }
           // Otherwise, we would prompt the user. For now, simulate missing PII.
-          return { state: await this.browser.observe(), error: `Missing PII for ${action.field}. Please ask user to set it.` };
+          return { state: await this.safeObserve(), error: `Missing PII for ${action.field}. Please ask user to set it.` };
         case "os_type":
           await this.automation.typeText(action.text);
-          return { state: await this.browser.observe(), error: null };
+          return { state: await this.safeObserve(), error: null };
         case "os_app":
           await this.automation.execute({ type: "open_app", target: action.name });
-          return { state: await this.browser.observe(), error: null };
+          return { state: await this.safeObserve(), error: null };
         case "os_click":
           await this.automation.clickCoordinate(action.x, action.y);
-          return { state: await this.browser.observe(), error: null };
+          return { state: await this.safeObserve(), error: null };
         case "os_cmd":
           const output = await this.automation.runShellCommand(action.command);
-          return { state: { ...await this.browser.observe(), cmd_output: output }, error: null };
+          return { state: { ...await this.safeObserve(), cmd_output: output }, error: null };
         case "done":
           return { state: null, error: null };
         default:
-          return { state: await this.browser.observe(), error: `Unknown action: ${action.action}` };
+          return { state: await this.safeObserve(), error: `Unknown action: ${action.action}` };
       }
     } catch (err) {
       // Self-correcting: return the error to AI so it can adapt
       try {
-        const recoveryState = await this.browser.observe();
+        const recoveryState = await this.safeObserve();
         return { state: recoveryState, error: err.message };
       } catch {
         return { state: null, error: err.message };
@@ -5013,86 +5037,91 @@ class AssistantService {
   }
 
   /**
-   * v2 ReAct Loop: The core autonomous browser handler.
-   * Replaces the old planBrowserTask → executePlan → completeBrowserPlan pipeline.
+   * v2 ReAct Loop: The core autonomous OS & browser handler.
+   * Replaces the old planBrowserTask & handleAppAction.
    */
-  async handleBrowser(input) {
+  async handleAutonomousTask(input, route = { route: "browser" }) {
     const language = detectReplyLanguage(input);
-    const plan = buildHeuristicBrowserPlan(input);
-
-    if (plan?.login?.required && plan.login.mode === "manual") {
-      return this.beginPendingBrowserContinuation(input, plan);
-    }
-
-    if (isSimpleExternalBrowserPlan(plan)) {
-      const targetUrl = buildExternalBrowserTarget(plan.steps[0]);
-      const opened = await this.openBrowserTargetForUser(targetUrl, {
-        preferAssistant: shouldUseAssistantBrowserForSimplePlan(input, plan)
-      });
-      const fallback = buildCompactBrowserReply(
-        input,
-        plan.steps,
-        {
-          title: opened.title || "",
-          url: opened.url || targetUrl
-        }
-      );
-
-      return {
-        reply: fallback,
-        actions: [this.makeAction("open_url", opened.url || targetUrl)],
-        provider: opened.openMode,
-        details: {
-          title: opened.title || "",
-          url: opened.url || targetUrl,
-          openMode: opened.openMode
-        }
-      };
-    }
-
     const actions = [];
-    const maxSteps = AssistantService.REACT_MAX_STEPS;
+    let state = {};
 
-    // Step 0: Navigate to initial URL
-    const initialUrl = this.resolveInitialBrowserUrl(input);
-    let state;
-    try {
-      state = await this.browser.navigate(initialUrl);
-    } catch (navError) {
-      // If Playwright fails, try system browser as fallback
+    if (route.route === "browser") {
+      const plan = buildHeuristicBrowserPlan(input);
+
+      if (plan?.login?.required && plan.login.mode === "manual") {
+        return this.beginPendingBrowserContinuation(input, plan);
+      }
+
+      if (isSimpleExternalBrowserPlan(plan)) {
+        const targetUrl = buildExternalBrowserTarget(plan.steps[0]);
+        const opened = await this.openBrowserTargetForUser(targetUrl, {
+          preferAssistant: shouldUseAssistantBrowserForSimplePlan(input, plan)
+        });
+        const fallback = buildCompactBrowserReply(
+          input,
+          plan.steps,
+          {
+            title: opened.title || "",
+            url: opened.url || targetUrl
+          }
+        );
+
+        return {
+          reply: fallback,
+          actions: [this.makeAction("open_url", opened.url || targetUrl)],
+          provider: opened.openMode,
+          details: {
+            title: opened.title || "",
+            url: opened.url || targetUrl,
+            openMode: opened.openMode
+          }
+        };
+      }
+
+      // Step 0: Navigate to initial URL
+      const initialUrl = this.resolveInitialBrowserUrl(input);
       try {
-        await this.automation.execute({ type: "open_url", target: initialUrl });
-        const label = inferFriendlyBrowserLabel(initialUrl, language) || initialUrl;
+        state = await this.browser.navigate(initialUrl);
+      } catch (navError) {
+        // If Playwright fails, try system browser as fallback
+        try {
+          await this.automation.execute({ type: "open_url", target: initialUrl });
+          const label = inferFriendlyBrowserLabel(initialUrl, language) || initialUrl;
+          return {
+            reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
+            actions: [this.makeAction("open_url", initialUrl)],
+            provider: "system-browser",
+            details: { url: initialUrl, openMode: "external-browser" }
+          };
+        } catch {
+          throw navError;
+        }
+      }
+      actions.push(this.makeAction("browser_navigate", initialUrl));
+
+      const isSimpleOpen = /^(open|go to|visit|열어|들어가|켜)/i.test(normalizePlanText(input)) &&
+        !/(search|검색|찾아|play|틀어|read|읽어|summarize|요약)/i.test(normalizePlanText(input));
+
+      if (isSimpleOpen && !state.anomalies?.length) {
+        const label = inferFriendlyBrowserLabel(state.title || initialUrl, language) || initialUrl;
         return {
           reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
-          actions: [this.makeAction("open_url", initialUrl)],
-          provider: "system-browser",
-          details: { url: initialUrl, openMode: "external-browser" }
+          actions,
+          provider: "local",
+          details: { url: state.url, title: state.title }
         };
-      } catch {
-        throw navError;
       }
+    } else {
+      // OS task initial state
+      state = { url: "", title: "", elements: [], elementCount: 0 };
     }
-    actions.push(this.makeAction("browser_navigate", initialUrl));
+
+    const maxSteps = AssistantService.REACT_MAX_STEPS;
 
     // Build conversation history for the ReAct agent
     const agentHistory = [];
     let lastError = "";
     let finalSummary = "";
-
-    // Check if the initial page already satisfies the request (simple open)
-    const isSimpleOpen = /^(open|go to|visit|열어|들어가|켜)/i.test(normalizePlanText(input)) &&
-      !/(search|검색|찾아|play|틀어|read|읽어|summarize|요약)/i.test(normalizePlanText(input));
-
-    if (isSimpleOpen && !state.anomalies?.length) {
-      const label = inferFriendlyBrowserLabel(state.title || initialUrl, language) || initialUrl;
-      return {
-        reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
-        actions,
-        provider: "local",
-        details: { url: state.url, title: state.title }
-      };
-    }
 
     // ReAct Loop
     for (let step = 1; step <= maxSteps; step++) {
