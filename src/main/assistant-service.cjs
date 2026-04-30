@@ -4770,7 +4770,7 @@ class AssistantService {
     const routerPrompt = [
       "You are the intent router for a bilingual desktop assistant.",
       "Respond with valid JSON only.",
-      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|system_briefing|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|open_targets|spotify_play|game_install|game_update|game_list|code_project","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","platform":"steam|epic|both","targets":{"apps":[],"web":[]},"reason":"","confidence":0,"missing":[]}',
+      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|system_briefing|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|open_targets|spotify_play|game_install|game_update|game_list|code_project","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","platform":"steam|epic|both","targets":{"apps":[],"web":[]},"reason":"","confidence":0,"missing":[],"requires_automation":false}',
       "Use chat for general conversation, recommendations, ideas, opinions, follow-up discussion, or questions that do not clearly require a desktop action.",
       "Use app_open for opening a local desktop app like Chrome, Finder, Terminal, Slack, Spotify, Notion, Steam, OBS, or VS Code.",
       "For app_open, appName must contain only the app/product name. Never include request verbs, politeness endings, punctuation, or the full user sentence.",
@@ -4782,6 +4782,7 @@ class AssistantService {
       "Use code_project when the user asks you to create a coding project, generate an app, scaffold a prototype, or build something like a snake game or todo app.",
       "Use browser for website navigation, URLs, searches, web logins, reading web pages, or multi-step site workflows like open site, log in, search, and show activity.",
       "Use browser_login only for explicit login requests.",
+      "Set requires_automation to true ONLY if the user request requires you to read the screen, log in, click buttons, summarize, or perform multi-step workflows. Set to false if they just want to open a page or do a simple search.",
       "When the user names a specific app or website, prioritize that named target over generic nouns like music, song, video, message, or search.",
       "Do not route recommendation-style questions into desktop actions unless the user clearly asks you to play, open, search, or control something.",
       "Use system_briefing when the user asks what is happening on this computer, the current machine status, frontmost app, browser state, or a direct system overview.",
@@ -4827,7 +4828,8 @@ class AssistantService {
         ...parsed,
         targets: parsed.targets || fallback.targets,
         appName: parsed.appName || fallback.appName || "",
-        language: parsed.language === "ko" ? "ko" : fallback.language
+        language: parsed.language === "ko" ? "ko" : fallback.language,
+        requires_automation: parsed.requires_automation === true
       };
     } catch (_error) {
       return fallback;
@@ -5053,8 +5055,8 @@ class AssistantService {
         return this.beginPendingBrowserContinuation(input, plan);
       }
 
-      // Check if user is asking for multi-step reasoning (e.g. check emails, read content)
-      const isComplexBrowserTask = /(read|읽어|summarize|요약|확인|check|뭐가|어떤|어떻게|알려|로그인|해줄|해 줘)/i.test(normalizedInput);
+      // AI router decides if multi-step reasoning is required
+      const isComplexBrowserTask = route.requires_automation === true;
 
       if (!isComplexBrowserTask && isSimpleExternalBrowserPlan(plan)) {
         const targetUrl = buildExternalBrowserTarget(plan.steps[0]);
