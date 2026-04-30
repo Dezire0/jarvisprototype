@@ -12,6 +12,7 @@ const {
 
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
+const skillRegistry = require("./skills/skill-registry.cjs");
 const JARVIS_CLOUD_API_BASE =
   String(process.env.JARVIS_CLOUD_API_BASE || "").trim() ||
   "https://jarvis-auth-service.dexproject.workers.dev";
@@ -4840,35 +4841,26 @@ class AssistantService {
 
   static REACT_MAX_STEPS = 15;
 
-  static REACT_AGENT_SYSTEM_PROMPT = [
-    "당신은 자율형 컴퓨터 에이전트 Jarvis입니다. 브라우저(Headless)와 OS 접근성 권한을 사용하여 컴퓨터를 제어합니다.",
-    "한 번에 하나의 행동(Action)만 수행하며, 각 행동 후에는 새로운 상태(DOM 요소 또는 OS 컨텍스트)를 전달받습니다.",
-    "사용자의 현재 화면을 방해하지 않고 백그라운드(Headless)에서 작업을 완료하는 것을 목표로 합니다.",
-    "이 브라우저 작업은 기존 대화의 연장입니다. 최근 대화, 사용자 의도, 로컬 폴백 상태를 새 세션처럼 잊지 말고 유지하세요.",
-    "앱이나 CLI 도구가 로컬에 없으면 없다고 말하고, 공식 웹 앱 실행 가능성 또는 공식 설치 문서/명령을 우선 판단하세요.",
-    "OpenClaw 관련 요청은 공식 GitHub/문서 흐름 기준으로 Node.js 22+, npm 또는 source 설치, onboard, doctor/status/dashboard 실행이 필요하다고 판단하세요.",
-    "",
-    "사용 가능한 행동 (JSON 형식으로만 응답):",
-    '  {"action":"navigate","url":"https://..."} — 특정 URL로 이동 (Headless)',
-    '  {"action":"click","element_id":3,"reason":"..."} — ID를 기반으로 웹 요소 클릭',
-    '  {"action":"type","element_id":5,"text":"...","reason":"..."} — 웹 요소에 텍스트 입력',
-    '  {"action":"press_key","key":"Enter","reason":"..."} — 키보드 키 입력',
-    '  {"action":"scroll","direction":"down","reason":"..."} — 페이지 스크롤',
-    '  {"action":"wait","reason":"..."} — 페이지 로딩 대기',
-    '  {"action":"ask_pii","field":"password","reason":"..."} — 비밀번호 등 민감한 정보는 추측하지 말고 사용자에게 요청',
-    '  {"action":"os_type","text":"...","reason":"..."} — OS 접근성 권한을 사용해 텍스트 직접 입력',
-    '  {"action":"os_app","name":"Safari","reason":"..."} — OS 애플리케이션 실행 또는 포커스',
-    '  {"action":"os_click","x":100,"y":200,"reason":"..."} — 지정된 OS 화면 좌표 클릭',
-    '  {"action":"os_cmd","command":"...","reason":"..."} — OS 쉘 명령어 실행',
-    '  {"action":"done","summary":"..."} — 작업 완료 및 요약 제공',
-    "",
-    "규칙:",
-    "1. 한 번에 딱 하나의 JSON 행동만 응답하세요.",
-    "2. 항상 'reason' 필드를 포함하여 이유를 설명하세요.",
-    "3. 가능하면 실제 화면 조작보다 백그라운드/Headless 동작을 우선시하세요.",
-    "4. 절대 비밀번호를 추측하지 마세요. ask_pii를 사용하여 보안 저장소에서 정보를 가져오도록 요청하세요.",
-    "5. 목표가 달성되면 'done'을 사용하세요."
-  ].join("\n");
+  static get REACT_AGENT_SYSTEM_PROMPT() {
+    return [
+      "당신은 자율형 컴퓨터 에이전트 Jarvis입니다. 브라우저(Headless)와 OS 접근성 권한을 사용하여 컴퓨터를 제어합니다.",
+      "한 번에 하나의 행동(Action)만 수행하며, 각 행동 후에는 새로운 상태(DOM 요소 또는 OS 컨텍스트)를 전달받습니다.",
+      "사용자의 현재 화면을 방해하지 않고 백그라운드(Headless)에서 작업을 완료하는 것을 목표로 합니다.",
+      "이 브라우저 작업은 기존 대화의 연장입니다. 최근 대화, 사용자 의도, 로컬 폴백 상태를 새 세션처럼 잊지 말고 유지하세요.",
+      "앱이나 CLI 도구가 로컬에 없으면 없다고 말하고, 공식 웹 앱 실행 가능성 또는 공식 설치 문서/명령을 우선 판단하세요.",
+      "OpenClaw 관련 요청은 공식 GitHub/문서 흐름 기준으로 Node.js 22+, npm 또는 source 설치, onboard, doctor/status/dashboard 실행이 필요하다고 판단하세요.",
+      "",
+      "사용 가능한 행동 (JSON 형식으로만 응답):",
+      ...skillRegistry.getAllSchemas(),
+      "",
+      "규칙:",
+      "1. 한 번에 딱 하나의 JSON 행동만 응답하세요.",
+      "2. 항상 'reason' 필드를 포함하여 이유를 설명하세요.",
+      "3. 가능하면 실제 화면 조작보다 백그라운드/Headless 동작을 우선시하세요.",
+      "4. 절대 비밀번호를 추측하지 마세요. ask_pii를 사용하여 보안 저장소에서 정보를 가져오도록 요청하세요.",
+      "5. 목표가 달성되면 'done'을 사용하세요."
+    ].join("\n");
+  }
 
   /**
    * v2: Resolve the initial URL to navigate to based on user intent (heuristic).
@@ -4989,44 +4981,12 @@ class AssistantService {
    */
   async executeReActAction(action) {
     try {
-      switch (action.action) {
-        case "navigate":
-          return { state: await this.browser.navigate(action.url), error: null };
-        case "click":
-          return { state: await this.browser.clickElement(action.element_id), error: null };
-        case "type":
-          return { state: await this.browser.typeText(action.element_id, action.text), error: null };
-        case "press_key":
-          return { state: await this.browser.pressKey(action.key || "Enter"), error: null };
-        case "scroll":
-          return { state: await this.browser.scrollPage(action.direction || "down"), error: null };
-        case "wait":
-          return { state: await this.browser.waitAndObserve(2000), error: null };
-        case "ask_pii":
-          // Check if we already have it in PII Manager
-          const storedPii = piiManager.get(action.field);
-          if (storedPii) {
-            return { state: { ...await this.safeObserve(), pii_retrieved: storedPii }, error: null };
-          }
-          // Otherwise, we would prompt the user. For now, simulate missing PII.
-          return { state: await this.safeObserve(), error: `Missing PII for ${action.field}. Please ask user to set it.` };
-        case "os_type":
-          await this.automation.typeText(action.text);
-          return { state: await this.safeObserve(), error: null };
-        case "os_app":
-          await this.automation.execute({ type: "open_app", target: action.name });
-          return { state: await this.safeObserve(), error: null };
-        case "os_click":
-          await this.automation.clickCoordinate(action.x, action.y);
-          return { state: await this.safeObserve(), error: null };
-        case "os_cmd":
-          const output = await this.automation.runShellCommand(action.command);
-          return { state: { ...await this.safeObserve(), cmd_output: output }, error: null };
-        case "done":
-          return { state: null, error: null };
-        default:
-          return { state: await this.safeObserve(), error: `Unknown action: ${action.action}` };
-      }
+      const context = {
+        browser: this.browser,
+        automation: this.automation,
+        safeObserve: this.safeObserve.bind(this)
+      };
+      return await skillRegistry.execute(action, context);
     } catch (err) {
       // Self-correcting: return the error to AI so it can adapt
       try {
