@@ -38,7 +38,7 @@ import {
   RefreshCwIcon,
   SquareIcon,
 } from "lucide-react";
-import type { FC } from "react";
+import { useState, type FC, type FormEvent } from "react";
 
 
 
@@ -60,6 +60,40 @@ const WELCOME_PROMPTS = [
     prompt: { ko: "유튜브 열고 집중할 때 들을 음악 재생해줘", en: "Play some focus music on YouTube" },
   },
 ];
+
+type CredentialPromptDetails = {
+  kind?: string;
+  site?: string;
+  siteOrUrl?: string;
+  loginUrl?: string;
+  language?: string;
+  askToSave?: boolean;
+  submitDefault?: boolean;
+};
+
+type VerificationPromptDetails = {
+  kind?: "captcha" | "verification" | string;
+  site?: string;
+  url?: string;
+  language?: string;
+  submitDefault?: boolean;
+};
+
+type SensitiveConfirmationDetails = {
+  reason?: string;
+  message?: string;
+  targetLabel?: string;
+};
+
+type AssistantResultDetails = {
+  credentialPrompt?: CredentialPromptDetails | null;
+  verificationPrompt?: VerificationPromptDetails | null;
+  sensitiveConfirmation?: SensitiveConfirmationDetails | null;
+};
+
+function prefersKorean(language?: string) {
+  return language === "ko" || (typeof navigator !== "undefined" && navigator.language.startsWith("ko"));
+}
 
 export const Thread: FC = () => {
   const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
@@ -365,6 +399,288 @@ const MessageError: FC = () => {
   );
 };
 
+const AssistantResultPrompts: FC = () => {
+  const details = useAuiState((state) =>
+    ((state.message.metadata as any)?.custom?.details || null) as AssistantResultDetails | null,
+  );
+
+  if (!details || typeof details !== "object") {
+    return null;
+  }
+
+  const hasPrompt =
+    details.credentialPrompt ||
+    details.verificationPrompt ||
+    details.sensitiveConfirmation;
+
+  if (!hasPrompt) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      {details.credentialPrompt ? (
+        <CredentialPromptCard prompt={details.credentialPrompt} />
+      ) : null}
+      {details.verificationPrompt ? (
+        <VerificationPromptCard prompt={details.verificationPrompt} />
+      ) : null}
+      {details.sensitiveConfirmation ? (
+        <SensitiveConfirmationCard confirmation={details.sensitiveConfirmation} />
+      ) : null}
+    </div>
+  );
+};
+
+const CredentialPromptCard: FC<{ prompt: CredentialPromptDetails }> = ({ prompt }) => {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [saveCredential, setSaveCredential] = useState(false);
+  const [submit, setSubmit] = useState(Boolean(prompt.submitDefault));
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const isKo = prefersKorean(prompt.language);
+  const site = prompt.site || prompt.siteOrUrl || (isKo ? "이 사이트" : "this site");
+
+  async function fillLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!username.trim() || !password) {
+      setStatus(isKo ? "아이디와 비밀번호를 모두 입력해 주세요." : "Enter both username and password.");
+      return;
+    }
+
+    if (!window.assistantAPI?.invokeTool) {
+      setStatus(isKo ? "Electron 보안 도구 연결을 찾지 못했어요." : "The secure Electron tool bridge is unavailable.");
+      return;
+    }
+
+    setBusy(true);
+    setStatus(isKo ? "현재 로그인 칸에 안전하게 입력하는 중이에요." : "Securely filling the current login form.");
+
+    try {
+      const result = await window.assistantAPI.invokeTool("browser:login-form", {
+        siteOrUrl: prompt.siteOrUrl || prompt.loginUrl || site,
+        loginUrl: prompt.loginUrl || prompt.siteOrUrl || "",
+        username: username.trim(),
+        password,
+        saveCredential,
+        submit,
+      });
+      const saved = Boolean((result as { saved?: unknown } | null)?.saved);
+      setPassword("");
+      setStatus(
+        isKo
+          ? saved
+            ? "입력 완료. 로그인 정보는 보안 저장소에 저장했어요."
+            : "입력 완료. 비밀번호는 화면 상태에서 지웠어요."
+          : saved
+            ? "Filled. The login was saved in the secure vault."
+            : "Filled. The password was cleared from the UI state.",
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={fillLogin}
+      className="rounded-[26px] border border-amber-300/25 bg-amber-300/10 p-4 shadow-[0_18px_70px_rgba(0,0,0,0.18)]"
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-200/80">
+        Secure Login
+      </p>
+      <h3 className="mt-2 text-base font-semibold">
+        {isKo ? `${site} 로그인 정보 입력` : `Login details for ${site}`}
+      </h3>
+      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+        {isKo
+          ? "이 정보는 일반 채팅 텍스트로 보내지지 않고, 현재 브라우저 로그인 칸에만 전달됩니다."
+          : "These details are sent to the current browser login form, not as normal chat text."}
+      </p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <input
+          value={username}
+          onChange={(event) => setUsername(event.currentTarget.value)}
+          autoComplete="username"
+          className="rounded-2xl border border-border/70 bg-background/80 px-4 py-3 text-sm outline-none focus:border-amber-200/70"
+          placeholder={isKo ? "아이디 또는 이메일" : "Username or email"}
+        />
+        <input
+          value={password}
+          onChange={(event) => setPassword(event.currentTarget.value)}
+          autoComplete="current-password"
+          type="password"
+          className="rounded-2xl border border-border/70 bg-background/80 px-4 py-3 text-sm outline-none focus:border-amber-200/70"
+          placeholder={isKo ? "비밀번호" : "Password"}
+        />
+      </div>
+      <div className="mt-4 grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={saveCredential}
+            onChange={(event) => setSaveCredential(event.currentTarget.checked)}
+            className="size-4 accent-amber-200"
+          />
+          {isKo ? "보안 저장소에 저장" : "Save in secure vault"}
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={submit}
+            onChange={(event) => setSubmit(event.currentTarget.checked)}
+            className="size-4 accent-amber-200"
+          />
+          {isKo ? "입력 후 로그인 버튼도 누르기" : "Submit after filling"}
+        </label>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-2xl bg-amber-200 px-4 py-2 text-sm font-semibold text-black transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy ? (isKo ? "입력 중" : "Filling") : isKo ? "안전하게 입력" : "Fill securely"}
+        </button>
+        {status ? <span className="text-sm text-muted-foreground">{status}</span> : null}
+      </div>
+    </form>
+  );
+};
+
+const VerificationPromptCard: FC<{ prompt: VerificationPromptDetails }> = ({ prompt }) => {
+  const [code, setCode] = useState("");
+  const [submit, setSubmit] = useState(Boolean(prompt.submitDefault));
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const isKo = prefersKorean(prompt.language);
+  const isCaptcha = prompt.kind === "captcha";
+  const label = isCaptcha ? (isKo ? "캡차 문자" : "CAPTCHA text") : isKo ? "인증 코드" : "verification code";
+
+  async function fillCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!code.trim()) {
+      setStatus(isKo ? `${label}를 입력해 주세요.` : `Enter the ${label}.`);
+      return;
+    }
+
+    if (!window.assistantAPI?.invokeTool) {
+      setStatus(isKo ? "Electron 보안 도구 연결을 찾지 못했어요." : "The secure Electron tool bridge is unavailable.");
+      return;
+    }
+
+    setBusy(true);
+    setStatus(isKo ? "현재 인증 입력 칸에 넣는 중이에요." : "Filling the verification field.");
+
+    try {
+      await window.assistantAPI.invokeTool("browser:verification-code", {
+        code: code.trim(),
+        kind: prompt.kind || "verification",
+        submit,
+      });
+      setCode("");
+      setStatus(isKo ? "입력 완료. 필요하면 채팅에 '계속'이라고 말해 주세요." : "Filled. Say continue if Jarvis should proceed.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={fillCode}
+      className="rounded-[26px] border border-sky-300/25 bg-sky-300/10 p-4 shadow-[0_18px_70px_rgba(0,0,0,0.18)]"
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-200/80">
+        Verification
+      </p>
+      <h3 className="mt-2 text-base font-semibold">
+        {isKo ? `${label} 입력` : `Enter ${label}`}
+      </h3>
+      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+        {isCaptcha
+          ? isKo
+            ? "이미지 선택형 캡차는 사용자가 직접 풀어야 하고, 문자 입력형은 여기서 전달할 수 있어요."
+            : "Image-selection CAPTCHAs need you to solve them; text CAPTCHAs can be filled here."
+          : isKo
+            ? "문자, 메일, 인증 앱에 표시된 코드를 넣으면 현재 페이지의 인증 칸에 입력합니다."
+            : "Enter the code from SMS, email, or your authenticator app."}
+      </p>
+      <div className="mt-4 flex flex-col gap-3 md:flex-row">
+        <input
+          value={code}
+          onChange={(event) => setCode(event.currentTarget.value)}
+          autoComplete="one-time-code"
+          className="min-w-0 flex-1 rounded-2xl border border-border/70 bg-background/80 px-4 py-3 text-sm outline-none focus:border-sky-200/70"
+          placeholder={label}
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-2xl bg-sky-200 px-4 py-2 text-sm font-semibold text-black transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy ? (isKo ? "입력 중" : "Filling") : isKo ? "인증칸에 입력" : "Fill code"}
+        </button>
+      </div>
+      <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={submit}
+          onChange={(event) => setSubmit(event.currentTarget.checked)}
+          className="size-4 accent-sky-200"
+        />
+        {isKo ? "입력 후 확인 버튼도 누르기" : "Submit after filling"}
+      </label>
+      {status ? <p className="mt-3 text-sm text-muted-foreground">{status}</p> : null}
+    </form>
+  );
+};
+
+const SensitiveConfirmationCard: FC<{ confirmation: SensitiveConfirmationDetails }> = ({ confirmation }) => {
+  const aui = useAui();
+  const target = confirmation.targetLabel || confirmation.message || "sensitive action";
+
+  function replyWith(text: string) {
+    aui.composer().setText(text);
+    aui.composer().send();
+  }
+
+  return (
+    <div className="rounded-[26px] border border-red-300/25 bg-red-300/10 p-4 shadow-[0_18px_70px_rgba(0,0,0,0.18)]">
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-red-200/80">
+        Final Confirmation
+      </p>
+      <h3 className="mt-2 text-base font-semibold">민감한 최종 행동 확인</h3>
+      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+        결제, 구매, 구독, 예약 확정처럼 되돌리기 어려운 행동으로 보여요. 실행 직전에 한 번 더 확인합니다.
+      </p>
+      <p className="mt-3 rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm">
+        대상: {target}
+      </p>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => replyWith("승인")}
+          className="rounded-2xl bg-red-200 px-4 py-2 text-sm font-semibold text-black transition hover:bg-red-100"
+        >
+          승인하고 실행
+        </button>
+        <button
+          type="button"
+          onClick={() => replyWith("취소")}
+          className="rounded-2xl border border-border/70 bg-background/80 px-4 py-2 text-sm font-semibold transition hover:bg-accent"
+        >
+          취소
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root
@@ -393,6 +709,7 @@ const AssistantMessage: FC = () => {
             }}
           </MessagePrimitive.Parts>
           <MessageError />
+          <AssistantResultPrompts />
         </div>
 
         <div className="aui-assistant-message-footer mt-2 flex items-center">

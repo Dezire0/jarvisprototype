@@ -70,7 +70,8 @@ function normalizeState(rawState = {}) {
         createdAt: typeof message.createdAt === "string" ? message.createdAt : new Date().toISOString(),
         status: message.status === "running" ? "running" : "complete",
         provider: typeof message.provider === "string" ? message.provider : "",
-        actions: Array.isArray(message.actions) ? message.actions : []
+        actions: Array.isArray(message.actions) ? message.actions : [],
+        details: message.details && typeof message.details === "object" ? message.details : null
       }))
   };
 }
@@ -204,7 +205,8 @@ function createAssistantTransportServer({
       createdAt: new Date().toISOString(),
       status: "running",
       provider: "",
-      actions: []
+      actions: [],
+      details: null
     };
     const nextState = {
       messages: [
@@ -215,7 +217,8 @@ function createAssistantTransportServer({
           text: userText,
           createdAt: new Date().toISOString(),
           status: "complete",
-          provider: ""
+          provider: "",
+          details: null
         },
         assistantMessage
       ]
@@ -240,6 +243,7 @@ function createAssistantTransportServer({
       writeStateField(res, assistantMessageIndex, "status", "complete");
       writeStateField(res, assistantMessageIndex, "provider", provider);
       writeStateField(res, assistantMessageIndex, "actions", result.actions || []);
+      writeStateField(res, assistantMessageIndex, "details", result.details || null);
       writeFinish(res);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

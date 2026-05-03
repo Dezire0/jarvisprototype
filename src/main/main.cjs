@@ -23,7 +23,11 @@ if (!hasSingleInstanceLock) {
 
 const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
-const { BrowserService } = require("./beta/browser-service-beta.cjs");
+const { BrowserService } = require("./browser-service.cjs");
+const {
+  MACOS_AUTOMATION_PERMISSION_DIALOG_DETAIL,
+  MACOS_AUTOMATION_PERMISSION_MESSAGE
+} = require("./automation-error-utils.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
 const { DesktopUiServer } = require("./desktop-ui-server.cjs");
@@ -798,6 +802,46 @@ async function dispatchTool(tool, payload = {}) {
         data
       };
     }
+    case "browser:login-form": {
+      const data = await liveServices.browser.fillCurrentLoginForm({
+        siteOrUrl: payload.siteOrUrl || payload.site || "",
+        loginUrl: payload.loginUrl || "",
+        username: payload.username || "",
+        password: payload.password || "",
+        submit: Boolean(payload.submit)
+      });
+
+      let saved = null;
+      if (payload.saveCredential) {
+        saved = await liveServices.credentials.saveCredential({
+          site: payload.site || payload.siteOrUrl || data.site || data.url,
+          loginUrl: payload.loginUrl || data.url || payload.siteOrUrl || "",
+          username: payload.username || "",
+          password: payload.password || ""
+        });
+      }
+
+      return {
+        ok: true,
+        tool,
+        data: {
+          ...data,
+          saved
+        }
+      };
+    }
+    case "browser:verification-code": {
+      const data = await liveServices.browser.fillVerificationCode({
+        code: payload.code || "",
+        kind: payload.kind || "verification",
+        submit: Boolean(payload.submit)
+      });
+      return {
+        ok: true,
+        tool,
+        data
+      };
+    }
     case "games:list": {
       const data = await liveServices.games.listInstalledGames(payload);
       return {
@@ -1025,8 +1069,8 @@ app.whenReady().then(async () => {
     dialog.showMessageBox({
       type: "info",
       title: "Accessibility Permission Required",
-      message: "Jarvis requires Accessibility permissions to control other apps and automate tasks.",
-      detail: "Please click 'Open System Settings' and enable Jarvis in Security & Privacy > Accessibility.",
+      message: MACOS_AUTOMATION_PERMISSION_MESSAGE,
+      detail: MACOS_AUTOMATION_PERMISSION_DIALOG_DETAIL,
       buttons: ["Open System Settings", "Later"],
       defaultId: 0
     }).then(({ response }) => {

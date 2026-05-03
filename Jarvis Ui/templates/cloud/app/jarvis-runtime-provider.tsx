@@ -20,6 +20,7 @@ type TransportMessage = {
   status?: "running" | "complete";
   provider?: string;
   actions?: any[];
+  details?: any;
 };
 
 type TransportState = {
@@ -198,6 +199,7 @@ function toThreadMessages(state: TransportState): any[] {
           unstable_state: state,
           custom: {
             provider: message.provider || "local",
+            details: message.details || null,
           },
         },
       };
@@ -210,7 +212,9 @@ function toThreadMessages(state: TransportState): any[] {
       content,
       attachments: [],
       metadata: {
-        custom: {},
+        custom: {
+          details: message.details || null,
+        },
       },
     };
   });

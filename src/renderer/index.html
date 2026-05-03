@@ -509,6 +509,23 @@
       </section>
     </div>
 
+    <div class="consent-modal" id="computerConsentModal" hidden aria-live="polite">
+      <div class="consent-modal__backdrop"></div>
+      <section class="consent-modal__card" role="dialog" aria-modal="true" aria-labelledby="computerConsentTitle">
+        <p class="eyebrow">Computer Control</p>
+        <h2 id="computerConsentTitle">Jarvis 컴퓨터 작업 동의</h2>
+        <p>
+          Jarvis는 사용자의 요청을 수행하기 위해 브라우저, 앱, 키보드 입력, 화면 읽기, 파일 작업을 실행할 수 있습니다.
+          이 동의 이후에는 사용자가 요청한 컴퓨터 작업을 동의된 작업으로 보고 진행합니다.
+        </p>
+        <label class="consent-check">
+          <input id="computerConsentCheck" type="checkbox" />
+          <span>민감한 정보 입력, 결제, 구매 같은 최종 행동은 실행 직전에 다시 확인받는 조건으로 동의합니다.</span>
+        </label>
+        <button type="button" id="computerConsentAcceptButton" disabled>동의하고 시작</button>
+      </section>
+    </div>
+
     <script type="module" src="./renderer.js"></script>
   </body>
 </html>

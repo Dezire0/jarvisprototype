@@ -1,17 +1,23 @@
-# Latest error fixes
+2026-05-03 수정 및 점검 기록
 
-- Added verified missing-app recovery metadata for web-runnable apps and CLI-style tools.
-- When a requested app is not installed, Jarvis now says it is missing and asks whether to open the official web app, open the install route, or show commands where applicable.
-- Added OpenClaw-specific guidance from the official install/GitHub flow:
-  - quick install via `curl -fsSL https://openclaw.ai/install.sh | bash`,
-  - npm install via `npm install -g openclaw@latest && openclaw onboard --install-daemon`,
-  - source install via `git clone https://github.com/openclaw/openclaw.git`, `pnpm install`, `pnpm ui:build`, `pnpm build`, `pnpm link --global`,
-  - post-install checks via `openclaw doctor`, `openclaw status`, and `openclaw dashboard`.
-- Changed missing app handling so Jarvis no longer auto-opens an install page from `[ACTION: OPEN_APP]`; it goes through the explicit recovery prompt.
-- Added Playwright-first handling for official install/download/verification browser tasks.
-- Updated browser ReAct prompts so configured API routing keeps the current conversation context, and local fallback receives the same context instead of behaving like a fresh session.
-- Updated platform capability reporting from generic planned browser automation to `playwright + system-browser fallback`.
-- Added regression tests for:
-  - missing app official web fallback,
-  - OpenClaw missing CLI command guidance,
-  - Playwright preference for official install/verification browser pages.
+- 로그인 요청 시 저장된 계정이 없으면 Jarvis가 앱 내부 보안 입력 카드를 띄우도록 변경했습니다.
+- 보안 입력 카드에서 사용자가 아이디와 비밀번호를 입력하고, 저장 여부를 선택하면 기존 보안 저장소를 통해 저장하도록 연결했습니다.
+- 저장된 계정이 있으면 다음 로그인 요청에서 저장된 정보를 직접 입력하는 흐름을 유지하고 `loginMode: "saved"` 상태를 명확히 반환하도록 보강했습니다.
+- OTP 및 문자형 캡차 입력 카드가 assistant 메시지 안에 표시되도록 연결했습니다.
+- 구매, 결제, 구독, 주문 확정처럼 민감한 최종 클릭은 실행 직전에 멈추고 사용자의 `승인` 또는 `취소`를 받도록 브라우저 에이전트 런타임을 보강했습니다.
+- OpenClaw 방식에 가까운 클릭 안정성을 Jarvis beta browser 서비스에 반영했습니다.
+  - 관찰된 element id가 사라졌을 때 인터랙티브 요소를 다시 태깅합니다.
+  - 클릭 전 스크롤 및 가시성 확인을 수행합니다.
+  - 일반 클릭 실패 시 요소 중앙 좌표 클릭으로 재시도합니다.
+- 기존 Electron local renderer와 기본 Next UI 양쪽에 컴퓨터 작업 동의 및 보안 입력 UI를 반영했습니다.
+- 기본 앱이 `Jarvis Ui/templates/cloud`의 Next UI를 먼저 띄운다는 점을 확인하고, 동의 모달을 로그인/온보딩 화면보다 앞에 표시되도록 `OnboardingGate` 최상단으로 이동했습니다.
+- assistant transport 상태에 `details`를 포함하도록 보강해 Next UI가 credential, verification, sensitive confirmation 카드를 렌더링할 수 있게 했습니다.
+- `package.json`의 `npm run check`에 `src/main/assistant-transport-server.cjs` 문법 검사를 추가했습니다.
+- 원격 `main`의 최신 OpenClaw 자율 루프 커밋 위로 리베이스한 뒤 충돌을 해결했고, 기존 자율 루프 구조를 유지한 상태에서 보안 로그인/확인 흐름을 다시 맞췄습니다.
+- 검증 통과:
+  - `node --test tests/node/browser-service.test.cjs tests/node/browser-agent-runtime.test.cjs tests/node/assistant-service.test.cjs`
+  - `corepack pnpm --dir "Jarvis Ui" --filter assistant-ui-starter-cloud build`
+  - `npm run check`
+  - `npm run test:node` 전체 89개 통과
+  - `npm run dev`
+  - Playwright 로컬 UI 동의 모달 확인

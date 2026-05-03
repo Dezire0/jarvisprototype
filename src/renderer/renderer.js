@@ -49,6 +49,9 @@ const updateBannerMessage = document.getElementById("updateBannerMessage");
 const updateBannerDetail = document.getElementById("updateBannerDetail");
 const updateBannerPrimaryButton = document.getElementById("updateBannerPrimaryButton");
 const updateBannerLaterButton = document.getElementById("updateBannerLaterButton");
+const computerConsentModal = document.getElementById("computerConsentModal");
+const computerConsentCheck = document.getElementById("computerConsentCheck");
+const computerConsentAcceptButton = document.getElementById("computerConsentAcceptButton");
 const planModal = document.getElementById("planModal");
 const planModalBackdrop = document.getElementById("planModalBackdrop");
 const planModalCloseButton = document.getElementById("planModalCloseButton");
@@ -169,6 +172,7 @@ const LANGUAGE_STORAGE_KEY = "jarvis-speech-language";
 const SPEAK_REPLIES_KEY = "jarvis-speak-replies";
 const CALL_MODE_STORAGE_KEY = "jarvis-call-mode";
 const THREAD_STORAGE_KEY = "jarvis-thread-state-v2";
+const COMPUTER_CONSENT_KEY = "jarvis-computer-control-consent-v1";
 
 function escapeHtml(text = "") {
   return text
@@ -393,6 +397,183 @@ function addMessage(role, content, detail = "") {
   renderThreadList();
   renderCurrentThread();
   saveThreadState();
+}
+
+function appendInteractiveMessage(node) {
+  const article = document.createElement("article");
+  article.className = "message assistant interactive-message";
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = "Jarvis";
+  const body = document.createElement("div");
+  body.className = "message-body";
+  body.appendChild(node);
+  article.appendChild(label);
+  article.appendChild(body);
+  messages.appendChild(article);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function renderCredentialPrompt(prompt = {}) {
+  const card = document.createElement("form");
+  card.className = "secure-card";
+  card.innerHTML = `
+    <h3>보안 로그인 입력</h3>
+    <p>${escapeHtml(prompt.site || "현재 사이트")}에 입력할 아이디와 비밀번호를 앱 안에서만 받습니다.</p>
+    <input name="username" type="text" autocomplete="username" placeholder="아이디 또는 이메일" />
+    <input name="password" type="password" autocomplete="current-password" placeholder="비밀번호" />
+    <label class="secure-option">
+      <input name="saveCredential" type="checkbox" />
+      <span>이 사이트 로그인 정보를 로컬 보안 저장소에 저장</span>
+    </label>
+    <label class="secure-option">
+      <input name="submitLogin" type="checkbox" ${prompt.submitDefault ? "checked" : ""} />
+      <span>입력 후 로그인 버튼도 누르기</span>
+    </label>
+    <div class="secure-actions">
+      <button type="submit">확인 후 입력</button>
+      <button type="button" class="secondary" data-secure-cancel>취소</button>
+    </div>
+    <p class="secure-status" aria-live="polite"></p>
+  `;
+
+  const status = card.querySelector(".secure-status");
+  const cancelButton = card.querySelector("[data-secure-cancel]");
+  cancelButton.addEventListener("click", () => {
+    card.remove();
+  });
+  card.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const username = card.elements.username.value.trim();
+    const password = card.elements.password.value;
+    if (!username || !password) {
+      status.textContent = "아이디와 비밀번호를 모두 입력해 주세요.";
+      return;
+    }
+
+    const submitButton = card.querySelector("button[type='submit']");
+    submitButton.disabled = true;
+    status.textContent = "현재 로그인 화면에 입력하는 중이에요.";
+    try {
+      const result = await window.assistantAPI.invokeTool("browser:login-form", {
+        site: prompt.site || prompt.siteOrUrl || "",
+        siteOrUrl: prompt.siteOrUrl || "",
+        loginUrl: prompt.loginUrl || "",
+        username,
+        password,
+        saveCredential: Boolean(card.elements.saveCredential.checked),
+        submit: Boolean(card.elements.submitLogin.checked)
+      });
+      card.elements.password.value = "";
+      status.textContent = result.data?.saved
+        ? "입력했고, 로그인 정보도 보안 저장소에 저장했어요."
+        : "현재 로그인 화면에 입력했어요.";
+      await refreshCredentialList();
+    } catch (error) {
+      submitButton.disabled = false;
+      status.textContent = `입력하지 못했어요: ${error.message}`;
+    }
+  });
+
+  appendInteractiveMessage(card);
+}
+
+function renderVerificationPrompt(prompt = {}) {
+  const kind = prompt.kind === "captcha" ? "캡차" : "인증 코드";
+  const card = document.createElement("form");
+  card.className = "secure-card";
+  card.innerHTML = `
+    <h3>${kind} 입력</h3>
+    <p>현재 페이지에 보이는 ${kind} 값을 직접 입력하면 Jarvis가 입력칸에 넣어볼게요.</p>
+    <input name="code" type="text" autocomplete="one-time-code" placeholder="${kind}" />
+    <label class="secure-option">
+      <input name="submitCode" type="checkbox" ${prompt.submitDefault ? "checked" : ""} />
+      <span>입력 후 확인 버튼도 누르기</span>
+    </label>
+    <div class="secure-actions">
+      <button type="submit">코드 입력</button>
+      <button type="button" class="secondary" data-secure-cancel>취소</button>
+    </div>
+    <p class="secure-status" aria-live="polite"></p>
+  `;
+  const status = card.querySelector(".secure-status");
+  card.querySelector("[data-secure-cancel]").addEventListener("click", () => card.remove());
+  card.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const code = card.elements.code.value.trim();
+    if (!code) {
+      status.textContent = `${kind} 값을 입력해 주세요.`;
+      return;
+    }
+    const submitButton = card.querySelector("button[type='submit']");
+    submitButton.disabled = true;
+    status.textContent = "현재 페이지에 입력하는 중이에요.";
+    try {
+      await window.assistantAPI.invokeTool("browser:verification-code", {
+        code,
+        kind: prompt.kind || "verification",
+        submit: Boolean(card.elements.submitCode.checked)
+      });
+      card.elements.code.value = "";
+      status.textContent = "입력했어요. 이어서 작업하려면 채팅에 '계속'이라고 입력해 주세요.";
+    } catch (error) {
+      submitButton.disabled = false;
+      status.textContent = `입력하지 못했어요: ${error.message}`;
+    }
+  });
+
+  appendInteractiveMessage(card);
+}
+
+function renderSensitiveConfirmation(prompt = {}) {
+  const card = document.createElement("div");
+  card.className = "secure-card";
+  card.innerHTML = `
+    <h3>민감한 최종 동작 확인</h3>
+    <p>${escapeHtml(prompt.targetLabel || prompt.message || "이 동작")}을 실행하기 직전입니다.</p>
+    <div class="secure-actions">
+      <button type="button" data-sensitive-approve>승인</button>
+      <button type="button" class="secondary" data-sensitive-cancel>취소</button>
+    </div>
+  `;
+  card.querySelector("[data-sensitive-approve]").addEventListener("click", () => {
+    void submitCommandText("승인");
+    card.remove();
+  });
+  card.querySelector("[data-sensitive-cancel]").addEventListener("click", () => {
+    void submitCommandText("취소");
+    card.remove();
+  });
+  appendInteractiveMessage(card);
+}
+
+function renderResultPrompts(details = {}) {
+  if (details?.credentialPrompt) {
+    renderCredentialPrompt(details.credentialPrompt);
+  }
+  if (details?.verificationPrompt) {
+    renderVerificationPrompt(details.verificationPrompt);
+  }
+  if (details?.sensitiveConfirmation) {
+    renderSensitiveConfirmation(details.sensitiveConfirmation);
+  }
+}
+
+function hasComputerConsent() {
+  return localStorage.getItem(COMPUTER_CONSENT_KEY) === "accepted";
+}
+
+function syncComputerConsentGate() {
+  const accepted = hasComputerConsent();
+  if (computerConsentModal) {
+    computerConsentModal.hidden = accepted;
+  }
+  if (commandInput) {
+    commandInput.disabled = !accepted;
+  }
+  if (submitButton) {
+    submitButton.disabled = !accepted || state.submitInFlight;
+  }
 }
 
 function setWakeState(status) {
@@ -1688,11 +1869,17 @@ async function handleAssistantResult(result) {
     previewText
   );
   renderActions(result.actions || []);
+  renderResultPrompts(result.details || {});
   await speakText(result.reply || "", result.language || detectLanguage(result.reply || ""));
 }
 
 async function submitCommandText(input, options = {}) {
   if (!input) {
+    return;
+  }
+
+  if (!hasComputerConsent()) {
+    syncComputerConsentGate();
     return;
   }
 
@@ -1714,6 +1901,7 @@ async function submitCommandText(input, options = {}) {
     state.submitInFlight = false;
     submitButton.disabled = false;
     commandInput.value = "";
+    syncComputerConsentGate();
     setWakeState("idle");
 
     if (shouldResumeCall) {
@@ -2028,6 +2216,16 @@ updateBannerPrimaryButton?.addEventListener("click", () => {
   };
 
   void handleUpdateBannerAction(state);
+});
+computerConsentCheck?.addEventListener("change", () => {
+  computerConsentAcceptButton.disabled = !computerConsentCheck.checked;
+});
+computerConsentAcceptButton?.addEventListener("click", () => {
+  if (!computerConsentCheck.checked) {
+    return;
+  }
+  localStorage.setItem(COMPUTER_CONSENT_KEY, "accepted");
+  syncComputerConsentGate();
 });
 planModalBackdrop?.addEventListener("click", hidePlanModal);
 planModalCloseButton?.addEventListener("click", hidePlanModal);
@@ -2457,6 +2655,7 @@ async function bootstrap() {
   loadThreadState();
   renderThreadList();
   renderCurrentThread();
+  syncComputerConsentGate();
 
   if (storedLanguage) {
     speechLanguage.value = storedLanguage;

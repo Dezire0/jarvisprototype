@@ -589,7 +589,7 @@ test("handleBrowser waits for manual login before running the rest of a chained 
   assert.equal(resumed.details.resumedBrowserContinuation, true);
 });
 
-test("handleBrowserLogin opens the login page for manual sign-in by default", async () => {
+test("handleBrowserLogin opens a secure credential prompt when no saved login exists", async () => {
   const calls = [];
   const service = new AssistantService({
     automation: {
@@ -602,7 +602,7 @@ test("handleBrowserLogin opens the login page for manual sign-in by default", as
     },
     browser: {
       async loginWithStoredCredential() {
-        assert.fail("manual login should not autofill saved credentials by default");
+        assert.fail("login should not autofill when no saved credential exists");
       },
       async open(target) {
         return {
@@ -611,7 +611,11 @@ test("handleBrowserLogin opens the login page for manual sign-in by default", as
         };
       }
     },
-    credentials: {},
+    credentials: {
+      async getCredential() {
+        return null;
+      }
+    },
     files: {},
     obs: {},
     screen: {},
@@ -628,6 +632,56 @@ test("handleBrowserLogin opens the login page for manual sign-in by default", as
       target: "https://github.com/"
     }
   ]);
-  assert.equal(result.details.loginMode, "manual");
-  assert.match(result.reply, /직접 로그인/);
+  assert.equal(result.details.loginMode, "secure-prompt");
+  assert.equal(result.details.credentialPrompt.kind, "login_credentials");
+  assert.equal(result.details.credentialPrompt.siteOrUrl, "https://github.com/");
+  assert.match(result.reply, /보안 입력 카드|로그인 칸/);
+});
+
+test("handleBrowserLogin fills saved credentials when a secure credential exists", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async loginWithStoredCredential(siteOrUrl) {
+        return {
+          site: "github.com",
+          url: siteOrUrl,
+          submitted: false
+        };
+      },
+      async open() {
+        assert.fail("saved credential login should not open manual prompt first");
+      }
+    },
+    credentials: {
+      async getCredential(siteOrUrl) {
+        assert.equal(siteOrUrl, "https://github.com/");
+        return {
+          site: "github.com",
+          username: "octo"
+        };
+      }
+    },
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowserLogin("깃허브 로그인해줘", {
+    siteOrUrl: "깃허브"
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.details.loginMode, "saved");
+  assert.equal(result.details.url, "https://github.com/");
+  assert.match(result.reply, /로그인 정보를 입력/);
 });

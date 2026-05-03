@@ -1,22 +1,9 @@
-# Latest test errors
+2026-05-03 최신 검증 결과
 
-Current status: resolved.
-
-Observed issue for this automation:
-
-- Missing local apps or CLI tools were handled too generically.
-- Jarvis could say an app was not found, but it did not clearly distinguish:
-  - not installed locally,
-  - official web app can run in browser,
-  - official install page or CLI setup is required.
-- Autonomous `[ACTION: OPEN_APP]` fallback could still drift toward opening install pages automatically instead of asking first.
-- Browser ReAct planning was biased to local-only model calls, which could lose broader API conversation context during local fallback.
-- Simple official install/download checks were still allowed to use the system browser first, instead of using Playwright for inspectable browser automation.
-
-Verification:
-
-- `npm run check` passed.
-- `node --test tests/node/assistant-service.test.cjs` passed with 29/29 tests.
-- `npm run test:node` passed with 75/75 tests.
-- `npm run dev` started successfully, built the app, launched the Electron window, and finished loading.
-- Playwright opened `http://127.0.0.1:3310`, read the Jarvis sign-in UI, found 4 interactive controls, and reported no page or console errors.
+- `npm run dev`가 `http://127.0.0.1:3310`에서 정상 기동되었습니다.
+- Electron 시작 과정에서 새로운 런타임 오류는 재현되지 않았습니다.
+  - `Creating Jarvis Desktop window...`
+  - `Jarvis Desktop window is ready to show.`
+  - `Jarvis Desktop window finished loading.`
+- Playwright 로컬 UI 확인 결과, 로그인 화면 위에 `Jarvis 컴퓨터 작업 동의` 모달이 표시되는 것을 확인했습니다.
+- 이번 최종 검증 회차에서 현재 남아 있는 앱 오류는 확인되지 않았습니다.

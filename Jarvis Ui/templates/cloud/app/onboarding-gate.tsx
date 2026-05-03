@@ -21,7 +21,7 @@ if (typeof document !== "undefined") {
 }
 
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -39,6 +39,7 @@ import {
   setAuthRemembered,
   type AuthUser,
 } from "@/components/jarvis/auth-session";
+import { ComputerConsentGate } from "@/components/jarvis/computer-consent-gate";
 import { Assistant } from "./assistant";
 const {
   markPlanConfirmed,
@@ -107,6 +108,12 @@ export function OnboardingGate() {
       ],
     },
   } as const;
+  const withComputerConsent = (content: ReactNode) => (
+    <>
+      {content}
+      <ComputerConsentGate />
+    </>
+  );
 
   function syncSelectedPlan(user?: Partial<AuthUser> | null) {
     setSelectedPlan(selectInitialPlan(user || {}));
@@ -345,16 +352,18 @@ export function OnboardingGate() {
   }
 
   if (step === "loading") {
-    return <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]"><LoaderCircleIcon className="size-6 animate-spin text-white/40" /></div>;
+    return withComputerConsent(
+      <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]"><LoaderCircleIcon className="size-6 animate-spin text-white/40" /></div>
+    );
   }
 
   if (step === "ready") {
-    return <Assistant />;
+    return withComputerConsent(<Assistant />);
   }
 
   // ─── Step 1: Auth (Login/Register) ───
   if (step === "auth") {
-    return (
+    return withComputerConsent(
       <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]">
         <div className="w-full max-w-sm px-6">
           <div className="mb-8 flex flex-col items-center gap-3">
@@ -409,7 +418,7 @@ export function OnboardingGate() {
   }
 
   // ─── Step 2: Setup (Plan Selection) ───
-  return (
+  return withComputerConsent(
     <div className="flex min-h-dvh w-full items-center justify-center bg-[#0a0a0a] py-12 text-white">
       <div className="w-full max-w-5xl px-6">
         <div className="mb-12 text-center">

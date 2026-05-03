@@ -44,6 +44,10 @@ function shouldCopyChromeProfileEntry(sourcePath = "") {
   return !blocked.has(path.basename(sourcePath));
 }
 
+function escapeSelectorValue(value = "") {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 async function writeJson(targetPath, value) {
   await fs.writeFile(targetPath, JSON.stringify(value, null, 2), "utf8");
 }
@@ -176,6 +180,16 @@ async function tagInteractiveElements(page) {
       document.body.appendChild(overlay);
 
       const text = (node.innerText || node.textContent || "").trim().slice(0, 80);
+      const idAttribute = node.getAttribute("id") || "";
+      const nameAttribute = node.getAttribute("name") || "";
+      const ariaLabel = node.getAttribute("aria-label") || "";
+      const selector = idAttribute
+        ? `#${idAttribute}`
+        : nameAttribute
+          ? `${node.tagName.toLowerCase()}[name="${nameAttribute.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`
+          : ariaLabel
+            ? `${node.tagName.toLowerCase()}[aria-label="${ariaLabel.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`
+            : "";
       results.push({
         id,
         tag: node.tagName.toLowerCase(),
@@ -184,9 +198,12 @@ async function tagInteractiveElements(page) {
         text,
         placeholder: node.getAttribute("placeholder") || "",
         href: node.getAttribute("href") || "",
-        ariaLabel: node.getAttribute("aria-label") || "",
+        ariaLabel,
         value: (node.value || "").slice(0, 40),
-        name: node.getAttribute("name") || ""
+        name: nameAttribute,
+        selector,
+        enabled: !node.hasAttribute("disabled") && node.getAttribute("aria-disabled") !== "true",
+        visible: true
       });
 
       if (idCounter > 120) break; // Cap to avoid overwhelming the AI
@@ -211,7 +228,7 @@ async function clearTags(page) {
 /**
  * Capture current page state: URL, title, DOM tags, visible text snippet, and anomalies.
  */
-async function observeState(page) {
+async function observeState(page, diagnostics = {}) {
   const url = page.url();
   const title = await page.title().catch(() => "");
 
@@ -235,7 +252,8 @@ async function observeState(page) {
     elements: tags.elements,
     elementCount: tags.totalCount,
     visibleText: visibleText.slice(0, 3000),
-    anomalies
+    anomalies,
+    consoleErrors: Array.isArray(diagnostics.consoleErrors) ? diagnostics.consoleErrors.slice(0, 10) : []
   };
 }
 
@@ -259,7 +277,7 @@ function detectPageAnomalies(url, title, text) {
 
 // ─── BrowserService v2 ──────────────────────────────────────────────────────
 
-class BrowserService {
+class BaseBrowserService {
   constructor({ userDataDir, credentialStore }) {
     this.savedProfileDir = path.join(userDataDir, "browser-profile");
     this.testingProfileDir = path.join(userDataDir, "playwright-profile");
@@ -267,6 +285,7 @@ class BrowserService {
     this.context = null;
     this.page = null;
     this.launchProfile = { label: "playwright fallback", mode: "testing-fallback" };
+    this.consoleErrors = [];
   }
 
   // ── Browser Lifecycle (preserved from v1) ──
@@ -349,7 +368,44 @@ class BrowserService {
     if (this.page && !this.page.isClosed()) return this.page;
     for (const p of context.pages()) await p.close().catch(() => {});
     this.page = await context.newPage();
+    this.attachPageObservers(this.page);
     return this.page;
+  }
+
+  rememberConsoleError(message = "") {
+    const cleanMessage = String(message || "").trim();
+    if (!cleanMessage) return;
+    this.consoleErrors.push(cleanMessage);
+    if (this.consoleErrors.length > 20) {
+      this.consoleErrors = this.consoleErrors.slice(-20);
+    }
+  }
+
+  getRecentConsoleErrors() {
+    return [...new Set(this.consoleErrors)].slice(-10);
+  }
+
+  attachPageObservers(page) {
+    if (!page || page.__jarvisDiagnosticsAttached) {
+      return;
+    }
+    Object.defineProperty(page, "__jarvisDiagnosticsAttached", {
+      value: true,
+      enumerable: false,
+      configurable: true
+    });
+    page.on("console", (message) => {
+      try {
+        if (message.type() === "error") {
+          this.rememberConsoleError(message.text());
+        }
+      } catch (_error) {
+        // Ignore diagnostics errors and keep the session usable.
+      }
+    });
+    page.on("pageerror", (error) => {
+      this.rememberConsoleError(error?.message || String(error || ""));
+    });
   }
 
   getProviderLabel() {
@@ -382,7 +438,17 @@ class BrowserService {
     const page = await this.getPage();
     await page.goto(normalizeUrl(target), { waitUntil: "domcontentloaded", timeout: 15000 });
     await page.waitForTimeout(500);
-    return observeState(page);
+    return observeState(page, {
+      consoleErrors: this.getRecentConsoleErrors()
+    });
+  }
+
+  async open(target) {
+    return this.navigate(target);
+  }
+
+  async search(query) {
+    return this.navigate(query);
   }
 
   /**
@@ -390,13 +456,34 @@ class BrowserService {
    */
   async clickElement(elementId) {
     const page = await this.getPage();
-    const locator = page.locator(`[data-jarvis-id="${elementId}"]`);
-    const count = await locator.count();
+    let locator = page.locator(`[data-jarvis-id="${elementId}"]`);
+    let count = await locator.count();
+
+    if (count === 0) {
+      await tagInteractiveElements(page).catch(() => null);
+      locator = page.locator(`[data-jarvis-id="${elementId}"]`);
+      count = await locator.count();
+    }
+
     if (count === 0) throw new Error(`Element [${elementId}] not found on page.`);
-    await locator.first().scrollIntoViewIfNeeded().catch(() => {});
-    await locator.first().click({ timeout: 5000 });
+    const target = locator.first();
+    await target.scrollIntoViewIfNeeded().catch(() => {});
+    await target.waitFor({ state: "visible", timeout: 2500 }).catch(() => {});
+
+    try {
+      await target.click({ timeout: 5000 });
+    } catch (error) {
+      const box = await target.boundingBox().catch(() => null);
+      if (!box) {
+        throw error;
+      }
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    }
+
     await page.waitForTimeout(800);
-    return observeState(page);
+    return observeState(page, {
+      consoleErrors: this.getRecentConsoleErrors()
+    });
   }
 
   /**
@@ -410,7 +497,9 @@ class BrowserService {
     await locator.first().click({ delay: 50 });
     await locator.first().fill("");
     await locator.first().fill(text);
-    return observeState(page);
+    return observeState(page, {
+      consoleErrors: this.getRecentConsoleErrors()
+    });
   }
 
   /**
@@ -420,7 +509,9 @@ class BrowserService {
     const page = await this.getPage();
     await page.keyboard.press(key);
     await page.waitForTimeout(600);
-    return observeState(page);
+    return observeState(page, {
+      consoleErrors: this.getRecentConsoleErrors()
+    });
   }
 
   /**
@@ -431,7 +522,9 @@ class BrowserService {
     const delta = direction === "up" ? -600 : 600;
     await page.mouse.wheel(0, delta);
     await page.waitForTimeout(400);
-    return observeState(page);
+    return observeState(page, {
+      consoleErrors: this.getRecentConsoleErrors()
+    });
   }
 
   /**
@@ -440,7 +533,9 @@ class BrowserService {
   async waitAndObserve(ms = 2000) {
     const page = await this.getPage();
     await page.waitForTimeout(ms);
-    return observeState(page);
+    return observeState(page, {
+      consoleErrors: this.getRecentConsoleErrors()
+    });
   }
 
   /**
@@ -448,7 +543,9 @@ class BrowserService {
    */
   async observe() {
     const page = await this.getPage();
-    return observeState(page);
+    return observeState(page, {
+      consoleErrors: this.getRecentConsoleErrors()
+    });
   }
 
   /**
@@ -461,4 +558,8 @@ class BrowserService {
   }
 }
 
-module.exports = { BrowserService, normalizeUrl };
+module.exports = {
+  BaseBrowserService,
+  BrowserService: BaseBrowserService,
+  normalizeUrl
+};

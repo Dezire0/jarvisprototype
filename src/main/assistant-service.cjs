@@ -2939,6 +2939,7 @@ class AssistantService {
     this.pendingWorkspaceMessage = null;
     this.pendingClarification = null;
     this.pendingBrowserContinuation = null;
+    this.pendingSensitiveConfirmation = null;
   }
 
   normalizeRequestedAppName(appName = "") {
@@ -3344,6 +3345,7 @@ class AssistantService {
     const siteLabel =
       inferFriendlyBrowserLabel(site || opened.title || targetUrl, language) ||
       (language === "ko" ? "사이트" : "the site");
+    const savedCredential = await this.credentials?.getCredential?.(opened.url || targetUrl).catch(() => null);
 
     this.pendingBrowserContinuation = {
       originalInput: input,
@@ -3353,11 +3355,29 @@ class AssistantService {
       steps: Array.isArray(plan?.steps) ? plan.steps : []
     };
 
+    if (savedCredential && typeof this.browser?.loginWithStoredCredential === "function") {
+      const data = await this.browser.loginWithStoredCredential(opened.url || targetUrl);
+      return {
+        reply:
+          language === "ko"
+            ? `${siteLabel}에 저장된 로그인 정보를 입력했어요. 인증 코드나 캡차가 보이면 처리한 뒤 "계속"이라고 말해 주세요.`
+            : `I filled the saved login for ${siteLabel}. If a code or CAPTCHA appears, finish it and say "continue."`,
+        actions: [this.makeAction("browser_login", data.site || siteLabel)],
+        provider: "local",
+        details: {
+          ...data,
+          pendingBrowserContinuation: true,
+          site: siteLabel,
+          loginMode: "saved"
+        }
+      };
+    }
+
     return {
       reply:
         language === "ko"
-          ? `${siteLabel} 로그인 화면을 열어뒀어요. 거기서 로그인만 마치고 "계속"이라고 말해 주세요. 이어서 제가 나머지 작업을 처리할게요.`
-          : `I opened ${siteLabel} so you can finish the login there. Once you're in, say "continue" and I will handle the rest.`,
+          ? `${siteLabel} 로그인 화면을 열어뒀어요. 아래 보안 입력 카드에 아이디와 비밀번호를 넣으면 제가 현재 로그인 칸에 입력할게요.`
+          : `I opened ${siteLabel}. Use the secure login card below and I will fill the current login form.`,
       actions: [this.makeAction("open_url", opened.url || targetUrl)],
       provider: opened.openMode,
       details: {
@@ -3365,7 +3385,95 @@ class AssistantService {
         url: opened.url || targetUrl,
         openMode: opened.openMode,
         pendingBrowserContinuation: true,
-        site: siteLabel
+        site: siteLabel,
+        credentialPrompt: this.buildCredentialPromptDetails({
+          siteLabel,
+          siteOrUrl: opened.url || targetUrl,
+          loginUrl: opened.url || targetUrl,
+          language
+        })
+      }
+    };
+  }
+
+  buildCredentialPromptDetails({ siteLabel = "", siteOrUrl = "", loginUrl = "", language = "ko" } = {}) {
+    return {
+      kind: "login_credentials",
+      site: siteLabel || siteOrUrl,
+      siteOrUrl,
+      loginUrl,
+      language,
+      askToSave: true,
+      submitDefault: false
+    };
+  }
+
+  buildVerificationPromptDetails(notices = [], finalState = {}, language = "ko") {
+    if (!notices.some((notice) => ["captcha", "verification"].includes(notice))) {
+      return null;
+    }
+
+    return {
+      kind: notices.includes("captcha") ? "captcha" : "verification",
+      site: inferFriendlyBrowserLabel(finalState.title || finalState.url || "", language) || finalState.url || "",
+      url: finalState.url || "",
+      language,
+      submitDefault: false
+    };
+  }
+
+  async continuePendingSensitiveConfirmation(input) {
+    if (!this.pendingSensitiveConfirmation) {
+      return null;
+    }
+
+    const pending = this.pendingSensitiveConfirmation;
+    const language = pending.language || detectReplyLanguage(input);
+
+    if (this.isCancelResponse(input)) {
+      this.pendingSensitiveConfirmation = null;
+      return {
+        reply: language === "ko" ? "민감한 동작은 실행하지 않고 취소했어요." : "I cancelled the sensitive action.",
+        actions: [],
+        provider: "local"
+      };
+    }
+
+    if (!/(승인|확인|진행|계속|실행|yes|approve|confirm|continue|go ahead)/i.test(normalizePlanText(input))) {
+      return {
+        reply: language === "ko"
+          ? "이 동작을 실행하려면 '승인' 또는 '취소'라고 말해 주세요."
+          : "Please say approve or cancel for this sensitive action.",
+        actions: [],
+        provider: "local-clarify",
+        details: {
+          sensitiveConfirmation: pending.confirmation
+        }
+      };
+    }
+
+    this.pendingSensitiveConfirmation = null;
+    const result = await this.executeReActAction(pending.action, {
+      state: pending.state,
+      allowSensitive: true
+    });
+
+    return {
+      reply: result.error
+        ? (language === "ko" ? `승인된 동작을 실행하려 했지만 실패했어요: ${result.error}` : `I tried the approved action, but it failed: ${result.error}`)
+        : (language === "ko" ? "승인된 민감 동작을 실행했어요." : "I performed the approved sensitive action."),
+      actions: [
+        this.makeAction(
+          `browser_${pending.action.action || "action"}`,
+          pending.confirmation?.targetLabel || pending.action.element_id || pending.action.action || "sensitive action",
+          result.error ? "failed" : "executed"
+        )
+      ],
+      provider: "react-agent",
+      details: {
+        stopReason: result.error ? "repeated_failure" : "success",
+        url: result.state?.url || "",
+        title: result.state?.title || ""
       }
     };
   }
@@ -4980,7 +5088,62 @@ class AssistantService {
    * Execute one ReAct action returned by the AI.
    * Returns: { state, error }
    */
-  async executeReActAction(action) {
+  getObservedElementForAction(state = {}, elementId = "") {
+    const normalizedId = String(elementId ?? "").trim();
+    const elements = Array.isArray(state?.elements) ? state.elements : [];
+    return elements.find((element) => String(element?.id ?? "") === normalizedId) || null;
+  }
+
+  getSensitiveElementLabel(element = {}) {
+    return normalizeWhitespace([
+      element.text,
+      element.ariaLabel,
+      element.placeholder,
+      element.selector,
+      element.role
+    ].filter(Boolean).join(" ")).slice(0, 240);
+  }
+
+  buildSensitiveReActConfirmation(action = {}, element = {}) {
+    const targetLabel = normalizeWhitespace(
+      element?.text || element?.ariaLabel || element?.placeholder || action?.element_id || "sensitive action"
+    ).slice(0, 160);
+    return {
+      reason: "sensitive_final_action",
+      message: `This looks like a sensitive final action: ${targetLabel}`,
+      targetLabel,
+      action
+    };
+  }
+
+  getSensitiveReActConfirmation(action = {}, state = {}) {
+    if (action?.action !== "click") {
+      return null;
+    }
+
+    const element = this.getObservedElementForAction(state, action.element_id);
+    const label = this.getSensitiveElementLabel(element || {});
+    if (!/(purchase|buy now|place order|pay now|checkout|subscribe|confirm payment|confirm order|결제|구매|주문|구독|카드|송금|이체|예약 확정)/i.test(label)) {
+      return null;
+    }
+
+    return this.buildSensitiveReActConfirmation(action, element || {});
+  }
+
+  async executeReActAction(action, options = {}) {
+    const stateBeforeAction = options?.state && typeof options.state === "object" ? options.state : null;
+    if (!options.allowSensitive) {
+      const confirmation = this.getSensitiveReActConfirmation(action, stateBeforeAction || {});
+      if (confirmation) {
+        return {
+          state: stateBeforeAction || await this.safeObserve(),
+          error: "Sensitive confirmation is required before clicking this element.",
+          requiresConfirmation: true,
+          confirmation
+        };
+      }
+    }
+
     try {
       const context = {
         browser: this.browser,
@@ -5165,9 +5328,40 @@ class AssistantService {
       }
 
       // Execute the action
-      const result = await this.executeReActAction(parsed);
-      actions.push(this.makeAction(`browser_${parsed.action}`,
-        parsed.url || parsed.text || `element_${parsed.element_id}` || parsed.key || parsed.direction || ""));
+      const result = await this.executeReActAction(parsed, { state });
+      const actionTarget =
+        parsed.url || parsed.text || `element_${parsed.element_id}` || parsed.key || parsed.direction || "";
+
+      if (result.requiresConfirmation) {
+        const confirmation = {
+          ...(result.confirmation || {}),
+          action: parsed
+        };
+        this.pendingSensitiveConfirmation = {
+          originalInput: input,
+          language,
+          action: parsed,
+          state,
+          confirmation
+        };
+        actions.push(this.makeAction(`browser_${parsed.action}`, actionTarget, "needs-confirmation"));
+        return {
+          reply: language === "ko"
+            ? "이 동작은 결제, 구매, 구독처럼 민감한 최종 행동으로 보여서 실행 직전에 확인이 필요해요."
+            : "This looks like a sensitive final action, so I need confirmation before I perform it.",
+          actions,
+          provider: "react-agent",
+          details: {
+            url: state?.url || "",
+            title: state?.title || "",
+            stepsExecuted: actions.length,
+            stopReason: "needs_user_confirmation",
+            sensitiveConfirmation: confirmation
+          }
+        };
+      }
+
+      actions.push(this.makeAction(`browser_${parsed.action}`, actionTarget));
 
       if (result.error) {
         lastError = result.error;
@@ -5184,6 +5378,15 @@ class AssistantService {
     // Build final reply
     const finalState = state || {};
     const notices = detectBrowserSpecialCases(finalState);
+    const verificationPrompt = this.buildVerificationPromptDetails(notices, finalState, language);
+    const credentialPrompt = notices.includes("login_required")
+      ? this.buildCredentialPromptDetails({
+          siteLabel: inferFriendlyBrowserLabel(finalState.title || finalState.url || "", language) || finalState.url || "",
+          siteOrUrl: finalState.url || "",
+          loginUrl: finalState.url || "",
+          language
+        })
+      : null;
     let reply = "";
 
     if (finalSummary) {
@@ -5221,7 +5424,9 @@ class AssistantService {
         url: finalState.url || "",
         title: finalState.title || "",
         stepsExecuted: actions.length,
-        anomalies: notices
+        anomalies: notices,
+        credentialPrompt,
+        verificationPrompt
       }
     };
   }
@@ -5245,16 +5450,18 @@ class AssistantService {
       );
     }
 
-    if (!wantsSavedBrowserLogin(input)) {
-      const targetUrl = buildDirectSiteUrl(siteOrUrl) || normalizeBrowserOpenUrl(siteOrUrl);
+    const targetUrl = buildDirectSiteUrl(siteOrUrl) || normalizeBrowserOpenUrl(siteOrUrl);
+    const savedCredential = await this.credentials?.getCredential?.(targetUrl || siteOrUrl).catch(() => null);
+
+    if (!savedCredential) {
       const opened = await this.openBrowserTargetForUser(targetUrl);
       const siteLabel =
         inferFriendlyBrowserLabel(siteOrUrl || opened.title || targetUrl, language) ||
         (language === "ko" ? "사이트" : "the site");
       const fallback =
         language === "ko"
-          ? `${siteLabel} 로그인 화면을 열어뒀어요. 여기서 직접 로그인하시면 돼요.`
-          : `I opened the ${siteLabel} login page so you can sign in there yourself.`;
+          ? `${siteLabel} 로그인 화면을 열어뒀어요. 아래 보안 입력 카드에 아이디와 비밀번호를 넣으면 제가 로그인 칸에 입력할게요.`
+          : `I opened the ${siteLabel} login page. Use the secure login card below and I will fill the form.`;
 
       return {
         reply: await this.polishCommandReply(
@@ -5265,8 +5472,14 @@ class AssistantService {
               title: opened.title || "",
               url: opened.url || targetUrl,
               openMode: opened.openMode,
-              loginMode: "manual",
-              site: siteLabel
+              loginMode: "secure-prompt",
+              site: siteLabel,
+              credentialPrompt: this.buildCredentialPromptDetails({
+                siteLabel,
+                siteOrUrl: opened.url || targetUrl,
+                loginUrl: opened.url || targetUrl,
+                language
+              })
             }
           },
           fallback
@@ -5277,13 +5490,23 @@ class AssistantService {
           title: opened.title || "",
           url: opened.url || targetUrl,
           openMode: opened.openMode,
-          loginMode: "manual",
-          site: siteLabel
+          loginMode: "secure-prompt",
+          site: siteLabel,
+          credentialPrompt: this.buildCredentialPromptDetails({
+            siteLabel,
+            siteOrUrl: opened.url || targetUrl,
+            loginUrl: opened.url || targetUrl,
+            language
+          })
         }
       };
     }
 
-    const data = await this.browser.loginWithStoredCredential(siteOrUrl);
+    const data = await this.browser.loginWithStoredCredential(targetUrl || siteOrUrl);
+    const details = {
+      ...data,
+      loginMode: "saved"
+    };
     const fallback = detectReplyLanguage(input) === "ko"
       ? `${data.site} 로그인 정보를 입력했어요.`
       : `I filled in the saved login for ${data.site}.`;
@@ -5293,13 +5516,13 @@ class AssistantService {
         input,
         {
           actions: [this.makeAction("browser_login", data.site)],
-          details: data
+          details
         },
         fallback
       ),
       actions: [this.makeAction("browser_login", data.site)],
       provider: "local",
-      details: data
+      details
     };
   }
 
@@ -5993,6 +6216,15 @@ class AssistantService {
       this.rememberTurn("user", cleanInput);
       this.rememberTurn("assistant", pendingBrowserResult.reply);
       return pendingBrowserResult;
+    }
+
+    const pendingSensitiveResult = await this.continuePendingSensitiveConfirmation(cleanInput);
+
+    if (pendingSensitiveResult) {
+      pendingSensitiveResult.language = detectReplyLanguage(cleanInput);
+      this.rememberTurn("user", cleanInput);
+      this.rememberTurn("assistant", pendingSensitiveResult.reply);
+      return pendingSensitiveResult;
     }
 
     if (this.pendingWorkspaceMessage && looksLikeFreshWorkspaceCommand(cleanInput)) {
