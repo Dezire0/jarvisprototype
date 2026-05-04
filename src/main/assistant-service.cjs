@@ -734,6 +734,40 @@ function normalizeBrowserOpenUrl(target = "") {
   return `https://www.google.com/search?q=${encodeURIComponent(value)}`;
 }
 
+function normalizeBrowserLoginTarget(routeSiteOrUrl = "", originalInput = "") {
+  const directTarget = findKnownWebTarget(`${routeSiteOrUrl} ${originalInput}`);
+
+  if (directTarget?.url) {
+    return directTarget.url;
+  }
+
+  const explicitUrl = extractUrl(routeSiteOrUrl || originalInput);
+
+  if (explicitUrl) {
+    return /^https?:\/\//i.test(explicitUrl) ? explicitUrl : `https://${explicitUrl}`;
+  }
+
+  const stripped = cleanupParsedText(
+    String(routeSiteOrUrl || "")
+      .replace(/\b(?:log\s*in|login|sign\s*in|sign-in|signin|auth|authentication)\b/gi, " ")
+      .replace(/(?:로그인|사인인|인증)/g, " ")
+      .replace(/\s+/g, " ")
+  );
+
+  const directSiteUrl = buildDirectSiteUrl(stripped);
+  if (directSiteUrl) {
+    return directSiteUrl;
+  }
+
+  const guessedSite = guessSiteName(stripped || originalInput);
+  const guessedSiteUrl = buildDirectSiteUrl(guessedSite);
+  if (guessedSiteUrl) {
+    return guessedSiteUrl;
+  }
+
+  return stripped || cleanupParsedText(routeSiteOrUrl || "");
+}
+
 function inferFriendlyBrowserLabel(target = "", language = "en") {
   const cleanTarget = cleanupParsedText(target);
 
@@ -5481,7 +5515,10 @@ class AssistantService {
 
   async handleBrowserLogin(input, route) {
     const language = detectReplyLanguage(input);
-    const siteOrUrl = cleanupParsedText(route.siteOrUrl || extractUrl(input) || stripCommandPrefix(input));
+    const siteOrUrl = normalizeBrowserLoginTarget(
+      route.siteOrUrl || extractUrl(input) || stripCommandPrefix(input),
+      input
+    );
 
     if (!siteOrUrl || /^(?:login|log in|sign in|로그인(?:해줘|해)?|사인인)$/i.test(siteOrUrl)) {
       return this.beginClarification(

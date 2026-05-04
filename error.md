@@ -6,4 +6,4 @@
 - `npm run dev` 결과: 기존 Jarvis UI dev 서버를 재사용하며 Electron 앱이 정상 기동했습니다.
 - `http://127.0.0.1:3310/` 응답 정상 확인
 - Assistant transport `/health` 응답 정상 확인
-- `node --test tests/node/*.test.cjs` 93개 통과
+- `node --test tests/node/*.test.cjs` 94개 통과

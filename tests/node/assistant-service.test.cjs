@@ -658,6 +658,53 @@ test("handleBrowserLogin opens a secure credential prompt when no saved login ex
   assert.match(result.reply, /보안 입력 카드|로그인 칸/);
 });
 
+test("handleBrowserLogin normalizes polluted login targets like amazon login", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async loginWithStoredCredential() {
+        assert.fail("login should not autofill when no saved credential exists");
+      },
+      async open(target) {
+        return {
+          url: target,
+          title: "Amazon"
+        };
+      }
+    },
+    credentials: {
+      async getCredential() {
+        return null;
+      }
+    },
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowserLogin("go to amazon login", {
+    siteOrUrl: "amazon login"
+  });
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_url",
+      target: "https://www.amazon.com/"
+    }
+  ]);
+  assert.equal(result.details.credentialPrompt.siteOrUrl, "https://www.amazon.com/");
+  assert.equal(result.details.site, "Amazon");
+});
+
 test("handleBrowserLogin fills saved credentials when a secure credential exists", async () => {
   const calls = [];
   const service = new AssistantService({
