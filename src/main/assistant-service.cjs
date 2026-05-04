@@ -3341,7 +3341,9 @@ class AssistantService {
     const site = cleanupParsedText(plan?.login?.site || guessSiteName(input) || "");
     const fallbackTarget = buildExternalBrowserTarget(plan?.steps?.[0] || {});
     const targetUrl = buildDirectSiteUrl(site) || fallbackTarget || normalizeBrowserOpenUrl(site || input);
-    const opened = await this.openBrowserTargetForUser(targetUrl);
+    const opened = await this.openBrowserTargetForUser(targetUrl, {
+      preferAssistant: true
+    });
     const siteLabel =
       inferFriendlyBrowserLabel(site || opened.title || targetUrl, language) ||
       (language === "ko" ? "사이트" : "the site");
@@ -5454,7 +5456,9 @@ class AssistantService {
     const savedCredential = await this.credentials?.getCredential?.(targetUrl || siteOrUrl).catch(() => null);
 
     if (!savedCredential) {
-      const opened = await this.openBrowserTargetForUser(targetUrl);
+      const opened = await this.openBrowserTargetForUser(targetUrl, {
+        preferAssistant: true
+      });
       const siteLabel =
         inferFriendlyBrowserLabel(siteOrUrl || opened.title || targetUrl, language) ||
         (language === "ko" ? "사이트" : "the site");

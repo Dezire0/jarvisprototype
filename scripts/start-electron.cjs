@@ -8,9 +8,10 @@ loadProjectEnv({
   rootDir: path.join(__dirname, "..")
 });
 
-const desktopUiUrl = process.env.JARVIS_UI_URL || "http://127.0.0.1:3310";
 const jarvisUiRoot = path.join(__dirname, "..", "Jarvis Ui");
 const desktopUiMode = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").trim().toLowerCase();
+const DESKTOP_UI_HOST = "127.0.0.1";
+const DEFAULT_DESKTOP_UI_PORT = 3310;
 
 function wait(ms) {
   return new Promise((resolve) => {
@@ -36,6 +37,38 @@ function allocatePort() {
       });
     });
   });
+}
+
+function isPortAvailable(port, host = DESKTOP_UI_HOST) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+
+    server.once("error", () => {
+      resolve(false);
+    });
+    server.listen(port, host, () => {
+      server.close(() => {
+        resolve(true);
+      });
+    });
+  });
+}
+
+async function resolveDesktopUiUrl() {
+  const configuredUrl = String(process.env.JARVIS_UI_URL || "").trim();
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  const preferredPort = Number(process.env.JARVIS_UI_PORT) || DEFAULT_DESKTOP_UI_PORT;
+
+  if (await isPortAvailable(preferredPort)) {
+    return `http://${DESKTOP_UI_HOST}:${preferredPort}`;
+  }
+
+  const fallbackPort = await allocatePort();
+  return `http://${DESKTOP_UI_HOST}:${fallbackPort}`;
 }
 
 async function waitForUrl(url, timeoutMs = 120000) {
@@ -85,6 +118,7 @@ function runCommand(command, args, env) {
 
 async function main() {
   const assistantPort = Number(process.env.JARVIS_ASSISTANT_PORT) || await allocatePort();
+  const desktopUiUrl = await resolveDesktopUiUrl();
   const transportApiUrl =
     process.env.JARVIS_TRANSPORT_URL ||
     process.env.NEXT_PUBLIC_API_URL ||

@@ -28,6 +28,13 @@ test("BrowserService loginWithStoredCredential uses the shared credential store 
 
   let fillCalls = 0;
   service.getPage = async () => page;
+  service.ensureLoginFormVisible = async (_page, targetUrl) => {
+    assert.equal(targetUrl, "https://example.com/login");
+    return {
+      found: true,
+      method: "existing-form"
+    };
+  };
   service.fillFirst = async (_page, _selectors, value) => {
     fillCalls += 1;
     return fillCalls === 1 ? "input[name=email]" : "input[type=password]";
@@ -45,6 +52,102 @@ test("BrowserService loginWithStoredCredential uses the shared credential store 
   assert.equal(result.usernameSelector, "input[name=email]");
   assert.equal(result.passwordSelector, "input[type=password]");
   assert.equal(result.submitSelector, "button[type=submit]");
+});
+
+test("BrowserService fillCurrentLoginForm navigates into the login form before filling", async () => {
+  const service = new BrowserService({
+    userDataDir: "/tmp/jarvis-browser-service-login-form-test",
+    credentialStore: {}
+  });
+  const calls = [];
+  const page = {
+    url() {
+      return "https://example.com/";
+    },
+    async waitForTimeout() {}
+  };
+
+  service.getPage = async () => page;
+  service.ensureLoginFormVisible = async (_page, targetUrl) => {
+    calls.push(["ensure-login-form", targetUrl]);
+    return {
+      found: true,
+      method: "clicked-login-entrypoint",
+      attempts: [
+        {
+          method: "click-login-entrypoint",
+          label: "Sign in"
+        }
+      ]
+    };
+  };
+  service.fillLoginCredentials = async (_page, payload) => {
+    calls.push(["fill-credentials", payload.username, payload.password, payload.submit]);
+    return {
+      usernameSelector: "input[name=email]",
+      passwordSelector: "input[type=password]",
+      intermediateSelector: null,
+      submitSelector: null
+    };
+  };
+  service.snapshotPage = async () => ({
+    url: "https://example.com/login",
+    title: "Example Login"
+  });
+
+  const result = await service.fillCurrentLoginForm({
+    siteOrUrl: "https://example.com/",
+    username: "pepper",
+    password: "mk42"
+  });
+
+  assert.deepEqual(calls, [
+    ["ensure-login-form", "https://example.com/"],
+    ["fill-credentials", "pepper", "mk42", false]
+  ]);
+  assert.equal(result.loginNavigation.method, "clicked-login-entrypoint");
+  assert.equal(result.passwordSelector, "input[type=password]");
+});
+
+test("BrowserService waitForLoginInputs does not treat a generic text box as a login form", async () => {
+  const service = new BrowserService({
+    userDataDir: "/tmp/jarvis-browser-service-login-input-confidence-test",
+    credentialStore: {}
+  });
+  const page = {
+    locator(selector) {
+      return {
+        first() {
+          return {
+            async count() {
+              return selector === 'input[type="text"]' ? 1 : 0;
+            },
+            async isVisible() {
+              return true;
+            }
+          };
+        }
+      };
+    },
+    async waitForTimeout() {}
+  };
+
+  const result = await service.waitForLoginInputs(page, 0);
+
+  assert.equal(result.hasUsername, true);
+  assert.equal(result.hasStrongUsername, false);
+  assert.equal(service.hasConfidentLoginInput(result), false);
+});
+
+test("BrowserService buildLoginUrlCandidates includes known provider login URLs", () => {
+  const service = new BrowserService({
+    userDataDir: "/tmp/jarvis-browser-service-login-candidates-test",
+    credentialStore: {}
+  });
+
+  const candidates = service.buildLoginUrlCandidates("https://github.com/", "https://github.com/");
+
+  assert.equal(candidates.includes("https://github.com/login"), true);
 });
 
 test("BrowserService executePlan supports saved login and current-site search steps", async () => {
