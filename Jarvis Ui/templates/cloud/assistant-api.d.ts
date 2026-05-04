@@ -7,6 +7,14 @@ declare global {
       getAppState: () => Promise<unknown>;
       checkForUpdates: () => Promise<unknown>;
       installUpdate: () => Promise<unknown>;
+      transcribeAudio: (payload: {
+        audioBase64: string;
+        mimeType: string;
+        language?: string;
+      }) => Promise<{
+        provider?: string;
+        text?: string;
+      }>;
       invokeTool: (tool: string, payload?: Record<string, unknown>) => Promise<unknown>;
       onUpdateStatus: (callback: (payload: unknown) => void) => (() => void) | void;
     };

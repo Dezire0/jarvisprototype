@@ -98,6 +98,8 @@ function buildModelFailureReply(text = "", error, config = {}) {
     ? "Gemini"
     : config.provider === "gemini-cli"
       ? "Gemini CLI"
+    : config.provider === "groq"
+      ? "Groq"
     : config.provider === "openai-cli"
       ? "GPT/Codex CLI"
       : config.provider === "openai-compatible"
@@ -150,7 +152,7 @@ const chat = async (options) => {
       effectiveOptions.tier || "complex",
       effectiveOptions.provider
     );
-    const directApiSelected = ["gemini", "openai-compatible"].includes(config.provider);
+    const directApiSelected = ["gemini", "groq", "openai-compatible"].includes(config.provider);
     const directApiReady = directApiSelected && Boolean(config.apiKey);
     const needsModelConnection =
       !effectiveOptions.localOnly &&
@@ -1387,6 +1389,13 @@ function formatConfiguredConversationModel(settings = {}) {
     };
   }
 
+  if (provider === "groq") {
+    return {
+      label: "Groq API",
+      model: settings.groq?.chatModel || "llama-3.3-70b-versatile"
+    };
+  }
+
   if (provider === "openai-cli") {
     return {
       label: "GPT / Codex CLI",
@@ -1405,6 +1414,13 @@ function formatConfiguredConversationModel(settings = {}) {
     return {
       label: "Ollama 로컬 모델",
       model: settings.ollama?.model || "qwen3:14b"
+    };
+  }
+
+  if (settings.groq?.configured) {
+    return {
+      label: "자동 선택 / Groq API",
+      model: settings.groq?.chatModel || "llama-3.3-70b-versatile"
     };
   }
 

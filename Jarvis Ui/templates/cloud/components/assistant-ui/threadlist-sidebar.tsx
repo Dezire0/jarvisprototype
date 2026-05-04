@@ -109,12 +109,18 @@ type LauncherApp = {
 type ConversationProvider =
   | "auto"
   | "openai"
+  | "groq"
   | "gemini"
   | "ollama";
 type StoredConversationProvider = ConversationProvider | "openai-compatible";
 
 type ConversationModelSettingsView = {
   provider?: StoredConversationProvider;
+  groq?: {
+    configured?: boolean;
+    chatModel?: string;
+    sttModel?: string;
+  };
   openai?: {
     configured?: boolean;
     model?: string;
@@ -157,6 +163,21 @@ const GEMINI_MODEL_OPTIONS = [
   "gemini-1.5-flash-latest",
 ];
 
+const GROQ_STT_MODEL_OPTIONS = [
+  "whisper-large-v3-turbo",
+  "whisper-large-v3",
+  "distil-whisper-large-v3-en",
+];
+
+const GROQ_CHAT_MODEL_OPTIONS = [
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "qwen/qwen3-32b",
+  "groq/compound-mini",
+];
+
 const WEB_MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
   chatgpt: [
     { value: "chatgpt-auto", label: "ChatGPT 자동 선택" },
@@ -186,6 +207,7 @@ function getWebProviderLabel(provider?: string | null) {
 
 function getConversationProviderLabel(provider?: ConversationProvider | StoredConversationProvider | null) {
   if (provider === "openai" || provider === "openai-compatible") return "GPT";
+  if (provider === "groq") return "Groq";
   if (provider === "gemini") return "Gemini";
   if (provider === "ollama") return "Ollama";
   return "자동 선택";
@@ -204,6 +226,7 @@ function normalizeConversationProviderForUi(provider?: string | null): Conversat
   if (
     provider === "auto" ||
     provider === "openai" ||
+    provider === "groq" ||
     provider === "gemini" ||
     provider === "ollama"
   ) {
@@ -218,6 +241,9 @@ function getConversationModelSummary(settings?: ConversationModelSettingsView | 
 
   if (provider === "openai") {
     return `GPT / ${settings?.openai?.model || "gpt-4o-mini"}`;
+  }
+  if (provider === "groq") {
+    return `Groq / ${settings?.groq?.chatModel || "llama-3.3-70b-versatile"}`;
   }
   if (provider === "gemini") {
     return `Gemini / ${settings?.gemini?.model || "gemini-2.5-flash"}`;
@@ -235,6 +261,10 @@ function getConversationConnectionState(settings?: ConversationModelSettingsView
     return { connected: true, label: "GPT", model: settings.openai?.model || "gpt-4o-mini" };
   }
 
+  if (provider === "groq" && settings?.groq?.configured) {
+    return { connected: true, label: "Groq", model: settings.groq?.chatModel || "llama-3.3-70b-versatile" };
+  }
+
   if (provider === "gemini" && settings?.gemini?.configured) {
     return { connected: true, label: "Gemini", model: settings.gemini?.model || "gemini-2.5-flash" };
   }
@@ -244,6 +274,10 @@ function getConversationConnectionState(settings?: ConversationModelSettingsView
   }
 
   if (provider === "auto") {
+    if (settings?.groq?.configured) {
+      return { connected: true, label: "Groq", model: settings.groq?.chatModel || "llama-3.3-70b-versatile" };
+    }
+
     if (settings?.gemini?.configured) {
       return { connected: true, label: "Gemini", model: settings.gemini?.model || "gemini-2.5-flash" };
     }
@@ -405,6 +439,9 @@ export function ThreadListSidebar({
     useState<ConversationModelSettingsView | null>(null);
   const [conversationProvider, setConversationProvider] =
     useState<ConversationProvider>("auto");
+  const [groqApiKey, setGroqApiKey] = useState("");
+  const [groqChatModel, setGroqChatModel] = useState("llama-3.3-70b-versatile");
+  const [groqSttModel, setGroqSttModel] = useState("whisper-large-v3-turbo");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
@@ -449,6 +486,14 @@ export function ThreadListSidebar({
   const geminiModelOptions = useMemo(
     () => withSelectedModelOption(GEMINI_MODEL_OPTIONS, geminiModel),
     [geminiModel],
+  );
+  const groqSttModelOptions = useMemo(
+    () => withSelectedModelOption(GROQ_STT_MODEL_OPTIONS, groqSttModel),
+    [groqSttModel],
+  );
+  const groqChatModelOptions = useMemo(
+    () => withSelectedModelOption(GROQ_CHAT_MODEL_OPTIONS, groqChatModel),
+    [groqChatModel],
   );
   const ollamaModelOptions = useMemo(
     () => withSelectedModelOption(ollamaModels, ollamaModel),
@@ -782,6 +827,8 @@ export function ThreadListSidebar({
     const next = settings || {};
     setConversationSettings(next);
     setConversationProvider(normalizeConversationProviderForUi(next.provider));
+    setGroqChatModel(next.groq?.chatModel || "llama-3.3-70b-versatile");
+    setGroqSttModel(next.groq?.sttModel || "whisper-large-v3-turbo");
     setOpenaiModel(next.openai?.model || "gpt-4o-mini");
     setOpenaiBaseUrl(next.openai?.baseUrl || "");
     setGeminiModel(next.gemini?.model || "gemini-2.5-flash");
@@ -793,6 +840,7 @@ export function ThreadListSidebar({
     if (next.web?.provider) {
       setSelectedWebAiProvider(next.web.provider);
     }
+    setGroqApiKey("");
     setOpenaiApiKey("");
     setGeminiApiKey("");
   }
@@ -875,8 +923,13 @@ export function ThreadListSidebar({
     void webOverride;
 
     try {
-      const result = (await (window as any).assistantAPI.saveConversationModelSettings({
-        provider,
+	      const result = (await (window as any).assistantAPI.saveConversationModelSettings({
+	        provider,
+        groq: {
+          apiKey: groqApiKey,
+          chatModel: groqChatModel,
+          sttModel: groqSttModel,
+        },
         openai: {
           apiKey: openaiApiKey,
           model: openaiModel,
@@ -896,12 +949,17 @@ export function ThreadListSidebar({
         },
       })) as {
         settings?: ConversationModelSettingsView;
-      };
-
-      try {
-        syncConversationModelSettings(result?.settings);
-        const summarySettings = {
-          ...(result?.settings || {}),
+	      };
+	
+	      try {
+	        syncConversationModelSettings(result?.settings);
+	        window.dispatchEvent(
+	          new CustomEvent("jarvis:conversation-model-settings-saved", {
+	            detail: result?.settings || null,
+	          }),
+	        );
+	        const summarySettings = {
+	          ...(result?.settings || {}),
           provider: result?.settings?.provider || provider,
           web: {
             provider: "",
@@ -1339,10 +1397,10 @@ export function ThreadListSidebar({
                     </span>
                   </div>
 
-                  {hasConnectedWebAi ? (
-                    <div className="space-y-2">
-                      <label className="block text-[11px] font-semibold text-zinc-500">
-                        {activeWebProviderLabel} 모델 선택
+	                  {hasConnectedWebAi ? (
+	                    <div className="space-y-2">
+	                      <label className="block text-[11px] font-semibold text-zinc-500">
+	                        {activeWebProviderLabel} 모델 선택
                       </label>
                       <select
                         value={webModel}
@@ -1362,24 +1420,25 @@ export function ThreadListSidebar({
                       <div className="pt-2 text-[10px] text-zinc-500">
                         Web {activeWebProviderLabel}
                       </div>
-                    </div>
-                  ) : (
-                    <>
-                      <label className="mb-3 block text-[11px] font-semibold text-zinc-500">
-                        모델 선택
-                      </label>
-                      <select
+	                    </div>
+	                  ) : (
+	                    <>
+	                      <label className="mb-3 block text-[11px] font-semibold text-zinc-500">
+	                        모델 선택
+	                      </label>
+	                      <select
                         value={conversationProvider}
                         onChange={(event) =>
                           handleConversationProviderChange(event.target.value as ConversationProvider)
                         }
                         className="mb-4 h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        <option value="auto">자동 선택 / API 우선</option>
-                        <option value="openai">GPT / OpenAI API</option>
-                        <option value="gemini">Gemini API</option>
-                        <option value="ollama">로컬 모델 / Ollama</option>
-                      </select>
+	                      >
+	                        <option value="auto">자동 선택 / API 우선</option>
+	                        <option value="openai">GPT / OpenAI API</option>
+	                        <option value="groq">Groq API</option>
+	                        <option value="gemini">Gemini API</option>
+	                        <option value="ollama">로컬 모델 / Ollama</option>
+	                      </select>
 
                   {conversationProvider === "openai" && (
                     <div className="space-y-2">
@@ -1414,14 +1473,22 @@ export function ThreadListSidebar({
                     </div>
                   )}
 
-                  {conversationProvider === "auto" && (
-                    <div className="space-y-2">
-                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
-                        자동 선택은 저장된 API 설정을 우선 사용하고, 원격 API가 연결되지 않은 경우 Ollama로 내려갑니다.
-                        웹 로그인 세션이나 사이트 토큰은 더 이상 사용하지 않아요.
-                      </p>
-                    </div>
-                  )}
+	                  {conversationProvider === "auto" && (
+	                    <div className="space-y-2">
+	                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
+	                        자동 선택은 Groq, Gemini, GPT 순서로 저장된 API 설정을 우선 사용하고, 원격 API가 연결되지 않은 경우 Ollama로 내려갑니다.
+	                        웹 로그인 세션이나 사이트 토큰은 더 이상 사용하지 않아요.
+	                      </p>
+	                    </div>
+	                  )}
+
+	                  {conversationProvider === "groq" && (
+	                    <div className="space-y-2">
+	                      <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-3 text-xs leading-relaxed text-emerald-100">
+	                        아래 Groq API 박스의 키와 채팅 모델을 사용합니다.
+	                      </p>
+	                    </div>
+	                  )}
 
                   {conversationProvider === "gemini" && (
                     <div className="space-y-2">
@@ -1486,9 +1553,12 @@ export function ThreadListSidebar({
                   )}
 
                   <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] text-zinc-500 sm:grid-cols-3">
-                    <span>
-                      API-only 모드
-                    </span>
+	                    <span>
+	                      API-only 모드
+	                    </span>
+	                    <span>
+	                      Groq {conversationSettings?.groq?.configured ? "저장됨" : "미설정"}
+	                    </span>
                     <span>
                       GPT {conversationSettings?.openai?.configured ? "저장됨" : "미설정"}
                     </span>
@@ -1496,34 +1566,92 @@ export function ThreadListSidebar({
                       Gemini {conversationSettings?.gemini?.configured ? "저장됨" : "미설정"}
                     </span>
                   </div>
-                    </>
-                  )}
+	                    </>
+	                  )}
+	                </div>
 
-                  {conversationStatus && (
-                    <p className="mt-3 text-xs text-emerald-300">{conversationStatus}</p>
-                  )}
+		                <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+		                  <div className="mb-3 flex items-center justify-between gap-3">
+		                    <div>
+		                      <p className="text-sm font-bold">Groq API</p>
+		                      <p className="text-xs text-zinc-400">
+		                        대화 모델과 Electron 음성 입력에 사용할 Groq API 키를 저장합니다.
+		                      </p>
+		                    </div>
+	                    <span className="rounded-full bg-emerald-950/70 px-2 py-1 text-[10px] font-bold uppercase text-emerald-300">
+	                      {conversationSettings?.groq?.configured ? "Configured" : "Optional"}
+	                    </span>
+	                  </div>
+	                  <div className="space-y-2">
+	                    <Input
+	                      type="password"
+	                      value={groqApiKey}
+	                      onChange={(event) => setGroqApiKey(event.target.value)}
+	                      placeholder={
+	                        conversationSettings?.groq?.configured
+	                          ? "Groq API Key 저장됨 - 변경할 때만 입력"
+	                          : "Groq API Key"
+	                      }
+	                      className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
+		                    />
+		                    <label className="block text-[11px] font-semibold text-zinc-500">
+		                      채팅 모델
+		                    </label>
+		                    <select
+		                      value={groqChatModel}
+		                      onChange={(event) => setGroqChatModel(event.target.value)}
+		                      className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+		                    >
+		                      {groqChatModelOptions.map((model) => (
+		                        <option key={model} value={model}>
+		                          {model}
+		                        </option>
+		                      ))}
+		                    </select>
+		                    <label className="block text-[11px] font-semibold text-zinc-500">
+		                      음성 인식 모델
+		                    </label>
+		                    <select
+		                      value={groqSttModel}
+		                      onChange={(event) => setGroqSttModel(event.target.value)}
+	                      className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
+	                    >
+	                      {groqSttModelOptions.map((model) => (
+	                        <option key={model} value={model}>
+	                          {model}
+	                        </option>
+	                      ))}
+		                    </select>
+		                    <p className="text-[11px] leading-relaxed text-zinc-500">
+		                      대화 모델에서 Groq API를 선택하면 위 채팅 모델로 응답하고, 음성 입력은 Groq Whisper를 우선 사용합니다.
+		                    </p>
+	                  </div>
+	                </div>
 
-                  <Button
-                    type="button"
-                    disabled={conversationSaving}
-                    onClick={() =>
-                      void saveConversationModelSettings(
-                        hasConnectedWebAi ? "auto" : conversationProvider,
-                        hasConnectedWebAi
-                          ? { provider: connectedWebModelProvider, model: webModelRef.current }
-                          : undefined,
-                      )
-                    }
-                    className="mt-4 h-10 w-full rounded-xl bg-white font-semibold text-black hover:bg-zinc-200"
-                  >
-                    {conversationSaving
-                      ? t("저장 중...", "Saving...")
-                      : t("모델 연결 저장", "Save Model Connection")}
-                  </Button>
-                </div>
+	                {conversationStatus && (
+	                  <p className="mt-3 text-xs text-emerald-300">{conversationStatus}</p>
+	                )}
 
-                {webAiStatus === "connected" && (
-                  <Button
+	                <Button
+	                  type="button"
+	                  disabled={conversationSaving}
+	                  onClick={() =>
+	                    void saveConversationModelSettings(
+	                      hasConnectedWebAi ? "auto" : conversationProvider,
+	                      hasConnectedWebAi
+	                        ? { provider: connectedWebModelProvider, model: webModelRef.current }
+	                        : undefined,
+	                    )
+	                  }
+	                  className="mt-4 h-10 w-full rounded-xl bg-white font-semibold text-black hover:bg-zinc-200"
+	                >
+	                  {conversationSaving
+	                    ? t("저장 중...", "Saving...")
+	                    : t("모델 연결 저장", "Save Model Connection")}
+	                </Button>
+
+	                {webAiStatus === "connected" && (
+	                  <Button
                     variant="ghost"
                     onClick={() => {
                       // 로그아웃 로직 (메인 프로세스에서 세션 클리어 필요)
