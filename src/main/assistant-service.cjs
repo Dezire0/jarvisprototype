@@ -182,6 +182,8 @@ const LONG_TERM_MEMORY_SYSTEM_PROMPT = [
 ].join(" ");
 
 const WEB_TARGET_ALIASES = new Set([
+  "amazon",
+  "아마존",
   "google",
   "구글",
   "youtube",
@@ -206,6 +208,11 @@ const WEB_TARGET_ALIASES = new Set([
 ]);
 
 const DIRECT_WEB_TARGETS = [
+  {
+    label: "Amazon",
+    url: "https://www.amazon.com/",
+    tokens: ["amazon", "아마존"]
+  },
   {
     label: "Google",
     url: "https://www.google.com/",
@@ -578,8 +585,35 @@ function stripCommandPrefix(text) {
     .trim();
 }
 
+function findKnownWebTarget(text = "") {
+  const normalized = normalizePlanText(text);
+  let bestMatch = null;
+
+  for (const target of DIRECT_WEB_TARGETS) {
+    for (const token of target.tokens) {
+      if (!textMentionsToken(normalized, token)) {
+        continue;
+      }
+
+      if (!bestMatch || token.length > bestMatch.token.length) {
+        bestMatch = {
+          target,
+          token
+        };
+      }
+    }
+  }
+
+  return bestMatch?.target || null;
+}
+
 function guessSiteName(text) {
   const normalized = normalizePlanText(text);
+  const directTarget = findKnownWebTarget(normalized);
+
+  if (directTarget) {
+    return directTarget.label;
+  }
 
   if (/(youtube|유튜브)/i.test(normalized)) {
     return "YouTube";
@@ -630,6 +664,10 @@ function getKnownSiteUrl(siteName = "") {
 
 function getLocalizedKnownSiteLabel(siteName = "", language = "en") {
   const lowered = String(siteName || "").trim().toLowerCase();
+
+  if (lowered === "amazon" || lowered === "아마존") {
+    return language === "ko" ? "아마존" : "Amazon";
+  }
 
   if (lowered === "google" || lowered === "구글") {
     return language === "ko" ? "구글" : "Google";
@@ -912,15 +950,17 @@ function extractComplexBrowserIntent(input = "") {
   const wantsRead = /(활동|activity|recent|latest|무슨 내용|상태|보여줘|읽어줘|요약|summarize|read|show me|what(?:'s| is) on)/i.test(
     normalized
   );
+  const wantsSearch = /(검색|search|find|찾아)/i.test(normalized);
+  const knownWebTarget = findKnownWebTarget(normalized);
   const koreanSiteSearch =
     normalized.match(/(.+?)에서\s+(.+?)\s*(?:검색(?:해줘|해|하고)?|찾아(?:줘|봐)?)/i) ||
     normalized.match(/(.+?)에서\s+(.+?)\s*(?:search|find)/i);
   const englishSiteSearch =
     normalized.match(
-      /(?:search|find)\s+(.+?)\s+(?:on|in)\s+(.+?)(?=\s+(?:and|then|after|before|login|log in|sign in|activity|show|read|summarize)|$)/i
+      /(?:search|find)\s+(.+?)\s+(?:on|in)\s+(.+?)(?=\s+(?:and|then|after|before|login|log in|sign in|activity|show|read|summarize|with)\b|[?.!,]|$)/i
     ) ||
     normalized.match(
-      /(?:on|in)\s+(.+?)\s+(?:search|find)\s+(.+?)(?=\s+(?:and|then|after|before|login|log in|sign in|activity|show|read|summarize)|$)/i
+      /(?:on|in)\s+(.+?)\s+(?:search|find)\s+(.+?)(?=\s+(?:and|then|after|before|login|log in|sign in|activity|show|read|summarize|with)\b|[?.!,]|$)/i
     );
 
   let site = "";
@@ -930,19 +970,25 @@ function extractComplexBrowserIntent(input = "") {
     site = cleanupParsedText(koreanSiteSearch[1]);
     query = cleanupParsedText(koreanSiteSearch[2].replace(/에서$/i, ""));
   } else if (englishSiteSearch?.[1] && englishSiteSearch?.[2]) {
-    if (/^(search|find)$/i.test(englishSiteSearch[1])) {
-      site = cleanupParsedText(englishSiteSearch[2]);
-    } else if (/(?:on|in)\s/i.test(englishSiteSearch[0])) {
-      site = cleanupParsedText(englishSiteSearch[1]);
-      query = cleanupParsedText(englishSiteSearch[2]);
-    } else {
+    if (/^(?:search|find)\b/i.test(englishSiteSearch[0])) {
       query = cleanupParsedText(englishSiteSearch[1]);
       site = cleanupParsedText(englishSiteSearch[2]);
+    } else {
+      site = cleanupParsedText(englishSiteSearch[1]);
+      query = cleanupParsedText(englishSiteSearch[2]);
     }
   }
 
-  if (!site && (wantsLogin || wantsRead)) {
+  if (knownWebTarget && !site) {
+    site = knownWebTarget.label;
+  }
+
+  if (!site && (wantsLogin || wantsRead || wantsSearch)) {
     site = cleanupParsedText(guessSiteName(normalized));
+  }
+
+  if (knownWebTarget && site && textMentionsToken(site, knownWebTarget.label)) {
+    site = knownWebTarget.label;
   }
 
   if (!site || (!query && !wantsLogin && !wantsRead)) {

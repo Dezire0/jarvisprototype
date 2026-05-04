@@ -184,6 +184,26 @@ test("buildHeuristicBrowserPlan opens known sites directly instead of searching 
   ]);
 });
 
+test("buildHeuristicBrowserPlan keeps Amazon as the target site in English login/search requests", () => {
+  const plan = buildHeuristicBrowserPlan("hi, could you find some cool things in Amazon, with log ins?");
+
+  assert.deepEqual(plan.steps, [
+    {
+      action: "open_url",
+      target: "https://www.amazon.com/"
+    },
+    {
+      action: "site_search",
+      query: "some cool things"
+    }
+  ]);
+  assert.deepEqual(plan.login, {
+    required: true,
+    mode: "manual",
+    site: "Amazon"
+  });
+});
+
 test("buildHeuristicBrowserPlan turns YouTube music requests into YouTube search", () => {
   const plan = buildHeuristicBrowserPlan("can you play some music in YouTube?");
 

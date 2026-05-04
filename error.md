@@ -2,6 +2,8 @@
 
 현재 재검증 기준으로 남아 있는 앱 오류는 없습니다.
 
-- `npm run dev` 재실행 결과: Next 개발 서버와 Electron 창이 정상 기동했습니다.
-- UI 확인 결과: Jarvis 로그인 화면과 컴퓨터 작업 동의 팝업이 정상 렌더링되었습니다.
-- 백엔드 확인 결과: Assistant transport health 응답이 정상입니다.
+- `Amazon` 요청이 `Google 로그인`으로 잘못 이동하던 문제는 재현되지 않도록 수정되었습니다.
+- `npm run dev` 결과: 기존 Jarvis UI dev 서버를 재사용하며 Electron 앱이 정상 기동했습니다.
+- `http://127.0.0.1:3310/` 응답 정상 확인
+- Assistant transport `/health` 응답 정상 확인
+- `node --test tests/node/*.test.cjs` 93개 통과

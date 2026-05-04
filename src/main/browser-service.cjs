@@ -236,6 +236,8 @@ class BrowserService extends betaBrowser.BaseBrowserService {
 
       if (/github\.com$/.test(host)) {
         push("https://github.com/login");
+      } else if (/amazon\.[a-z.]+$/.test(host)) {
+        push("https://www.amazon.com/ap/signin");
       } else if (/(google\.com|youtube\.com)$/.test(host)) {
         push("https://accounts.google.com/");
       } else if (/(x\.com|twitter\.com)$/.test(host)) {

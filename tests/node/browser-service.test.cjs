@@ -1,7 +1,35 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { BrowserService } = require("../../src/main/browser-service.cjs");
+const { BaseBrowserService, BrowserService } = require("../../src/main/browser-service.cjs");
+
+test("BrowserService extends the shared base browser runtime", () => {
+  assert.equal(Object.getPrototypeOf(BrowserService.prototype), BaseBrowserService.prototype);
+});
+
+test("BrowserService exposes deterministic browser plan support helpers", () => {
+  const service = new BrowserService({
+    userDataDir: "/tmp/jarvis-browser-service-support-test",
+    credentialStore: {}
+  });
+
+  assert.equal(service.supportsPlanStep({ action: "search_youtube" }), true);
+  assert.equal(service.supportsPlanStep({ action: "unsupported_step" }), false);
+  assert.equal(
+    service.supportsPlanSteps([
+      { action: "open_url" },
+      { action: "read_page" }
+    ]),
+    true
+  );
+  assert.equal(
+    service.supportsPlanSteps([
+      { action: "open_url" },
+      { action: "invent_new_tool" }
+    ]),
+    false
+  );
+});
 
 test("BrowserService loginWithStoredCredential uses the shared credential store entry", async () => {
   const service = new BrowserService({
@@ -145,9 +173,11 @@ test("BrowserService buildLoginUrlCandidates includes known provider login URLs"
     credentialStore: {}
   });
 
-  const candidates = service.buildLoginUrlCandidates("https://github.com/", "https://github.com/");
+  const githubCandidates = service.buildLoginUrlCandidates("https://github.com/", "https://github.com/");
+  const amazonCandidates = service.buildLoginUrlCandidates("https://www.amazon.com/", "https://www.amazon.com/");
 
-  assert.equal(candidates.includes("https://github.com/login"), true);
+  assert.equal(githubCandidates.includes("https://github.com/login"), true);
+  assert.equal(amazonCandidates.includes("https://www.amazon.com/ap/signin"), true);
 });
 
 test("BrowserService executePlan supports saved login and current-site search steps", async () => {
@@ -200,4 +230,28 @@ test("BrowserService executePlan supports saved login and current-site search st
     ["read_page", ""]
   ]);
   assert.equal(result.final.title, "Activity");
+});
+
+test("BrowserService search helpers route through navigate", async () => {
+  const service = new BrowserService({
+    userDataDir: "/tmp/jarvis-browser-service-search-test",
+    credentialStore: {}
+  });
+  const visited = [];
+
+  service.navigate = async (target) => {
+    visited.push(target);
+    return {
+      url: target,
+      title: "Visited"
+    };
+  };
+
+  await service.searchGoogle("openai");
+  await service.searchYouTube("music mix");
+
+  assert.deepEqual(visited, [
+    "https://www.google.com/search?q=openai",
+    "https://www.youtube.com/results?search_query=music%20mix"
+  ]);
 });

@@ -19,6 +19,28 @@ function wait(ms) {
   });
 }
 
+async function isReusableDesktopUiUrl(url) {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      signal: AbortSignal.timeout(3000)
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const html = await response.text();
+    return /Jarvis Desktop|Jarvis 컴퓨터 작업 동의|Continue with Email|Secure Login/i.test(html);
+  } catch (_error) {
+    return false;
+  }
+}
+
 function allocatePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -62,9 +84,14 @@ async function resolveDesktopUiUrl() {
   }
 
   const preferredPort = Number(process.env.JARVIS_UI_PORT) || DEFAULT_DESKTOP_UI_PORT;
+  const preferredUrl = `http://${DESKTOP_UI_HOST}:${preferredPort}`;
 
   if (await isPortAvailable(preferredPort)) {
-    return `http://${DESKTOP_UI_HOST}:${preferredPort}`;
+    return preferredUrl;
+  }
+
+  if (await isReusableDesktopUiUrl(preferredUrl)) {
+    return preferredUrl;
   }
 
   const fallbackPort = await allocatePort();
@@ -140,61 +167,65 @@ async function main() {
   let uiServer = null;
 
   if (desktopUiMode === "next") {
-    await runCommand(
-      "corepack",
-      [
-        "pnpm",
-        "--dir",
-        jarvisUiRoot,
-        "-r",
-        "--filter",
-        "assistant-ui-starter-cloud...",
-        "build"
-      ],
-      sharedEnv
-    );
+    const reuseExistingUiServer = await isReusableDesktopUiUrl(desktopUiUrl);
 
-    uiServer = spawn(
-      "corepack",
-      [
-        "pnpm",
-        "--dir",
-        jarvisUiRoot,
-        "--filter",
-        "assistant-ui-starter-cloud",
-        "exec",
-        "next",
-        "dev",
-        "--webpack",
-        "--hostname",
-        "127.0.0.1",
-        "--port",
-        new URL(desktopUiUrl).port || "3310"
-      ],
-      {
-        stdio: "inherit",
-        env: sharedEnv
+    if (!reuseExistingUiServer) {
+      await runCommand(
+        "corepack",
+        [
+          "pnpm",
+          "--dir",
+          jarvisUiRoot,
+          "-r",
+          "--filter",
+          "assistant-ui-starter-cloud...",
+          "build"
+        ],
+        sharedEnv
+      );
+
+      uiServer = spawn(
+        "corepack",
+        [
+          "pnpm",
+          "--dir",
+          jarvisUiRoot,
+          "--filter",
+          "assistant-ui-starter-cloud",
+          "exec",
+          "next",
+          "dev",
+          "--webpack",
+          "--hostname",
+          "127.0.0.1",
+          "--port",
+          new URL(desktopUiUrl).port || "3310"
+        ],
+        {
+          stdio: "inherit",
+          env: sharedEnv
+        }
+      );
+
+      let didExitEarly = false;
+
+      uiServer.once("exit", (code) => {
+        didExitEarly = true;
+
+        if (code && code !== 0) {
+          process.exit(code);
+        }
+      });
+
+      try {
+        await waitForUrl(desktopUiUrl);
+      } catch (error) {
+        if (!didExitEarly) {
+          uiServer.kill("SIGTERM");
+        }
+
+        throw error;
       }
-    );
-
-    let didExitEarly = false;
-
-    uiServer.once("exit", (code) => {
-      didExitEarly = true;
-
-      if (code && code !== 0) {
-        process.exit(code);
-      }
-    });
-
-    try {
-      await waitForUrl(desktopUiUrl);
-    } catch (error) {
-      if (!didExitEarly) {
-        uiServer.kill("SIGTERM");
-      }
-
-      throw error;
     }
 
     env.JARVIS_UI_URL = desktopUiUrl;
