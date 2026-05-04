@@ -33,6 +33,7 @@ const GEMINI_CLI_COMMAND = pickFirstNonEmpty(
   process.env.GEMINI_CLI_BIN,
   resolveCliCommand("gemini", buildCommonCliCandidates("gemini"))
 );
+const GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions";
 const CLI_LLM_TIMEOUT_MS = 180_000;
 
 function fileExists(filePath = "") {
@@ -114,6 +115,7 @@ function normalizeProvider(value = "", fallback = "auto") {
     auto: "auto",
     google: "gemini",
     gemini: "gemini",
+    groq: "groq",
     ollama: "ollama",
     openai: "openai-compatible",
     "openai-compatible": "openai-compatible",
@@ -195,6 +197,20 @@ function getOpenAICompatibleApiKey() {
   return String(process.env.JARVIS_COMPLEX_LLM_API_KEY || process.env.OPENAI_API_KEY || "").trim();
 }
 
+function getGroqApiKey() {
+  const settings = getExternalLlmSettings();
+  if (settings?.groq?.apiKey) {
+    return settings.groq.apiKey;
+  }
+
+  if (externalApiKeyProvider) {
+    const key = externalApiKeyProvider("groq");
+    if (key) return key;
+  }
+
+  return String(process.env.GROQ_API_KEY || "").trim();
+}
+
 function getAnthropicApiKey() {
   const settings = getExternalLlmSettings();
   if (settings?.anthropic?.apiKey) {
@@ -251,6 +267,10 @@ function hasGeminiConfig() {
   return Boolean(getGeminiApiKey());
 }
 
+function hasGroqConfig() {
+  return Boolean(getGroqApiKey());
+}
+
 function hasOpenAICompatibleConfig() {
   const settings = getExternalLlmSettings();
   const explicitUrl = pickFirstNonEmpty(
@@ -288,6 +308,10 @@ function resolveProviderForTier(tier = "complex", requestedProvider = "") {
     return requested;
   }
 
+  if (hasGroqConfig()) {
+    return "groq";
+  }
+
   if (hasGeminiConfig()) {
     return "gemini";
   }
@@ -304,6 +328,7 @@ function isUnconfiguredAutoFallback({ tier = "complex", provider } = {}) {
 
   return (
     requested === "auto" &&
+    !hasGroqConfig() &&
     !hasGeminiConfig() &&
     !hasOpenAICompatibleConfig()
   );
@@ -314,6 +339,10 @@ function defaultModelForProvider(provider = "ollama") {
 
   if (provider === "gemini") {
     return settings?.gemini?.model || process.env.GEMINI_LLM_MODEL || "gemini-2.5-flash";
+  }
+
+  if (provider === "groq") {
+    return settings?.groq?.chatModel || process.env.GROQ_LLM_MODEL || "llama-3.3-70b-versatile";
   }
 
   if (provider === "openai-compatible") {
@@ -351,6 +380,10 @@ function defaultUrlForProvider(provider = "ollama") {
     );
   }
 
+  if (provider === "groq") {
+    return GROQ_CHAT_COMPLETIONS_URL;
+  }
+
   if (provider === "anthropic") {
     return pickFirstNonEmpty(settings?.anthropic?.baseUrl, process.env.ANTHROPIC_BASE_URL, "https://api.anthropic.com/v1/messages");
   }
@@ -373,6 +406,10 @@ function defaultApiKeyForProvider(provider = "ollama") {
 
   if (provider === "openai-compatible") {
     return getOpenAICompatibleApiKey();
+  }
+
+  if (provider === "groq") {
+    return getGroqApiKey();
   }
 
   if (provider === "anthropic") {
@@ -1112,7 +1149,7 @@ async function chat({ systemPrompt, userPrompt, history = [], model, tier = "com
     });
   }
 
-  if (config.provider === "openai-compatible") {
+  if (config.provider === "openai-compatible" || config.provider === "groq") {
     return chatWithOpenAICompatible({
       systemPrompt,
       userPrompt,

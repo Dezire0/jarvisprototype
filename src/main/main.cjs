@@ -116,6 +116,7 @@ async function createServices() {
 
   setExternalApiKeyProvider((provider) => {
     if (provider === "gemini") return settings.getGeminiApiKey();
+    if (provider === "groq") return settings.getConversationModelSettings().groq.apiKey;
     if (provider === "openai" || provider === "openai-compatible") {
       return settings.getConversationModelSettings().openai.apiKey;
     }
@@ -1236,6 +1237,7 @@ ipcMain.handle("assistant:transcribe-audio", async (_event, payload = {}) => {
 
 ipcMain.handle("assistant:get-bootstrap", async () => {
   const { services: liveServices } = ensureReadyServices();
+  const sttStatus = liveServices.stt.getStatus();
   const appCatalog = await liveServices.automation.listInstalledApps({
     limit: 1
   }).catch(() => ({
@@ -1259,8 +1261,8 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
     },
     providers: {
       llm: `${getTierProviderLabel("fast")} -> ${getTierProviderLabel("complex")}`,
-      wakeWord: "speech-recognition wake phrase",
-      stt: liveServices.stt.getStatus().label,
+      wakeWord: "web-speech wake phrase",
+      stt: sttStatus.label,
       tts: liveServices.tts.getProviderLabel(),
       browser: liveServices.browser.getProviderLabel()
     },

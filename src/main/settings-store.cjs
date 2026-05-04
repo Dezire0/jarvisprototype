@@ -45,6 +45,11 @@ const DEFAULT_TTS_SETTINGS = {
 
 const DEFAULT_CONVERSATION_MODEL_SETTINGS = {
   provider: "auto",
+  groq: {
+    chatModel: "llama-3.3-70b-versatile",
+    sttModel: "whisper-large-v3-turbo",
+    apiKeyEncrypted: ""
+  },
   openai: {
     model: "gpt-4o-mini",
     baseUrl: "",
@@ -74,6 +79,9 @@ function createDefaultSettings() {
     version: 1,
     conversationModel: {
       provider: DEFAULT_CONVERSATION_MODEL_SETTINGS.provider,
+      groq: {
+        ...DEFAULT_CONVERSATION_MODEL_SETTINGS.groq
+      },
       openai: {
         ...DEFAULT_CONVERSATION_MODEL_SETTINGS.openai
       },
@@ -131,6 +139,7 @@ function normalizeConversationProvider(value = "", fallback = "auto") {
   const aliases = {
     auto: "auto",
     ollama: "ollama",
+    groq: "groq",
     openai: "openai-compatible",
     gpt: "openai-compatible",
     "openai-compatible": "openai-compatible",
@@ -195,6 +204,11 @@ class SettingsStore {
       geminiApiKeyEncrypted: String(raw.geminiApiKeyEncrypted || ""),
       conversationModel: {
         provider: normalizeConversationProvider(storedConversation.provider, defaults.conversationModel.provider),
+        groq: {
+          chatModel: trimmedOrFallback(storedConversation.groq?.chatModel, defaults.conversationModel.groq.chatModel),
+          sttModel: trimmedOrFallback(storedConversation.groq?.sttModel, defaults.conversationModel.groq.sttModel),
+          apiKeyEncrypted: String(storedConversation.groq?.apiKeyEncrypted || "")
+        },
         openai: {
           model: trimmedOrFallback(storedConversation.openai?.model, defaults.conversationModel.openai.model),
           baseUrl: String(storedConversation.openai?.baseUrl || "").trim(),
@@ -329,10 +343,43 @@ class SettingsStore {
   }
 
   getConversationModelSettings() {
-    const settings = this.cache.conversationModel || createDefaultSettings().conversationModel;
+    const defaults = createDefaultSettings().conversationModel;
+    const current = this.cache.conversationModel || defaults;
+    const settings = {
+      provider: current.provider || defaults.provider,
+      groq: {
+        ...defaults.groq,
+        ...(current.groq || {})
+      },
+      openai: {
+        ...defaults.openai,
+        ...(current.openai || {})
+      },
+      anthropic: {
+        ...defaults.anthropic,
+        ...(current.anthropic || {})
+      },
+      gemini: {
+        ...defaults.gemini,
+        ...(current.gemini || {})
+      },
+      ollama: {
+        ...defaults.ollama,
+        ...(current.ollama || {})
+      },
+      web: {
+        ...defaults.web,
+        ...(current.web || {})
+      }
+    };
 
     return {
       provider: settings.provider,
+      groq: {
+        chatModel: settings.groq.chatModel,
+        sttModel: settings.groq.sttModel,
+        apiKey: this.decryptSecret(settings.groq.apiKeyEncrypted)
+      },
       openai: {
         model: settings.openai.model,
         baseUrl: settings.openai.baseUrl,
@@ -367,6 +414,10 @@ class SettingsStore {
         ...defaults.openai,
         ...(current.openai || {})
       },
+      groq: {
+        ...defaults.groq,
+        ...(current.groq || {})
+      },
       anthropic: {
         ...defaults.anthropic,
         ...(current.anthropic || {})
@@ -387,6 +438,11 @@ class SettingsStore {
 
     return {
       provider: settings.provider,
+      groq: {
+        configured: Boolean(settings.groq.apiKeyEncrypted),
+        chatModel: settings.groq.chatModel,
+        sttModel: settings.groq.sttModel
+      },
       openai: {
         configured: Boolean(settings.openai.apiKeyEncrypted),
         model: settings.openai.model,
@@ -413,11 +469,42 @@ class SettingsStore {
   }
 
   async updateConversationModelSettings(patch = {}) {
-    const current = this.cache.conversationModel || createDefaultSettings().conversationModel;
+    const defaults = createDefaultSettings().conversationModel;
+    const stored = this.cache.conversationModel || defaults;
+    const current = {
+      provider: stored.provider || defaults.provider,
+      groq: {
+        ...defaults.groq,
+        ...(stored.groq || {})
+      },
+      openai: {
+        ...defaults.openai,
+        ...(stored.openai || {})
+      },
+      anthropic: {
+        ...defaults.anthropic,
+        ...(stored.anthropic || {})
+      },
+      gemini: {
+        ...defaults.gemini,
+        ...(stored.gemini || {})
+      },
+      ollama: {
+        ...defaults.ollama,
+        ...(stored.ollama || {})
+      }
+    };
     const next = this.normalize({
       ...this.cache,
       conversationModel: {
         provider: normalizeConversationProvider(patch.provider, current.provider),
+        groq: {
+          chatModel: trimmedOrFallback(patch.groq?.chatModel, current.groq.chatModel),
+          sttModel: trimmedOrFallback(patch.groq?.sttModel, current.groq.sttModel),
+          apiKeyEncrypted: String(patch.groq?.apiKey || "").trim()
+            ? this.encryptSecret(String(patch.groq.apiKey).trim())
+            : current.groq.apiKeyEncrypted
+        },
         openai: {
           model: trimmedOrFallback(patch.openai?.model, current.openai.model),
           baseUrl: patch.openai?.baseUrl !== undefined

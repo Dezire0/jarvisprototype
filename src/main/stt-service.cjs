@@ -41,40 +41,42 @@ class SttService {
   }
 
   getProviderChain() {
-    const settings = this.settingsStore?.getTtsSettings?.() || {};
-    const openaiKey = pickFirstNonEmpty(settings.openai?.apiKey, process.env.OPENAI_API_KEY);
-    const groqKey = pickFirstNonEmpty(process.env.GROQ_API_KEY);
-    const chain = [];
+    const ttsSettings = this.settingsStore?.getTtsSettings?.() || {};
+    const conversationSettings = this.settingsStore?.getConversationModelSettings?.() || {};
+    const openaiKey = pickFirstNonEmpty(ttsSettings.openai?.apiKey, conversationSettings.openai?.apiKey, process.env.OPENAI_API_KEY);
+    const groqKey = pickFirstNonEmpty(conversationSettings.groq?.apiKey, process.env.GROQ_API_KEY);
+
+    if (groqKey) {
+      return [{
+        name: "groq",
+        apiKey: groqKey,
+        model: pickFirstNonEmpty(conversationSettings.groq?.sttModel, process.env.GROQ_STT_MODEL, "whisper-large-v3-turbo"),
+        url: GROQ_TRANSCRIPTION_URL
+      }];
+    }
 
     if (openaiKey) {
-      chain.push({
+      return [{
         name: "openai",
         apiKey: openaiKey,
         model: pickFirstNonEmpty(process.env.OPENAI_STT_MODEL, "gpt-4o-mini-transcribe"),
         url: OPENAI_TRANSCRIPTION_URL
-      });
+      }];
     }
 
-    if (groqKey) {
-      chain.push({
-        name: "groq",
-        apiKey: groqKey,
-        model: pickFirstNonEmpty(process.env.GROQ_STT_MODEL, "whisper-large-v3-turbo"),
-        url: GROQ_TRANSCRIPTION_URL
-      });
-    }
-
-    return chain;
+    return [];
   }
 
   getStatus() {
     const providers = this.getProviderChain();
+    const providerNames = providers.map((provider) => provider.name);
 
     return {
       available: providers.length > 0,
-      providers: providers.map((provider) => provider.name),
+      providers: providerNames,
+      primaryProvider: providerNames[0] || "",
       label: providers.length
-        ? `cloud-stt:${providers.map((provider) => provider.name).join("+")}`
+        ? `cloud-stt:${providerNames.map((name, index) => `${name}${index === 0 ? "(primary)" : "(fallback)"}`).join("+")}`
         : "web-speech-only"
     };
   }

@@ -157,6 +157,7 @@ const state = {
   speechSession: null,
   muted: false,
   submitInFlight: false,
+  sttProviderLabel: "web-speech-only",
   appCatalog: [],
   appCatalogTotalCount: 0,
   threads: [],
@@ -868,6 +869,26 @@ function applyMuteState(muted) {
   syncMuteButton();
 }
 
+function hasCloudSttProvider() {
+  return String(state.sttProviderLabel || "").startsWith("cloud-stt:");
+}
+
+function getManualVoiceReliabilityHint() {
+  if (hasCloudSttProvider()) {
+    return "Groq Whisper 기반 STT가 준비되어 있어서 Electron에서도 비교적 안정적으로 음성 명령을 들을 수 있어요.";
+  }
+
+  return "현재는 Chromium 음성 인식에 더 의존하고 있어요. GROQ_API_KEY를 설정하면 Electron에서 더 안정적으로 음성 명령을 사용할 수 있어요.";
+}
+
+function getManualVoiceFailureMessage() {
+  if (hasCloudSttProvider()) {
+    return "브라우저 음성 서비스 연결이 불안정해서 앱 내 Groq Whisper STT로 전환할게요...";
+  }
+
+  return "브라우저 음성 서비스 연결이 불안정해요. GROQ_API_KEY를 설정하면 Electron에서 Groq Whisper 기반 음성 명령을 더 안정적으로 사용할 수 있어요.";
+}
+
 function syncCallModeButton() {
   if (!voiceCallToggle) {
     return;
@@ -877,9 +898,13 @@ function syncCallModeButton() {
   voiceCallToggle.classList.toggle("active", state.callModeEnabled);
 
   if (callModeHint) {
-    callModeHint.textContent = state.callModeEnabled
-      ? "통화 모드가 켜져 있어요. 답이 끝나면 자동으로 다시 듣고, 필요하면 중간에 바로 끊고 말할 수 있어요."
-      : "통화 모드를 켜면 응답 후 자동으로 다시 듣고, 중간에 바로 다시 말할 수도 있어요.";
+    if (state.callModeEnabled) {
+      callModeHint.textContent = hasCloudSttProvider()
+        ? "통화 모드가 켜져 있어요. Groq Whisper 기반 STT로 답이 끝나면 자동으로 다시 듣고, 필요하면 중간에 바로 끊고 말할 수 있어요."
+        : "통화 모드가 켜져 있어요. 현재는 Chromium 음성 인식에 더 의존하므로 Electron 환경에서는 연결이 불안정할 수 있어요.";
+    } else {
+      callModeHint.textContent = getManualVoiceReliabilityHint();
+    }
   }
 }
 
@@ -922,6 +947,11 @@ function requestRecognitionStart(mode, options = {}) {
 
     if (mode === "wake") {
       startWakeRecognition();
+      return;
+    }
+
+    if (hasCloudSttProvider()) {
+      void runManualRecognitionFallback(reason || "single-turn");
       return;
     }
 
@@ -1867,6 +1897,19 @@ function buildRecognition() {
       state.recognitionMode === "manual" &&
       ["network", "service-not-allowed", "audio-capture"].includes(event.error)
     ) {
+      if (!hasCloudSttProvider()) {
+        state.pendingRecognitionStart = null;
+        state.waitingForVoiceCommand = false;
+        syncVoiceOnceButton();
+
+        if (state.callModeEnabled) {
+          applyCallModeState(false);
+        }
+
+        updateVoiceStatus(getManualVoiceFailureMessage());
+        return;
+      }
+
       const fallbackReason = state.manualRecognitionReason || "single-turn";
       state.pendingRecognitionStart = null;
       state.waitingForVoiceCommand = false;
@@ -1880,7 +1923,7 @@ function buildRecognition() {
         }
       }
 
-      updateVoiceStatus("브라우저 음성 서비스가 불안정해서 앱 내 STT로 전환할게요...");
+      updateVoiceStatus(getManualVoiceFailureMessage());
       void runManualRecognitionFallback(fallbackReason);
       return;
     }
@@ -2466,6 +2509,7 @@ async function bootstrap() {
     speakReplies.checked = storedSpeakReplies !== "0";
   }
 
+  state.sttProviderLabel = String(data.providers?.stt || "web-speech-only");
   applyCallModeState(storedCallMode !== "0");
 
   shortcutHint.textContent = data.shortcut;

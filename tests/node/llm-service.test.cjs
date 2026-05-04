@@ -5,6 +5,8 @@ const MODULE_PATH = require.resolve("../../src/main/ollama-service.cjs");
 const MANAGED_ENV_KEYS = [
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
+  "GROQ_API_KEY",
+  "GROQ_LLM_MODEL",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OPENAI_LLM_MODEL",
@@ -69,6 +71,50 @@ test("llm service auto mode prefers Gemini when a Gemini key is configured", () 
       assert.equal(service.getTierProviderLabel("complex"), "gemini:gemini-2.5-flash");
     }
   );
+});
+
+test("llm service auto mode prefers Groq when a Groq key is configured", () => {
+  withFreshLlmModule(
+    {
+      JARVIS_FAST_LLM_PROVIDER: "auto",
+      JARVIS_COMPLEX_LLM_PROVIDER: "auto",
+      GROQ_API_KEY: "gsk-test-key",
+      GEMINI_API_KEY: "gemini-test-key",
+      OPENAI_API_KEY: "sk-test-key"
+    },
+    (service) => {
+      const config = service.resolveConfig({ tier: "complex" });
+
+      assert.equal(config.provider, "groq");
+      assert.equal(config.model, "llama-3.3-70b-versatile");
+      assert.equal(config.url, "https://api.groq.com/openai/v1/chat/completions");
+      assert.equal(config.apiKey, "gsk-test-key");
+      assert.equal(service.getTierProviderLabel("complex"), "groq:llama-3.3-70b-versatile");
+    }
+  );
+});
+
+test("llm service resolves stored Groq conversation settings", () => {
+  withFreshLlmModule({}, (service) => {
+    service.setExternalLlmSettingsProvider(() => ({
+      provider: "groq",
+      groq: {
+        apiKey: "gsk-stored-key",
+        chatModel: "openai/gpt-oss-20b"
+      },
+      openai: {
+        apiKey: "sk-stored-key",
+        model: "gpt-4o"
+      }
+    }));
+
+    const config = service.resolveConfig({ tier: "complex" });
+
+    assert.equal(config.provider, "groq");
+    assert.equal(config.model, "openai/gpt-oss-20b");
+    assert.equal(config.url, "https://api.groq.com/openai/v1/chat/completions");
+    assert.equal(config.apiKey, "gsk-stored-key");
+  });
 });
 
 test("llm service auto mode uses OpenAI-compatible defaults when only OpenAI config is present", () => {
