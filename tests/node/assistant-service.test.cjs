@@ -705,6 +705,94 @@ test("handleBrowserLogin normalizes polluted login targets like amazon login", a
   assert.equal(result.details.site, "Amazon");
 });
 
+test("handleBrowserLogin asks for clarification instead of falling back to Google on unknown login targets", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        assert.fail("ambiguous login targets should not open a guessed search page");
+      }
+    },
+    browser: {
+      async open() {
+        assert.fail("ambiguous login targets should not open a guessed browser page");
+      }
+    },
+    credentials: {
+      async getCredential() {
+        return null;
+      }
+    },
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowserLogin("로그인 좀 해줘", {
+    siteOrUrl: "please log me in somewhere"
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.provider, "local-clarify");
+  assert.match(result.reply, /확실히 정하지 못했어요|determine the login site confidently/);
+});
+
+test("handleBrowserLogin can reuse the last opened browser target for follow-up login requests", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async loginWithStoredCredential() {
+        assert.fail("login should not autofill when no saved credential exists");
+      },
+      async navigate(target) {
+        return {
+          url: target,
+          title: "Amazon"
+        };
+      },
+      async open(target) {
+        return {
+          url: target,
+          title: "Amazon"
+        };
+      }
+    },
+    credentials: {
+      async getCredential() {
+        return null;
+      }
+    },
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  await service.openBrowserTargetForUser("https://www.amazon.com/", {
+    preferAssistant: true,
+    language: "ko"
+  });
+
+  const result = await service.handleBrowserLogin("거기 로그인해줘", {
+    siteOrUrl: "거기 로그인"
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.provider, "assistant-browser");
+  assert.equal(result.details.credentialPrompt.siteOrUrl, "https://www.amazon.com/");
+  assert.equal(result.details.site, "아마존");
+});
+
 test("handleBrowserLogin fills saved credentials when a secure credential exists", async () => {
   const calls = [];
   const service = new AssistantService({

@@ -734,38 +734,22 @@ function normalizeBrowserOpenUrl(target = "") {
   return `https://www.google.com/search?q=${encodeURIComponent(value)}`;
 }
 
-function normalizeBrowserLoginTarget(routeSiteOrUrl = "", originalInput = "") {
-  const directTarget = findKnownWebTarget(`${routeSiteOrUrl} ${originalInput}`);
-
-  if (directTarget?.url) {
-    return directTarget.url;
-  }
-
-  const explicitUrl = extractUrl(routeSiteOrUrl || originalInput);
-
-  if (explicitUrl) {
-    return /^https?:\/\//i.test(explicitUrl) ? explicitUrl : `https://${explicitUrl}`;
-  }
-
-  const stripped = cleanupParsedText(
-    String(routeSiteOrUrl || "")
+function stripBrowserLoginNoise(text = "") {
+  return cleanupParsedText(
+    String(text || "")
+      .replace(/\b(?:please|pls|could you|can you|would you|help me|i want to|i need to|let me|take me to)\b/gi, " ")
       .replace(/\b(?:log\s*in|login|sign\s*in|sign-in|signin|auth|authentication)\b/gi, " ")
-      .replace(/(?:로그인|사인인|인증)/g, " ")
+      .replace(/(?:로그인(?:해줘|해|하고|할게|할래)?|사인인|인증(?:해줘|해|하고)?)/g, " ")
+      .replace(/\b(?:to|into|in|on|for|with|the|site|website|page)\b/gi, " ")
+      .replace(/(?:사이트|웹사이트|페이지|화면)/g, " ")
       .replace(/\s+/g, " ")
   );
+}
 
-  const directSiteUrl = buildDirectSiteUrl(stripped);
-  if (directSiteUrl) {
-    return directSiteUrl;
-  }
-
-  const guessedSite = guessSiteName(stripped || originalInput);
-  const guessedSiteUrl = buildDirectSiteUrl(guessedSite);
-  if (guessedSiteUrl) {
-    return guessedSiteUrl;
-  }
-
-  return stripped || cleanupParsedText(routeSiteOrUrl || "");
+function refersToCurrentBrowserContext(text = "") {
+  return /(거기|여기|그 사이트|이 사이트|그 페이지|이 페이지|방금 연 사이트|방금 열어둔 페이지|현재 사이트|현재 페이지|that site|this site|that page|this page|there|here|current site|current page|the current page)/i.test(
+    normalizePlanText(text)
+  );
 }
 
 function inferFriendlyBrowserLabel(target = "", language = "en") {
@@ -3020,6 +3004,7 @@ class AssistantService {
     this.pendingClarification = null;
     this.pendingBrowserContinuation = null;
     this.pendingSensitiveConfirmation = null;
+    this.lastBrowserContext = null;
   }
 
   normalizeRequestedAppName(appName = "") {
@@ -3234,6 +3219,89 @@ class AssistantService {
     return this.executeRoute(pending.originalInput || input, mergedRoute);
   }
 
+  rememberBrowserContext(url = "", title = "", extras = {}) {
+    const cleanUrl = cleanupParsedText(url);
+
+    if (!cleanUrl) {
+      return null;
+    }
+
+    const language = extras.language || "en";
+    const label =
+      cleanupParsedText(extras.label) ||
+      inferFriendlyBrowserLabel(title || cleanUrl, language) ||
+      cleanUrl;
+
+    this.lastBrowserContext = {
+      url: cleanUrl,
+      title: cleanupParsedText(title || ""),
+      label,
+      updatedAt: Date.now()
+    };
+
+    return this.lastBrowserContext;
+  }
+
+  resolveBrowserLoginTarget(routeSiteOrUrl = "", originalInput = "") {
+    const combined = `${routeSiteOrUrl} ${originalInput}`;
+    const directTarget = findKnownWebTarget(combined);
+
+    if (directTarget?.url) {
+      return {
+        targetUrl: directTarget.url,
+        siteLabel: directTarget.label,
+        source: "known-target"
+      };
+    }
+
+    const explicitUrl = extractUrl(routeSiteOrUrl || originalInput);
+
+    if (explicitUrl) {
+      return {
+        targetUrl: /^https?:\/\//i.test(explicitUrl) ? explicitUrl : `https://${explicitUrl}`,
+        siteLabel: "",
+        source: "explicit-url"
+      };
+    }
+
+    const strippedRoute = stripBrowserLoginNoise(routeSiteOrUrl || "");
+    const strippedInput = stripBrowserLoginNoise(originalInput || "");
+    const candidate = strippedRoute || strippedInput;
+    const directSiteUrl = buildDirectSiteUrl(candidate);
+
+    if (directSiteUrl) {
+      return {
+        targetUrl: directSiteUrl,
+        siteLabel: candidate,
+        source: "direct-site"
+      };
+    }
+
+    const guessedSite = guessSiteName(candidate || originalInput);
+    const guessedSiteUrl = buildDirectSiteUrl(guessedSite);
+
+    if (guessedSiteUrl) {
+      return {
+        targetUrl: guessedSiteUrl,
+        siteLabel: guessedSite,
+        source: "guessed-site"
+      };
+    }
+
+    if (
+      this.lastBrowserContext?.url &&
+      (!candidate || refersToCurrentBrowserContext(originalInput))
+    ) {
+      return {
+        targetUrl: this.lastBrowserContext.url,
+        siteLabel: this.lastBrowserContext.label || "",
+        source: "carry-over"
+      };
+    }
+
+    return null;
+  }
+
   async openBrowserTargetForUser(targetUrl, options = {}) {
     if (!targetUrl) {
       throw new Error("A browser target is required.");
@@ -3242,13 +3310,15 @@ class AssistantService {
     if (options.preferAssistant && this.browser?.navigate) {
       try {
         const page = await this.browser.navigate(targetUrl);
-
-        return {
+        const opened = {
           url: page.url || targetUrl,
           title: page.title || "",
           openMode: "assistant-browser",
           provider: this.browser.getProviderLabel?.() || "playwright"
         };
+
+        this.rememberBrowserContext(opened.url, opened.title, options);
+        return opened;
       } catch (_error) {
         // Fall through to the system browser below.
       }
@@ -3260,20 +3330,26 @@ class AssistantService {
         target: targetUrl
       });
 
-      return {
+      const opened = {
         url: targetUrl,
         title: "",
         openMode: "system-browser"
       };
+
+      this.rememberBrowserContext(opened.url, opened.title, options);
+      return opened;
     } catch (_error) {
       const page = this.browser?.navigate
         ? await this.browser.navigate(targetUrl)
         : await this.browser.open(targetUrl);
 
-      return {
+      const opened = {
         ...page,
         openMode: "assistant-browser"
       };
+
+      this.rememberBrowserContext(opened.url || targetUrl, opened.title || "", options);
+      return opened;
     }
   }
 
@@ -5294,10 +5370,14 @@ class AssistantService {
       const initialUrl = this.resolveInitialBrowserUrl(input);
       try {
         state = await this.browser.navigate(initialUrl);
+        this.rememberBrowserContext(state.url || initialUrl, state.title || "", {
+          language
+        });
       } catch (navError) {
         // If Playwright fails, try system browser as fallback
         try {
           await this.automation.execute({ type: "open_url", target: initialUrl });
+          this.rememberBrowserContext(initialUrl, "", { language });
           const label = inferFriendlyBrowserLabel(initialUrl, language) || initialUrl;
           return {
             reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
@@ -5459,6 +5539,9 @@ class AssistantService {
 
     // Build final reply
     const finalState = state || {};
+    this.rememberBrowserContext(finalState.url || "", finalState.title || "", {
+      language
+    });
     const notices = detectBrowserSpecialCases(finalState);
     const verificationPrompt = this.buildVerificationPromptDetails(notices, finalState, language);
     const credentialPrompt = notices.includes("login_required")
@@ -5515,18 +5598,20 @@ class AssistantService {
 
   async handleBrowserLogin(input, route) {
     const language = detectReplyLanguage(input);
-    const siteOrUrl = normalizeBrowserLoginTarget(
+    const resolvedTarget = this.resolveBrowserLoginTarget(
       route.siteOrUrl || extractUrl(input) || stripCommandPrefix(input),
       input
     );
+    const unresolvedQuestion =
+      language === "ko"
+        ? "로그인할 사이트를 확실히 정하지 못했어요. 사이트 이름이나 주소를 정확히 한 번만 알려주세요. 예: Amazon, github.com"
+        : "I could not determine the login site confidently. Please tell me the exact site name or URL once, for example Amazon or github.com.";
 
-    if (!siteOrUrl || /^(?:login|log in|sign in|로그인(?:해줘|해)?|사인인)$/i.test(siteOrUrl)) {
+    if (!resolvedTarget?.targetUrl) {
       return this.beginClarification(
         input,
         route,
-        language === "ko"
-          ? "어느 사이트에 로그인할까요?"
-          : "Which site should I log into?",
+        unresolvedQuestion,
         {
           field: "siteOrUrl",
           kind: "browser_login_site",
@@ -5535,15 +5620,17 @@ class AssistantService {
       );
     }
 
-    const targetUrl = buildDirectSiteUrl(siteOrUrl) || normalizeBrowserOpenUrl(siteOrUrl);
-    const savedCredential = await this.credentials?.getCredential?.(targetUrl || siteOrUrl).catch(() => null);
+    const targetUrl = resolvedTarget.targetUrl;
+    const savedCredential = await this.credentials?.getCredential?.(targetUrl).catch(() => null);
 
     if (!savedCredential) {
       const opened = await this.openBrowserTargetForUser(targetUrl, {
-        preferAssistant: true
+        preferAssistant: true,
+        language,
+        label: resolvedTarget.siteLabel || ""
       });
       const siteLabel =
-        inferFriendlyBrowserLabel(siteOrUrl || opened.title || targetUrl, language) ||
+        inferFriendlyBrowserLabel(resolvedTarget.siteLabel || opened.title || targetUrl, language) ||
         (language === "ko" ? "사이트" : "the site");
       const fallback =
         language === "ko"
@@ -5589,7 +5676,12 @@ class AssistantService {
       };
     }
 
-    const data = await this.browser.loginWithStoredCredential(targetUrl || siteOrUrl);
+    this.rememberBrowserContext(targetUrl, "", {
+      language,
+      label: resolvedTarget.siteLabel || ""
+    });
+
+    const data = await this.browser.loginWithStoredCredential(targetUrl);
     const details = {
       ...data,
       loginMode: "saved"
