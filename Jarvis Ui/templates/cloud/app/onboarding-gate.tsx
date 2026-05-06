@@ -47,10 +47,12 @@ function buildGoogleAuthUrl() {
   }
 
   const authUrl = new URL(`${API_BASE}/api/auth/google`);
-  const isDesktopRuntime = Boolean((window as any).assistantAPI);
+  const currentUrl = new URL(window.location.href);
 
-  if (!isDesktopRuntime) {
-    const returnTo = `${window.location.origin}${window.location.pathname}`;
+  if ((window as any).assistantAPI) {
+    authUrl.searchParams.set("return_to", "jarvis-desktop://auth");
+  } else if (currentUrl.protocol === "http:" || currentUrl.protocol === "https:") {
+    const returnTo = `${currentUrl.origin}${currentUrl.pathname}`;
     authUrl.searchParams.set("return_to", returnTo);
   }
 

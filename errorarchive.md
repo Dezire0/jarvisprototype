@@ -18,9 +18,10 @@
 
 - Browser auth handoff:
   - `Jarvis Ui/templates/cloud/app/onboarding-gate.tsx` now sends browser-based Google login flows to `/api/auth/google?return_to=<current local UI>` instead of always relying on a desktop deep link.
+  - Electron-based Google login now sends `return_to=jarvis-desktop://auth` so OAuth completion returns to the desktop app instead of continuing the authenticated UI in the external browser.
   - `backend/src/routes/auth.ts` now preserves a sanitized `return_to` target through Google OAuth `state` and redirects back to that local URL with `token` and `user` query params after callback.
   - The auth Worker was deployed successfully to `https://jarvis-auth-service.dexproject.workers.dev` as version `640141d9-7c96-4d1e-af94-0bab793cea9a`.
-  - `src/main/main.cjs` also keeps the development `jarvis-desktop://` protocol registration explicit so packaged-app handoff and browser-based handoff are both covered.
+  - `src/main/main.cjs` now keeps the development `jarvis-desktop://` protocol registration explicit, enforces a single app instance, and queues auth callbacks until the Jarvis window is loaded.
 
 - In-thread progress UX:
   - `src/main/main.cjs` and `src/preload.cjs` expose `assistant:get-live-preview`.
@@ -31,7 +32,7 @@
   - `npm run check` passed.
   - `node --test tests/node/assistant-service.test.cjs tests/node/web-ai-dom-helpers.test.cjs` passed with `40/40`.
   - `corepack pnpm --dir 'Jarvis Ui' --filter assistant-ui-starter-cloud build` passed.
-  - `npm run dev` booted successfully and served `http://127.0.0.1:3310`.
+  - `npm run dev` was restarted after the desktop handoff correction and served `http://127.0.0.1:3310`.
   - Electron `Jarvis Desktop` launched and rendered the login gate successfully.
 
 - Remaining limitation:

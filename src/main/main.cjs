@@ -18,6 +18,22 @@ if (isDevProtocolRegistration) {
   app.setAsDefaultProtocolClient("jarvis-desktop");
 }
 
+const singleInstanceLock = app.requestSingleInstanceLock();
+
+if (!singleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    const url = argv.find((arg) => /^jarvis-desktop:\/\//i.test(arg));
+
+    if (url) {
+      handleDeepLink(url);
+    }
+
+    focusSettingsWindow();
+  });
+}
+
 const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
 const { BrowserService } = require("./beta/browser-service-beta.cjs");
@@ -54,6 +70,7 @@ let updaterService;
 let popupStateCache = null;
 let popupDragState = null;
 let assistantMuted = false;
+let pendingAuthCallback = null;
 const POPUP_ENABLED = String(process.env.JARVIS_POPUP_ENABLED || "0").trim() === "1";
 const DESKTOP_UI_MODE = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").trim().toLowerCase() === "next"
   ? "next"
@@ -67,6 +84,40 @@ function broadcastToWindows(channel, payload) {
 
     windowRef.webContents.send(channel, payload);
   });
+}
+
+function focusSettingsWindow() {
+  if (!settingsWindow || settingsWindow.isDestroyed()) {
+    createSettingsWindow();
+  }
+
+  if (!settingsWindow || settingsWindow.isDestroyed()) {
+    return;
+  }
+
+  if (settingsWindow.isMinimized()) {
+    settingsWindow.restore();
+  }
+
+  settingsWindow.show();
+  settingsWindow.focus();
+  settingsWindow.moveTop();
+  app.focus({
+    steal: true
+  });
+}
+
+function deliverAuthCallback(payload) {
+  pendingAuthCallback = payload;
+
+  if (!settingsWindow || settingsWindow.isDestroyed()) {
+    focusSettingsWindow();
+    return;
+  }
+
+  settingsWindow.webContents.send("auth:callback", payload);
+  pendingAuthCallback = null;
+  focusSettingsWindow();
 }
 
 function broadcastMuteState(source = "system") {
@@ -412,10 +463,12 @@ function handleDeepLink(url) {
     if (parsedUrl.protocol === "jarvis-desktop:") {
       const token = parsedUrl.searchParams.get("token");
       const userRaw = parsedUrl.searchParams.get("user");
+
       if (token && userRaw) {
-        settingsWindow?.webContents.send("auth:callback", { token, user: JSON.parse(userRaw) });
-        if (settingsWindow?.isMinimized()) settingsWindow.restore();
-        settingsWindow?.focus();
+        deliverAuthCallback({
+          token,
+          user: JSON.parse(userRaw)
+        });
       }
     }
   } catch (e) {
@@ -593,6 +646,11 @@ function createSettingsWindow() {
   settingsWindow.webContents.on("did-finish-load", () => {
     console.log("Jarvis Desktop window finished loading.");
     broadcastMuteState("bootstrap");
+
+    if (pendingAuthCallback) {
+      settingsWindow?.webContents.send("auth:callback", pendingAuthCallback);
+      pendingAuthCallback = null;
+    }
   });
 
   settingsWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl) => {
