@@ -245,10 +245,17 @@ function toThreadMessages(state: TransportState): any[] {
     if (message.role === "assistant") {
       if (message.actions && Array.isArray(message.actions)) {
         message.actions.forEach((action, actionIndex) => {
+          const toolName =
+            typeof action?.tool === "string" && action.tool.trim().length > 0
+              ? action.tool.trim()
+              : action.type;
+          const normalizedToolId = String(toolName || action.type || `tool-${actionIndex}`)
+            .replace(/[^\w.-]+/g, "-")
+            .replace(/^-+|-+$/g, "");
           content.push({
             type: "tool-call" as const,
-            toolCallId: `call-${action.type}-${actionIndex}`,
-            toolName: action.type,
+            toolCallId: `call-${normalizedToolId}-${actionIndex}`,
+            toolName,
             args: action,
             argsText: JSON.stringify(action),
           });

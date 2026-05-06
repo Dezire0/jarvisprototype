@@ -10,6 +10,11 @@ const {
   isUnconfiguredAutoFallback
 } = require("./ollama-service.cjs");
 const { normalizeOpenClawBrowserPlan } = require("./openclaw-service.cjs");
+const {
+  BrowserAgentRuntime,
+  mapStructuredBrowserToolToActionType,
+  summarizeStructuredBrowserToolTarget
+} = require("./browser-agent-runtime.cjs");
 
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
@@ -871,6 +876,24 @@ function buildExternalBrowserTarget(step = {}) {
   }
 
   return "";
+}
+
+function mapDeterministicBrowserActionToTool(action = "") {
+  switch (String(action || "").trim()) {
+    case "open_url":
+    case "search_google":
+    case "search_youtube":
+      return "browser.open";
+    case "click_text":
+    case "click_search_result":
+      return "browser.click";
+    case "site_search":
+      return "browser.type";
+    case "read_page":
+      return "browser.observe";
+    default:
+      return "";
+  }
 }
 
 function isSimpleExternalBrowserPlan(plan = {}) {
@@ -3153,6 +3176,27 @@ class AssistantService {
     this.projectName = "";
     this.threadTitle = "";
     this.memoryMode = "persistent";
+    this.openClawRuntime = new BrowserAgentRuntime({
+      automation: this.automation,
+      browser: this.browser,
+      screen: this.screen,
+      chatClient: async (options = {}) =>
+        chat({
+          systemPrompt: options.systemPrompt,
+          tier: options.tier,
+          provider: options.provider,
+          model: options.model,
+          url: options.url,
+          apiKey: options.apiKey,
+          localOnly: options.localOnly,
+          history: options.history,
+          userPrompt: options.userPrompt
+        }),
+      getRecentHistory: this.getRecentHistory.bind(this),
+      buildHistorySnippet: this.buildHistorySnippet.bind(this),
+      buildSessionMemorySnippet: this.buildOpenClawSessionMemorySnippet.bind(this),
+      makeAction: this.makeAction.bind(this)
+    });
   }
 
   normalizeRequestedAppName(appName = "") {
@@ -3278,6 +3322,282 @@ class AssistantService {
         memoryMode: this.memoryMode
       });
     }
+  }
+
+  buildOpenClawSessionMemorySnippet() {
+    const blocks = [];
+    const longTermMemory = this.buildLongTermMemorySnippet();
+    const projectMemory = this.buildProjectMemorySnippet();
+
+    if (longTermMemory) {
+      blocks.push(`Known long-term user context:\n${longTermMemory}`);
+    }
+
+    if (projectMemory) {
+      blocks.push(projectMemory);
+    }
+
+    if (this.lastBrowserContext?.url) {
+      blocks.push(
+        [
+          "Current browser session:",
+          `- URL: ${this.lastBrowserContext.url}`,
+          this.lastBrowserContext.label ? `- Label: ${this.lastBrowserContext.label}` : ""
+        ].filter(Boolean).join("\n")
+      );
+    }
+
+    if (this.lastActiveApp) {
+      blocks.push(`Last active desktop app: ${this.lastActiveApp}`);
+    }
+
+    return blocks.join("\n\n").trim();
+  }
+
+  buildOpenClawRuntimeHints(input = "", route = {}, plannerMeta = {}) {
+    const hints = [];
+    const routeName = cleanupParsedText(route.route || "");
+
+    hints.push("Present tool actions as an OpenClaw computer-use session, not as a generic chatbot.");
+
+    if (routeName === "browser" || routeName === "browser_login") {
+      hints.push("Prefer Playwright-style browser tools first when the page is available.");
+      hints.push("Keep working inside the existing browser tab when the user is clearly following up on the same page.");
+    }
+
+    if (routeName === "app_open" || routeName === "app_action" || routeName === "open_targets") {
+      hints.push("Use desktop.open_app, desktop.click, and desktop.type before falling back to vague prose.");
+    }
+
+    if (plannerMeta?.planner === "openclaw-session") {
+      hints.push("OpenClaw has already provided session planning context for this task.");
+    }
+
+    if (this.lastActiveApp && routeName !== "browser") {
+      hints.push(`Current desktop context suggests the frontmost or recent app is "${this.lastActiveApp}".`);
+    }
+
+    if (this.looksLikeMailboxContextFollowUp(input)) {
+      hints.push("The user is likely asking a mailbox follow-up, so preserve the current mail context.");
+    }
+
+    return hints;
+  }
+
+  buildOpenClawGoalGuardrails(input = "", route = {}) {
+    const routeName = cleanupParsedText(route.route || "");
+    const browserFollowUp = this.looksLikeBrowserContextFollowUp(input);
+
+    return {
+      requiresMeaningfulInteraction: routeName !== "app_open",
+      requiresContentEvidence:
+        routeName === "browser" &&
+        /(?:who|what|read|show|summarize|요약|누구|무슨|보여|읽어|확인)/i.test(normalizePlanText(input)),
+      continueFromCurrentPageIfPossible: routeName === "browser" && browserFollowUp
+    };
+  }
+
+  buildOpenClawExecutorDetails(details = {}, plannerMeta = {}, extra = {}) {
+    return this.attachBrowserPlannerDetails(
+      {
+        ...details,
+        executor: "openclaw-computer-use",
+        executorLabel: "OpenClaw Computer Use",
+        computerUseStyle: true,
+        ...(extra.executorMode ? { executorMode: extra.executorMode } : {})
+      },
+      plannerMeta
+    );
+  }
+
+  async observeOpenClawState() {
+    if (this.browser?.observe) {
+      try {
+        return await this.browser.observe();
+      } catch (_error) {
+        // Fall through to a minimal empty state.
+      }
+    }
+
+    return {
+      url: "",
+      title: "",
+      elements: [],
+      elementCount: 0,
+      visibleText: ""
+    };
+  }
+
+  rememberOpenClawStateContext(state = {}, language = "ko") {
+    if (state?.url || state?.title) {
+      this.rememberBrowserContext(state.url || "", state.title || "", {
+        language
+      });
+    }
+  }
+
+  async runOpenClawToolAction(action, options = {}) {
+    const input = options.input || "";
+    const route = options.route || {};
+    const language = options.language || detectReplyLanguage(input);
+    const plannerMeta = options.plannerMeta || {};
+    const toolName = String(action?.tool || "").trim();
+    const startState = options.state || (await this.observeOpenClawState());
+    const result = await this.openClawRuntime.executeStructuredAction(action, {
+      state: startState,
+      allowSensitive: Boolean(options.allowSensitive)
+    });
+    const finalState = result?.state || startState || {};
+    const actionType = mapStructuredBrowserToolToActionType(action);
+    const actionTarget = summarizeStructuredBrowserToolTarget(action);
+
+    if (result.requiresConfirmation) {
+      const confirmation = {
+        ...(result.confirmation || {}),
+        action
+      };
+      this.pendingSensitiveConfirmation = {
+        originalInput: input,
+        language,
+        action,
+        state: startState,
+        confirmation
+      };
+
+      return {
+        reply: language === "ko"
+          ? "이 동작은 결제, 구매, 구독처럼 민감한 최종 행동으로 보여서 실행 직전에 확인이 필요해요."
+          : "This looks like a sensitive final action, so I need confirmation before I perform it.",
+        actions: [this.makeAction(actionType, actionTarget, "needs-confirmation", { tool: toolName })],
+        provider: "openclaw-computer-use",
+        details: this.buildOpenClawExecutorDetails(
+          {
+            url: finalState.url || "",
+            title: finalState.title || "",
+            stopReason: "needs_user_confirmation",
+            sensitiveConfirmation: confirmation,
+            openClawPrimary: true
+          },
+          plannerMeta,
+          {
+            executorMode: route.route === "browser" ? "playwright" : "desktop"
+          }
+        )
+      };
+    }
+
+    this.rememberOpenClawStateContext(finalState, language);
+
+    if (result.error) {
+      return {
+        reply: language === "ko"
+          ? `OpenClaw 세션에서 ${toolName} 실행 중 문제가 있었어요: ${result.error}`
+          : `OpenClaw hit a problem while running ${toolName}: ${result.error}`,
+        actions: [this.makeAction(actionType, actionTarget, "failed", { tool: toolName })],
+        provider: "openclaw-computer-use",
+        details: this.buildOpenClawExecutorDetails(
+          {
+            url: finalState.url || "",
+            title: finalState.title || "",
+            stopReason: "repeated_failure",
+            error: result.error,
+            openClawPrimary: true
+          },
+          plannerMeta,
+          {
+            executorMode: route.route === "browser" ? "playwright" : "desktop"
+          }
+        )
+      };
+    }
+
+    return {
+      reply:
+        options.reply ||
+        (language === "ko"
+          ? "OpenClaw 세션에서 작업을 실행했어요."
+          : "I executed that through the OpenClaw session."),
+      actions: [this.makeAction(actionType, actionTarget, "executed", { tool: toolName })],
+      provider: "openclaw-computer-use",
+      details: this.buildOpenClawExecutorDetails(
+        {
+          url: finalState.url || "",
+          title: finalState.title || "",
+          stopReason: "success",
+          openClawPrimary: true
+        },
+        plannerMeta,
+        {
+          executorMode: route.route === "browser" ? "playwright" : "desktop"
+        }
+      )
+    };
+  }
+
+  async runOpenClawLoop(input, route = {}, options = {}) {
+    const language = options.language || detectReplyLanguage(input);
+    const plannerMeta = options.plannerMeta || {};
+    const runtimeResult = await this.openClawRuntime.runLoop({
+      input: options.goal || input,
+      language,
+      initialState: options.initialState || (await this.observeOpenClawState()),
+      initialActions: options.initialActions || [],
+      sessionContext: options.sessionContext || null,
+      goalGuardrails: options.goalGuardrails || this.buildOpenClawGoalGuardrails(input, route),
+      runtimeHints: options.runtimeHints || this.buildOpenClawRuntimeHints(input, route, plannerMeta)
+    });
+    const finalState = runtimeResult.state || {};
+
+    this.rememberOpenClawStateContext(finalState, language);
+
+    if (runtimeResult.pendingConfirmation) {
+      this.pendingSensitiveConfirmation = {
+        originalInput: input,
+        language,
+        action: runtimeResult.pendingConfirmation.action,
+        state: runtimeResult.pendingConfirmation.state,
+        confirmation: runtimeResult.pendingConfirmation
+      };
+    }
+
+    const notices = route.route === "browser" ? detectBrowserSpecialCases(finalState) : [];
+    const verificationPrompt = notices.length
+      ? this.buildVerificationPromptDetails(notices, finalState, language)
+      : null;
+    const credentialPrompt = notices.includes("login_required")
+      ? this.buildCredentialPromptDetails({
+          siteLabel: inferFriendlyBrowserLabel(finalState.title || finalState.url || "", language) || finalState.url || "",
+          siteOrUrl: finalState.url || "",
+          loginUrl: finalState.url || "",
+          language
+        })
+      : null;
+    const reply = route.route === "browser"
+      ? appendBrowserNotices(runtimeResult.finalSummary, notices, language)
+      : runtimeResult.finalSummary;
+
+    return {
+      reply,
+      actions: runtimeResult.actions,
+      provider: "openclaw-computer-use",
+      details: this.buildOpenClawExecutorDetails(
+        {
+          url: finalState.url || "",
+          title: finalState.title || "",
+          stepsExecuted: runtimeResult.actions.length,
+          stopReason: runtimeResult.stopReason || "success",
+          anomalies: notices,
+          credentialPrompt,
+          verificationPrompt,
+          sensitiveConfirmation: runtimeResult.pendingConfirmation || null,
+          openClawPrimary: true
+        },
+        plannerMeta,
+        {
+          executorMode: route.route === "browser" ? "playwright" : "desktop"
+        }
+      )
+    };
   }
 
   makeAction(type, target, status = "executed", extra = {}) {
@@ -3673,7 +3993,7 @@ class AssistantService {
     }
 
     const result = await this.executeRoute(input, delegateRoute);
-    result.details = this.attachBrowserPlannerDetails(
+    result.details = this.buildOpenClawExecutorDetails(
       {
         ...(result.details || {}),
         openClawDelegate: {
@@ -3681,7 +4001,10 @@ class AssistantService {
           reason: delegateStep.reason || ""
         }
       },
-      options.plannerMeta || {}
+      options.plannerMeta || {},
+      {
+        executorMode: delegateRoute.route === "browser_login" ? "playwright" : "desktop"
+      }
     );
     return result;
   }
@@ -3967,43 +4290,47 @@ class AssistantService {
 
     if (savedCredential && typeof this.browser?.loginWithStoredCredential === "function") {
       const data = await this.browser.loginWithStoredCredential(opened.url || targetUrl);
-      return {
-        reply:
-          language === "ko"
-            ? `${siteLabel}에 저장된 로그인 정보를 입력했어요. 인증 코드나 캡차가 보이면 처리한 뒤 "계속"이라고 말해 주세요.`
-            : `I filled the saved login for ${siteLabel}. If a code or CAPTCHA appears, finish it and say "continue."`,
-        actions: [this.makeAction("browser_login", data.site || siteLabel)],
-        provider: "local",
-        details: this.attachBrowserPlannerDetails({
-          ...data,
-          pendingBrowserContinuation: true,
-          site: siteLabel,
-          loginMode: "saved"
-        }, plannerMeta)
-      };
-    }
+        return {
+          reply:
+            language === "ko"
+              ? `${siteLabel}에 저장된 로그인 정보를 입력했어요. 인증 코드나 캡차가 보이면 처리한 뒤 "계속"이라고 말해 주세요.`
+              : `I filled the saved login for ${siteLabel}. If a code or CAPTCHA appears, finish it and say "continue."`,
+          actions: [this.makeAction("browser_login", data.site || siteLabel)],
+          provider: "openclaw-computer-use",
+          details: this.buildOpenClawExecutorDetails({
+            ...data,
+            pendingBrowserContinuation: true,
+            site: siteLabel,
+            loginMode: "saved"
+          }, plannerMeta, {
+            executorMode: "playwright"
+          })
+        };
+      }
 
-    return {
+      return {
       reply:
         language === "ko"
           ? `${siteLabel} 로그인 화면을 열어뒀어요. 아래 보안 입력 카드에 아이디와 비밀번호를 넣으면 제가 현재 로그인 칸에 입력할게요.`
           : `I opened ${siteLabel}. Use the secure login card below and I will fill the current login form.`,
-      actions: [this.makeAction("open_url", opened.url || targetUrl)],
-      provider: opened.openMode,
-      details: this.attachBrowserPlannerDetails({
-        title: opened.title || "",
-        url: opened.url || targetUrl,
-        openMode: opened.openMode,
-        pendingBrowserContinuation: true,
-        site: siteLabel,
+        actions: [this.makeAction("open_url", opened.url || targetUrl)],
+        provider: "openclaw-computer-use",
+        details: this.buildOpenClawExecutorDetails({
+          title: opened.title || "",
+          url: opened.url || targetUrl,
+          openMode: opened.openMode,
+          pendingBrowserContinuation: true,
+          site: siteLabel,
         credentialPrompt: this.buildCredentialPromptDetails({
           siteLabel,
-          siteOrUrl: opened.url || targetUrl,
-          loginUrl: opened.url || targetUrl,
-          language
+            siteOrUrl: opened.url || targetUrl,
+            loginUrl: opened.url || targetUrl,
+            language
+          })
+        }, plannerMeta, {
+          executorMode: "playwright"
         })
-      }, plannerMeta)
-    };
+      };
   }
 
   buildCredentialPromptDetails({ siteLabel = "", siteOrUrl = "", loginUrl = "", language = "ko" } = {}) {
@@ -4094,7 +4421,11 @@ class AssistantService {
     const actions = data.steps.map((step) =>
       this.makeAction(
         `browser_${step.action}`,
-        step.target || step.text || step.query || `result-${step.index || 1}`
+        step.target || step.text || step.query || `result-${step.index || 1}`,
+        "executed",
+        {
+          tool: mapDeterministicBrowserActionToTool(step.action)
+        }
       )
     );
     const actionNames = data.steps.map((step) => step.action).join(" -> ");
@@ -4141,15 +4472,19 @@ class AssistantService {
         return {
           reply: appendBrowserNotices(reply, notices, language),
           actions,
-          provider: getTierProviderLabel("complex"),
-          details: this.attachBrowserPlannerDetails(details, plannerMeta)
+          provider: "openclaw-computer-use",
+          details: this.buildOpenClawExecutorDetails(details, plannerMeta, {
+            executorMode: "playwright"
+          })
         };
       } catch (_error) {
         return {
           reply: fallback,
           actions,
-          provider: "local",
-          details: this.attachBrowserPlannerDetails(details, plannerMeta)
+          provider: "openclaw-computer-use",
+          details: this.buildOpenClawExecutorDetails(details, plannerMeta, {
+            executorMode: "playwright"
+          })
         };
       }
     }
@@ -4164,8 +4499,10 @@ class AssistantService {
         fallback
       ),
       actions,
-      provider: "local",
-      details: this.attachBrowserPlannerDetails(details, plannerMeta)
+      provider: "openclaw-computer-use",
+      details: this.buildOpenClawExecutorDetails(details, plannerMeta, {
+        executorMode: "playwright"
+      })
     };
   }
 
@@ -6023,12 +6360,14 @@ class AssistantService {
             language === "ko"
               ? "가장 최신 메일을 열어봤어요."
               : "I opened the latest email.",
-          actions: [this.makeAction("browser_open_latest_mailbox_message", data.openedMailboxItem || title)],
-          provider: "assistant-browser",
-          details: this.attachBrowserPlannerDetails({
+          actions: [this.makeAction("browser_open_latest_mailbox_message", data.openedMailboxItem || title, "executed", { tool: "browser.click" })],
+          provider: "openclaw-computer-use",
+          details: this.buildOpenClawExecutorDetails({
             ...data,
             openMode: "assistant-browser"
-          }, plannerMeta)
+          }, plannerMeta, {
+            executorMode: "playwright"
+          })
         };
       }
 
@@ -6060,28 +6399,29 @@ class AssistantService {
 
       if (!isComplexBrowserTask && isSimpleExternalBrowserPlan(plan)) {
         const targetUrl = buildExternalBrowserTarget(plan.steps[0]);
-        const opened = await this.openBrowserTargetForUser(targetUrl, {
-          preferAssistant: shouldUseAssistantBrowserForSimplePlan(input, plan)
-        });
         const fallback = buildCompactBrowserReply(
           input,
           plan.steps,
           {
-            title: opened.title || "",
-            url: opened.url || targetUrl
+            title: "",
+            url: targetUrl
           }
         );
-
-        return {
-          reply: fallback,
-          actions: [this.makeAction("open_url", opened.url || targetUrl)],
-          provider: opened.openMode,
-          details: this.attachBrowserPlannerDetails({
-            title: opened.title || "",
-            url: opened.url || targetUrl,
-            openMode: opened.openMode
-          }, plannerMeta)
-        };
+        return this.runOpenClawToolAction(
+          {
+            tool: "browser.open",
+            input: {
+              url: targetUrl
+            }
+          },
+          {
+            input,
+            route,
+            language,
+            plannerMeta,
+            reply: fallback
+          }
+        );
       }
 
       const supportsDeterministicPlan =
@@ -6124,18 +6464,21 @@ class AssistantService {
           const label = inferFriendlyBrowserLabel(initialUrl, language) || initialUrl;
           return {
             reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
-            actions: [this.makeAction("open_url", initialUrl)],
+            actions: [this.makeAction("open_url", initialUrl, "executed", { tool: "browser.open" })],
             provider: "system-browser",
-            details: this.attachBrowserPlannerDetails({
+            details: this.buildOpenClawExecutorDetails({
               url: initialUrl,
-              openMode: "external-browser"
-            }, plannerMeta)
+              openMode: "external-browser",
+              openClawPrimary: true
+            }, plannerMeta, {
+              executorMode: "playwright"
+            })
           };
         } catch {
           throw navError;
         }
       }
-      actions.push(this.makeAction("browser_navigate", initialUrl));
+      actions.push(this.makeAction("browser_navigate", initialUrl, "executed", { tool: "browser.open" }));
 
       const isSimpleOpen = /^(open|go to|visit|열어|들어가|켜)/i.test(normalizedInput) && !isComplexBrowserTask;
 
@@ -6144,222 +6487,35 @@ class AssistantService {
         return {
           reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
           actions,
-          provider: "local",
-          details: this.attachBrowserPlannerDetails({
+          provider: "openclaw-computer-use",
+          details: this.buildOpenClawExecutorDetails({
             url: state.url,
-            title: state.title
-          }, plannerMeta)
+            title: state.title,
+            openClawPrimary: true
+          }, plannerMeta, {
+            executorMode: "playwright"
+          })
         };
       }
     } else {
       // OS task initial state
-      state = { url: "", title: "", elements: [], elementCount: 0 };
+      state = await this.observeOpenClawState();
     }
 
-    const maxSteps = AssistantService.REACT_MAX_STEPS;
+    const runtimeHints = this.buildOpenClawRuntimeHints(input, route, plannerMeta);
 
-    // Build conversation history for the ReAct agent
-    const agentHistory = [];
-    let lastError = "";
-    let finalSummary = "";
-
-    // ReAct Loop
-    for (let step = 1; step <= maxSteps; step++) {
-      const observation = await this.buildReActObservation(state, step, lastError);
-      lastError = "";
-
-      // Build the user prompt for this step
-      const userPrompt = step === 1
-        ? `User's goal: ${input}\n\n${observation}\n\nDecide your first action to achieve the user's goal.`
-        : `${observation}\n\nContinue working toward the goal: ${input}`;
-
-      agentHistory.push({ role: "user", content: userPrompt });
-
-      // Ask AI for next action
-      let aiResponse;
-      try {
-        aiResponse = await chat({
-          systemPrompt: AssistantService.REACT_AGENT_SYSTEM_PROMPT,
-          tier: plannerTier,
-          ...buildPlannerModelOptions(plannerTier),
-          history: [
-            ...this.getRecentHistory(6),
-            ...agentHistory.slice(-8)
-          ],
-          userPrompt: [
-            "Keep the user's broader conversation context intact while controlling the browser.",
-            "If a local fallback is needed later, it will receive this same context; do not assume a fresh session.",
-            userPrompt
-          ].join("\n\n")
-        });
-      } catch {
-        finalSummary = language === "ko"
-          ? "브라우저 작업 중 AI 응답에 문제가 있었어요."
-          : "There was a problem with the AI response during the browser task.";
-        break;
-      }
-
-      // Parse AI action
-      let parsed = safeJsonParse(aiResponse);
-      if (!parsed?.action) {
-        const localResponse = await chat({
-          systemPrompt: AssistantService.REACT_AGENT_SYSTEM_PROMPT,
-          tier: plannerTier,
-          ...buildPlannerModelOptions(plannerTier),
-          history: agentHistory.slice(-8),
-          userPrompt: [
-            "The configured API response was not a valid browser action. Continue as a local fallback without losing context.",
-            "Recent user conversation:",
-            this.buildHistorySnippet(),
-            "",
-            userPrompt
-          ].join("\n"),
-          localOnly: true
-        }).catch(() => "");
-        const localParsed = safeJsonParse(localResponse);
-
-        if (localParsed?.action) {
-          aiResponse = localResponse;
-          parsed = localParsed;
-        }
-      }
-
-      agentHistory.push({ role: "assistant", content: aiResponse });
-
-      if (!parsed?.action) {
-        lastError = "Invalid AI response (not valid JSON with an action field). Try again.";
-        continue;
-      }
-
-      // Done?
-      if (parsed.action === "done") {
-        finalSummary = parsed.summary || "";
-        actions.push(this.makeAction("browser_done", parsed.summary || "completed"));
-        break;
-      }
-
-      // Execute the action
-      const result = await this.executeReActAction(parsed, { state });
-      const actionTarget =
-        parsed.url || parsed.text || `element_${parsed.element_id}` || parsed.key || parsed.direction || "";
-
-      if (result.requiresConfirmation) {
-        const confirmation = {
-          ...(result.confirmation || {}),
-          action: parsed
-        };
-        this.pendingSensitiveConfirmation = {
-          originalInput: input,
-          language,
-          action: parsed,
-          state,
-          confirmation
-        };
-        actions.push(this.makeAction(`browser_${parsed.action}`, actionTarget, "needs-confirmation"));
-        return {
-          reply: language === "ko"
-            ? "이 동작은 결제, 구매, 구독처럼 민감한 최종 행동으로 보여서 실행 직전에 확인이 필요해요."
-            : "This looks like a sensitive final action, so I need confirmation before I perform it.",
-          actions,
-          provider: "react-agent",
-          details: route.route === "browser"
-            ? this.attachBrowserPlannerDetails({
-              url: state?.url || "",
-              title: state?.title || "",
-              stepsExecuted: actions.length,
-              stopReason: "needs_user_confirmation",
-              sensitiveConfirmation: confirmation
-            }, plannerMeta)
-            : {
-            url: state?.url || "",
-            title: state?.title || "",
-            stepsExecuted: actions.length,
-            stopReason: "needs_user_confirmation",
-            sensitiveConfirmation: confirmation
-          }
-        };
-      }
-
-      actions.push(this.makeAction(`browser_${parsed.action}`, actionTarget));
-
-      if (result.error) {
-        lastError = result.error;
-      }
-
-      if (result.state) {
-        state = result.state;
-      } else if (!result.error) {
-        // done action already handled above
-        break;
-      }
+    if (route.route === "app_open") {
+      runtimeHints.push("Complete the task once the requested app is frontmost.");
     }
 
-    // Build final reply
-    const finalState = state || {};
-    this.rememberBrowserContext(finalState.url || "", finalState.title || "", {
-      language
+    return this.runOpenClawLoop(input, route, {
+      language,
+      plannerMeta,
+      initialState: state,
+      initialActions: actions,
+      runtimeHints,
+      goalGuardrails: this.buildOpenClawGoalGuardrails(input, route)
     });
-    const notices = detectBrowserSpecialCases(finalState);
-    const verificationPrompt = this.buildVerificationPromptDetails(notices, finalState, language);
-    const credentialPrompt = notices.includes("login_required")
-      ? this.buildCredentialPromptDetails({
-          siteLabel: inferFriendlyBrowserLabel(finalState.title || finalState.url || "", language) || finalState.url || "",
-          siteOrUrl: finalState.url || "",
-          loginUrl: finalState.url || "",
-          language
-        })
-      : null;
-    let reply = "";
-
-    if (finalSummary) {
-      reply = finalSummary;
-    } else {
-      // Ask AI to summarize what happened
-      try {
-        reply = await this.replyWithModel(
-          input,
-          [
-            "The user asked you to do something in the browser. Here is the result.",
-            `Reply only in ${buildLanguageName(language)}.`,
-            "Preserve the existing conversation context; this browser task is part of the same session, not a reset.",
-            `Final page URL: ${finalState.url || "(unknown)"}`,
-            `Final page title: ${finalState.title || "(untitled)"}`,
-            `Actions taken: ${actions.map(a => a.type).join(" → ")}`,
-            finalState.visibleText ? `Visible text:\n${finalState.visibleText.slice(0, 2000)}` : ""
-          ].join("\n\n"),
-          { tier: "fast", includeHistory: true }
-        );
-      } catch {
-        reply = language === "ko"
-          ? "브라우저 작업을 처리했어요."
-          : "I handled the browser task.";
-      }
-    }
-
-    reply = appendBrowserNotices(reply, notices, language);
-
-    return {
-      reply,
-      actions,
-      provider: "react-agent",
-      details: route.route === "browser"
-        ? this.attachBrowserPlannerDetails({
-          url: finalState.url || "",
-          title: finalState.title || "",
-          stepsExecuted: actions.length,
-          anomalies: notices,
-          credentialPrompt,
-          verificationPrompt
-        }, plannerMeta)
-        : {
-          url: finalState.url || "",
-          title: finalState.title || "",
-          stepsExecuted: actions.length,
-          anomalies: notices,
-          credentialPrompt,
-          verificationPrompt
-        }
-    };
   }
 
   async handleBrowserLogin(input, route) {
@@ -6407,8 +6563,8 @@ class AssistantService {
         reply: await this.polishCommandReply(
           input,
           {
-            actions: [this.makeAction("browser_login", siteLabel)],
-            details: {
+            actions: [this.makeAction("browser_login", siteLabel, "executed", { tool: "browser.open" })],
+            details: this.buildOpenClawExecutorDetails({
               title: opened.title || "",
               url: opened.url || targetUrl,
               openMode: opened.openMode,
@@ -6420,13 +6576,18 @@ class AssistantService {
                 loginUrl: opened.url || targetUrl,
                 language
               })
-            }
+            }, {
+              planner: "openclaw-session",
+              plannerReason: "browser-login"
+            }, {
+              executorMode: "playwright"
+            })
           },
           fallback
         ),
-        actions: [this.makeAction("browser_login", siteLabel)],
-        provider: opened.openMode,
-        details: {
+        actions: [this.makeAction("browser_login", siteLabel, "executed", { tool: "browser.open" })],
+        provider: "openclaw-computer-use",
+        details: this.buildOpenClawExecutorDetails({
           title: opened.title || "",
           url: opened.url || targetUrl,
           openMode: opened.openMode,
@@ -6438,7 +6599,12 @@ class AssistantService {
             loginUrl: opened.url || targetUrl,
             language
           })
-        }
+        }, {
+          planner: "openclaw-session",
+          plannerReason: "browser-login"
+        }, {
+          executorMode: "playwright"
+        })
       };
     }
 
@@ -6460,14 +6626,24 @@ class AssistantService {
       reply: await this.polishCommandReply(
         input,
         {
-          actions: [this.makeAction("browser_login", data.site)],
-          details
+          actions: [this.makeAction("browser_login", data.site, "executed", { tool: "pii.get" })],
+          details: this.buildOpenClawExecutorDetails(details, {
+            planner: "openclaw-session",
+            plannerReason: "browser-login"
+          }, {
+            executorMode: "playwright"
+          })
         },
         fallback
       ),
-      actions: [this.makeAction("browser_login", data.site)],
-      provider: "local",
-      details
+      actions: [this.makeAction("browser_login", data.site, "executed", { tool: "pii.get" })],
+      provider: "openclaw-computer-use",
+      details: this.buildOpenClawExecutorDetails(details, {
+        planner: "openclaw-session",
+        plannerReason: "browser-login"
+      }, {
+        executorMode: "playwright"
+      })
     };
   }
 
@@ -6848,29 +7024,30 @@ class AssistantService {
       return this.handleMissingAppRecovery(input, route, requestedApp);
     }
 
-    const data = await this.automation.execute({
-      type: "open_app",
-      target: resolved.resolvedTarget
-    });
-    const openedName = data.resolvedTarget || data.appName || requestedApp;
+    const openedName = resolved.resolvedTarget || requestedApp;
     this.rememberAppContext(openedName);
     const fallback = detectReplyLanguage(input) === "ko"
       ? `${openedName} 열었어요.`
       : `I opened ${openedName}.`;
 
-    return {
-      reply: await this.polishCommandReply(
+    return this.runOpenClawToolAction(
+      {
+        tool: "desktop.open_app",
+        input: {
+          name: openedName
+        }
+      },
+      {
         input,
-        {
-          actions: [this.makeAction("open_app", openedName)],
-          details: data
+        route,
+        language: detectReplyLanguage(input),
+        plannerMeta: {
+          planner: "openclaw-session",
+          plannerReason: "desktop-open"
         },
-        fallback
-      ),
-      actions: [this.makeAction("open_app", openedName)],
-      provider: "local",
-      details: data
-    };
+        reply: fallback
+      }
+    );
   }
 
   async handleGeneral(input) {

@@ -47,14 +47,14 @@ function buildRunningProgressSteps(text = "") {
   if (/(로그인|login|sign in|log in)/i.test(normalized)) {
     return isKo
       ? [
-          "현재 사이트와 로그인 문맥을 확인하는 중",
-          "로그인 진입점을 찾는 중",
+          "OpenClaw 세션이 현재 사이트와 로그인 문맥을 확인하는 중",
+          "Playwright로 로그인 진입점을 찾는 중",
           "아이디와 비밀번호 입력 칸을 찾는 중",
           "입력 후 화면 상태를 다시 확인하는 중"
         ]
       : [
-          "Checking the current site and login context",
-          "Finding the login entry point",
+          "OpenClaw is checking the current site and login context",
+          "Using Playwright to find the login entry point",
           "Locating the username and password fields",
           "Re-checking the page after the form step"
         ];
@@ -63,12 +63,12 @@ function buildRunningProgressSteps(text = "") {
   if (/(메일|이메일|gmail|outlook|email|mail|message)/i.test(normalized)) {
     return isKo
       ? [
-          "현재 메일함 문맥을 확인하는 중",
+          "OpenClaw 세션이 현재 메일함 문맥을 확인하는 중",
           "가장 관련 있는 메시지를 찾는 중",
           "열린 메일 화면을 다시 확인하는 중"
         ]
       : [
-          "Checking the current mailbox context",
+          "OpenClaw is checking the current mailbox context",
           "Finding the most relevant message",
           "Re-checking the opened mail view"
         ];
@@ -77,27 +77,27 @@ function buildRunningProgressSteps(text = "") {
   if (/(브라우저|browser|사이트|url|검색|search|amazon|github|google|youtube)/i.test(normalized)) {
     return isKo
       ? [
-          "현재 브라우저 문맥을 확인하는 중",
+          "OpenClaw 세션이 현재 브라우저 문맥을 확인하는 중",
           "다음 웹 동작을 계획하는 중",
-          "클릭하거나 입력할 요소를 찾는 중",
+          "Playwright로 클릭하거나 입력할 요소를 찾는 중",
           "실행 결과를 다시 확인하는 중"
         ]
       : [
-          "Checking the current browser context",
+          "OpenClaw is checking the current browser context",
           "Planning the next web action",
-          "Finding the element to click or type into",
+          "Using Playwright to find the element to click or type into",
           "Re-checking the result after execution"
         ];
   }
 
   return isKo
     ? [
-        "현재 작업 문맥을 확인하는 중",
+        "OpenClaw 세션이 현재 작업 문맥을 확인하는 중",
         "다음 동작을 계획하는 중",
         "실행 결과를 다시 확인하는 중"
       ]
     : [
-        "Checking the current task context",
+        "OpenClaw is checking the current task context",
         "Planning the next action",
         "Re-checking the result after execution"
       ];
@@ -108,6 +108,12 @@ function buildRunningMessageDetails(text = "") {
 
   return {
     livePreview: true,
+    executorLabel: "OpenClaw Computer Use",
+    executorMode: /(브라우저|browser|사이트|gmail|google|amazon|github|youtube|메일|email|mail)/i.test(
+      String(text || "").toLowerCase()
+    )
+      ? "playwright"
+      : "desktop",
     progressLabel: progressSteps[0] || "",
     progressSteps
   };

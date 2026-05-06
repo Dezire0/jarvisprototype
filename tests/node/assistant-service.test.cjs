@@ -371,20 +371,29 @@ test("buildAugmentedUserPrompt includes long-term, project, conversation, and do
   assert.match(prompt, /User request:\n누구한테 왔어\?/);
 });
 
-test("handleBrowser opens simple one-step navigation in the system browser", async () => {
+test("handleBrowser opens simple one-step navigation through the OpenClaw Playwright path", async () => {
   const calls = [];
   const service = new AssistantService({
     automation: {
       async execute(action) {
         calls.push(action);
-        return {
-          target: action.target
-        };
       }
     },
     browser: {
-      async executePlan() {
-        assert.fail("simple open_url should not use Playwright automation");
+      async navigate(target) {
+        return {
+          url: target,
+          title: "Google"
+        };
+      },
+      async observe() {
+        return {
+          url: "about:blank",
+          title: "",
+          elements: [],
+          elementCount: 0,
+          visibleText: ""
+        };
       }
     },
     credentials: {},
@@ -396,30 +405,32 @@ test("handleBrowser opens simple one-step navigation in the system browser", asy
 
   const result = await service.handleAutonomousTask("구글 열어줘");
 
-  assert.deepEqual(calls, [
-    {
-      type: "open_url",
-      target: "https://www.google.com/"
-    }
-  ]);
-  assert.equal(result.provider, "system-browser");
+  assert.deepEqual(calls, []);
+  assert.equal(result.provider, "openclaw-computer-use");
+  assert.equal(result.actions[0].tool, "browser.open");
+  assert.equal(result.details.executorMode, "playwright");
+  assert.equal(result.details.url, "https://www.google.com/");
   assert.equal(result.reply, "구글 열었어요.");
 });
 
 test("handleBrowser labels Gmail direct opens as Gmail", async () => {
-  const calls = [];
   const service = new AssistantService({
-    automation: {
-      async execute(action) {
-        calls.push(action);
-        return {
-          target: action.target
-        };
-      }
-    },
+    automation: {},
     browser: {
-      async executePlan() {
-        assert.fail("simple Gmail open should not use Playwright automation");
+      async navigate(target) {
+        return {
+          url: target,
+          title: "Inbox - Gmail"
+        };
+      },
+      async observe() {
+        return {
+          url: "about:blank",
+          title: "",
+          elements: [],
+          elementCount: 0,
+          visibleText: ""
+        };
       }
     },
     credentials: {},
@@ -431,29 +442,30 @@ test("handleBrowser labels Gmail direct opens as Gmail", async () => {
 
   const result = await service.handleAutonomousTask("Gmail 열어줘");
 
-  assert.deepEqual(calls, [
-    {
-      type: "open_url",
-      target: "https://mail.google.com/"
-    }
-  ]);
+  assert.equal(result.provider, "openclaw-computer-use");
+  assert.equal(result.actions[0].tool, "browser.open");
+  assert.equal(result.details.url, "https://mail.google.com/");
   assert.equal(result.reply, "지메일 열었어요.");
 });
 
-test("handleBrowser opens YouTube playback results in the system browser", async () => {
-  const calls = [];
+test("handleBrowser opens YouTube playback results through the OpenClaw Playwright path", async () => {
   const service = new AssistantService({
-    automation: {
-      async execute(action) {
-        calls.push(action);
-        return {
-          target: action.target
-        };
-      }
-    },
+    automation: {},
     browser: {
-      async executePlan() {
-        assert.fail("simple search_youtube should not use Playwright automation");
+      async navigate(target) {
+        return {
+          url: target,
+          title: "YouTube"
+        };
+      },
+      async observe() {
+        return {
+          url: "about:blank",
+          title: "",
+          elements: [],
+          elementCount: 0,
+          visibleText: ""
+        };
       }
     },
     credentials: {},
@@ -465,13 +477,9 @@ test("handleBrowser opens YouTube playback results in the system browser", async
 
   const result = await service.handleAutonomousTask("i said go to youtube and play some music");
 
-  assert.deepEqual(calls, [
-    {
-      type: "open_url",
-      target: "https://www.youtube.com/results?search_query=music%20mix"
-    }
-  ]);
-  assert.equal(result.provider, "system-browser");
+  assert.equal(result.provider, "openclaw-computer-use");
+  assert.equal(result.actions[0].tool, "browser.open");
+  assert.match(result.details.url, /youtube\.com\/results/);
   assert.equal(result.reply, "I opened YouTube results so you can play something right away.");
 });
 
@@ -502,24 +510,28 @@ test("handleBrowser prefers Playwright for official install or verification page
 
   const result = await service.handleAutonomousTask("Discord 공식 다운로드 페이지 열어줘");
 
-  assert.equal(result.provider, "assistant-browser");
+  assert.equal(result.provider, "openclaw-computer-use");
   assert.match(result.details.url, /google\.com\/search/);
 });
 
 test("handleBrowser prefers an OpenClaw session plan when available", async () => {
-  const calls = [];
   const service = new AssistantService({
-    automation: {
-      async execute(action) {
-        calls.push(action);
-        return {
-          target: action.target
-        };
-      }
-    },
+    automation: {},
     browser: {
-      async executePlan() {
-        assert.fail("simple OpenClaw open_url plans should use the direct open path");
+      async navigate(target) {
+        return {
+          url: target,
+          title: "Amazon"
+        };
+      },
+      async observe() {
+        return {
+          url: "about:blank",
+          title: "",
+          elements: [],
+          elementCount: 0,
+          visibleText: ""
+        };
       }
     },
     openClaw: {
@@ -552,12 +564,9 @@ test("handleBrowser prefers an OpenClaw session plan when available", async () =
     requires_automation: false
   });
 
-  assert.deepEqual(calls, [
-    {
-      type: "open_url",
-      target: "https://www.amazon.com/"
-    }
-  ]);
+  assert.equal(result.provider, "openclaw-computer-use");
+  assert.equal(result.actions[0].tool, "browser.open");
+  assert.equal(result.details.url, "https://www.amazon.com/");
   assert.equal(result.details.planner, "openclaw-session");
   assert.equal(result.details.plannerReason, "claw-session-plan");
   assert.equal(result.details.openClawSessionRef, "latest");

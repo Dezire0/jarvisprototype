@@ -38,7 +38,7 @@ import {
   RefreshCwIcon,
   SquareIcon,
 } from "lucide-react";
-import { useState, type FC, type FormEvent } from "react";
+import { useEffect, useState, type FC, type FormEvent } from "react";
 
 
 
@@ -89,6 +89,18 @@ type AssistantResultDetails = {
   credentialPrompt?: CredentialPromptDetails | null;
   verificationPrompt?: VerificationPromptDetails | null;
   sensitiveConfirmation?: SensitiveConfirmationDetails | null;
+  progressLabel?: string | null;
+  progressSteps?: string[] | null;
+  livePreview?: boolean | null;
+  executorLabel?: string | null;
+  executorMode?: string | null;
+};
+
+type LivePreviewSnapshot = {
+  source?: string;
+  imageDataUrl?: string;
+  title?: string;
+  url?: string;
 };
 
 function prefersKorean(language?: string) {
@@ -396,6 +408,133 @@ const MessageError: FC = () => {
         <ErrorPrimitive.Message className="aui-message-error-message line-clamp-2" />
       </ErrorPrimitive.Root>
     </MessagePrimitive.Error>
+  );
+};
+
+const AssistantRunStatus: FC = () => {
+  const isRunning = useAuiState((state) => state.message.status?.type === "running");
+  const details = useAuiState((state) =>
+    ((state.message.metadata as any)?.custom?.details || null) as AssistantResultDetails | null,
+  );
+  const [stepIndex, setStepIndex] = useState(0);
+  const [preview, setPreview] = useState<LivePreviewSnapshot | null>(null);
+  const isKo = prefersKorean();
+  const steps = Array.isArray(details?.progressSteps)
+    ? details.progressSteps.filter((step): step is string => typeof step === "string" && step.trim().length > 0)
+    : [];
+
+  useEffect(() => {
+    setStepIndex(0);
+
+    if (!isRunning || steps.length <= 1) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setStepIndex((current) => Math.min(current + 1, steps.length - 1));
+    }, 2200);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [isRunning, steps]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (
+      !isRunning ||
+      !details?.livePreview ||
+      typeof window === "undefined" ||
+      !window.assistantAPI?.getLivePreview
+    ) {
+      setPreview(null);
+      return;
+    }
+
+    const pollPreview = async () => {
+      try {
+        const nextPreview = await window.assistantAPI?.getLivePreview();
+
+        if (!active || !nextPreview?.ok || !nextPreview.imageDataUrl) {
+          return;
+        }
+
+        setPreview({
+          source: nextPreview.source || "",
+          imageDataUrl: nextPreview.imageDataUrl,
+          title: nextPreview.title || "",
+          url: nextPreview.url || "",
+        });
+      } catch (_error) {
+        // Keep the running card alive even if preview polling misses a frame.
+      }
+    };
+
+    void pollPreview();
+    const timer = window.setInterval(() => {
+      void pollPreview();
+    }, 2200);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [details?.livePreview, isRunning]);
+
+  if (!isRunning) {
+    return null;
+  }
+
+  const activeStep = steps[stepIndex] || details?.progressLabel || (isKo ? "작업을 준비하는 중" : "Preparing the task");
+  const executorLabel = details?.executorLabel || (isKo ? "OpenClaw Computer Use" : "OpenClaw Computer Use");
+  const modeLabel = details?.executorMode === "playwright"
+    ? "Playwright"
+    : details?.executorMode === "desktop"
+      ? (isKo ? "Desktop Control" : "Desktop Control")
+      : "";
+
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      <div className="rounded-[26px] border border-white/10 bg-white/5 p-4 shadow-[0_18px_70px_rgba(0,0,0,0.18)]">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300/80">
+          <span className="inline-flex size-2 rounded-full bg-emerald-300 animate-pulse" />
+          {executorLabel}
+          {modeLabel ? <span className="text-[10px] tracking-[0.18em] text-emerald-100/60">· {modeLabel}</span> : null}
+        </div>
+        <p className="mt-3 text-sm leading-6 text-foreground">{activeStep}</p>
+        {steps.length ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {steps.map((step, index) => (
+              <span
+                key={`${step}-${index}`}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-[11px] transition-colors",
+                  index === stepIndex
+                    ? "border-white/20 bg-white/[0.12] text-foreground"
+                    : "border-white/10 bg-white/5 text-muted-foreground",
+                )}
+              >
+                {step}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {preview?.imageDataUrl ? (
+        <div className="w-full max-w-[320px] rounded-[22px] border border-white/10 bg-black/30 p-2 shadow-[0_18px_70px_rgba(0,0,0,0.18)]">
+          <img
+            src={preview.imageDataUrl}
+            alt={preview.title || (isKo ? "작업 미리보기" : "Task preview")}
+            className="h-[132px] w-full rounded-[16px] object-cover"
+          />
+          <div className="px-1 pb-1 pt-2 text-[11px] text-muted-foreground">
+            {preview.title || (preview.source === "assistant-browser" ? "Assistant browser preview" : "Desktop preview")}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 };
 
@@ -708,6 +847,7 @@ const AssistantMessage: FC = () => {
               return null;
             }}
           </MessagePrimitive.Parts>
+          <AssistantRunStatus />
           <MessageError />
           <AssistantResultPrompts />
         </div>

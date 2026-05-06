@@ -160,6 +160,9 @@ const state = {
   speechSession: null,
   muted: false,
   submitInFlight: false,
+  liveTaskTimer: null,
+  liveTaskPreviewBusy: false,
+  liveTaskMessageId: "",
   sttProviderLabel: "web-speech-only",
   appCatalog: [],
   appCatalogTotalCount: 0,
@@ -182,6 +185,53 @@ function escapeHtml(text = "") {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function buildAssistantProgressSteps(input = "") {
+  const normalized = String(input || "").toLowerCase();
+
+  if (/(로그인|login|sign in|log in)/i.test(normalized)) {
+    return [
+      "현재 사이트와 로그인 문맥을 확인하는 중",
+      "로그인 진입점을 찾는 중",
+      "아이디와 비밀번호 입력 칸을 찾는 중",
+      "입력 후 화면 상태를 다시 확인하는 중"
+    ];
+  }
+
+  if (/(메일|이메일|gmail|outlook|email|mail|message)/i.test(normalized)) {
+    return [
+      "현재 메일함 문맥을 확인하는 중",
+      "가장 관련 있는 메시지를 찾는 중",
+      "열린 메일 화면을 다시 확인하는 중"
+    ];
+  }
+
+  if (/(브라우저|browser|사이트|url|검색|search|amazon|github|google|youtube)/i.test(normalized)) {
+    return [
+      "현재 브라우저 문맥을 확인하는 중",
+      "다음 웹 동작을 계획하는 중",
+      "클릭하거나 입력할 요소를 찾는 중",
+      "실행 결과를 다시 확인하는 중"
+    ];
+  }
+
+  return [
+    "현재 작업 문맥을 확인하는 중",
+    "다음 동작을 계획하는 중",
+    "실행 결과를 다시 확인하는 중"
+  ];
+}
+
+function createMessageRecord(role, content, detail = "", extras = {}) {
+  return {
+    id: `message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    role,
+    content,
+    detail,
+    createdAt: Date.now(),
+    ...extras
+  };
 }
 
 function createThreadRecord(title = "New Chat") {
@@ -223,11 +273,26 @@ function sanitizeStoredThreads(rawThreads = []) {
 }
 
 function saveThreadState() {
+  const serializableThreads = state.threads.map((thread) => ({
+    id: thread.id,
+    title: thread.title,
+    updatedAt: thread.updatedAt,
+    messages: Array.isArray(thread.messages)
+      ? thread.messages.map((message) => ({
+          id: message.id,
+          role: message.role === "user" ? "user" : "assistant",
+          content: String(message.content || ""),
+          detail: String(message.detail || ""),
+          createdAt: Number(message.createdAt) || Date.now()
+        }))
+      : []
+  }));
+
   localStorage.setItem(
     THREAD_STORAGE_KEY,
     JSON.stringify({
       currentThreadId: state.currentThreadId,
-      threads: state.threads
+      threads: serializableThreads
     })
   );
 }
@@ -339,6 +404,67 @@ function renderWelcomeThread() {
   });
 }
 
+function appendMessagePreview(container, message) {
+  if (!message.previewImageDataUrl) {
+    return;
+  }
+
+  const previewCard = document.createElement("div");
+  previewCard.className = `message-preview-card ${message.status === "running" ? "compact" : ""}`;
+
+  const image = document.createElement("img");
+  image.className = "message-preview-image";
+  image.alt = message.previewTitle || "작업 미리보기";
+  image.src = message.previewImageDataUrl;
+  previewCard.appendChild(image);
+
+  const meta = document.createElement("div");
+  meta.className = "message-preview-meta";
+  meta.textContent =
+    message.previewTitle ||
+    (message.previewSource === "assistant-browser" ? "Assistant browser preview" : "Desktop preview");
+  previewCard.appendChild(meta);
+
+  container.appendChild(previewCard);
+}
+
+function appendMessageThinking(container, message) {
+  if (message.status !== "running") {
+    return;
+  }
+
+  const thinking = document.createElement("div");
+  thinking.className = "message-thinking";
+  const steps = Array.isArray(message.progressSteps) ? message.progressSteps : [];
+  const activeIndex = Number(message.progressStepIndex) || 0;
+
+  const label = document.createElement("div");
+  label.className = "message-thinking-label";
+  label.innerHTML = `<span class="message-thinking-dot"></span><span>생각 중</span>`;
+  thinking.appendChild(label);
+
+  const copy = document.createElement("p");
+  copy.className = "message-thinking-copy";
+  copy.textContent = message.progressLabel || steps[activeIndex] || "작업을 준비하는 중";
+  thinking.appendChild(copy);
+
+  if (steps.length) {
+    const stageRow = document.createElement("div");
+    stageRow.className = "message-thinking-stages";
+
+    steps.forEach((step, index) => {
+      const chip = document.createElement("span");
+      chip.className = `message-thinking-stage ${index === activeIndex ? "active" : ""}`;
+      chip.textContent = step;
+      stageRow.appendChild(chip);
+    });
+
+    thinking.appendChild(stageRow);
+  }
+
+  container.appendChild(thinking);
+}
+
 function renderCurrentThread() {
   const thread = getCurrentThread();
   const userMessages = thread.messages.filter((message) => message.role === "user").length;
@@ -362,32 +488,40 @@ function renderCurrentThread() {
 
   thread.messages.forEach((message) => {
     const article = document.createElement("article");
-    article.className = `message ${message.role}`;
-    const detailBlock = message.detail ? `<pre>${escapeHtml(message.detail)}</pre>` : "";
-    article.innerHTML = `
-      <span class="label">${message.role === "assistant" ? "Jarvis" : "You"}</span>
-      <div class="message-body">
-        <p>${escapeHtml(message.content)}</p>
-        ${detailBlock}
-      </div>
-    `;
+    article.className = `message ${message.role}${message.status === "running" ? " running" : ""}`;
+    article.innerHTML = `<span class="label">${message.role === "assistant" ? "Jarvis" : "You"}</span>`;
+
+    const body = document.createElement("div");
+    body.className = "message-body";
+
+    if (message.content) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = message.content;
+      body.appendChild(paragraph);
+    }
+
+    appendMessageThinking(body, message);
+    appendMessagePreview(body, message);
+
+    if (message.detail) {
+      const detailBlock = document.createElement("pre");
+      detailBlock.textContent = message.detail;
+      body.appendChild(detailBlock);
+    }
+
+    article.appendChild(body);
     messages.appendChild(article);
   });
 
   messages.scrollTop = messages.scrollHeight;
 }
 
-function addMessage(role, content, detail = "") {
+function addMessage(role, content, detail = "", extras = {}) {
   const thread = getCurrentThread();
   const isFirstUserMessage = role === "user" && !thread.messages.some((message) => message.role === "user");
+  const record = createMessageRecord(role, content, detail, extras);
 
-  thread.messages.push({
-    id: `message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    detail,
-    createdAt: Date.now()
-  });
+  thread.messages.push(record);
   thread.updatedAt = Date.now();
 
   if (isFirstUserMessage) {
@@ -398,6 +532,96 @@ function addMessage(role, content, detail = "") {
   renderThreadList();
   renderCurrentThread();
   saveThreadState();
+  return record.id;
+}
+
+function updateMessage(messageId, patch = {}) {
+  const thread = getCurrentThread();
+  const message = thread.messages.find((entry) => entry.id === messageId);
+
+  if (!message) {
+    return;
+  }
+
+  Object.assign(message, patch);
+  thread.updatedAt = Date.now();
+  renderThreadList();
+  renderCurrentThread();
+  saveThreadState();
+}
+
+async function refreshLivePreviewForMessage(messageId) {
+  if (state.liveTaskPreviewBusy || typeof window.assistantAPI.getLivePreview !== "function") {
+    return;
+  }
+
+  state.liveTaskPreviewBusy = true;
+
+  try {
+    const preview = await window.assistantAPI.getLivePreview();
+
+    if (!preview?.ok || !preview.imageDataUrl) {
+      return;
+    }
+
+    updateMessage(messageId, {
+      previewImageDataUrl: preview.imageDataUrl,
+      previewSource: preview.source || "",
+      previewTitle: preview.title || ""
+    });
+  } catch (_error) {
+    // Keep the pending message alive even if preview polling fails.
+  } finally {
+    state.liveTaskPreviewBusy = false;
+  }
+}
+
+function stopAssistantProgress() {
+  if (state.liveTaskTimer) {
+    window.clearInterval(state.liveTaskTimer);
+    state.liveTaskTimer = null;
+  }
+
+  state.liveTaskPreviewBusy = false;
+  state.liveTaskMessageId = "";
+}
+
+function startAssistantProgress(messageId, input) {
+  stopAssistantProgress();
+
+  const steps = buildAssistantProgressSteps(input);
+  state.liveTaskMessageId = messageId;
+
+  updateMessage(messageId, {
+    status: "running",
+    progressSteps: steps,
+    progressStepIndex: 0,
+    progressLabel: steps[0] || "작업을 준비하는 중"
+  });
+
+  void refreshLivePreviewForMessage(messageId);
+
+  state.liveTaskTimer = window.setInterval(() => {
+    const thread = getCurrentThread();
+    const message = thread.messages.find((entry) => entry.id === messageId);
+
+    if (!message) {
+      stopAssistantProgress();
+      return;
+    }
+
+    const currentSteps = Array.isArray(message.progressSteps) ? message.progressSteps : steps;
+    const nextIndex = currentSteps.length
+      ? Math.min((Number(message.progressStepIndex) || 0) + 1, currentSteps.length - 1)
+      : 0;
+
+    updateMessage(messageId, {
+      progressStepIndex: nextIndex,
+      progressLabel: currentSteps[nextIndex] || message.progressLabel || "실행 결과를 다시 확인하는 중"
+    });
+
+    void refreshLivePreviewForMessage(messageId);
+  }, 2200);
 }
 
 function appendInteractiveMessage(node) {
@@ -1888,16 +2112,28 @@ function stripWakeWord(text, wakeWord) {
   return text.replace(new RegExp(wakeWord, "ig"), "").replace(/^[,\s]+/, "").trim();
 }
 
-async function handleAssistantResult(result) {
+async function handleAssistantResult(result, pendingMessageId = "") {
   const previewText = result.details?.showInlinePreview === true
     ? result.details?.ocrText || result.details?.text || result.details?.content || ""
     : "";
 
-  addMessage(
-    "assistant",
-    result.reply || "처리를 마쳤어요.",
-    previewText
-  );
+  if (pendingMessageId) {
+    updateMessage(pendingMessageId, {
+      status: "done",
+      content: result.reply || "처리를 마쳤어요.",
+      detail: previewText,
+      progressLabel: "",
+      progressSteps: [],
+      progressStepIndex: 0
+    });
+  } else {
+    addMessage(
+      "assistant",
+      result.reply || "처리를 마쳤어요.",
+      previewText
+    );
+  }
+
   renderActions(result.actions || []);
   renderResultPrompts(result.details || {});
   await speakText(result.reply || "", result.language || detectLanguage(result.reply || ""));
@@ -1917,15 +2153,30 @@ async function submitCommandText(input, options = {}) {
   const shouldResumeCall = state.callModeEnabled && source === "voice";
 
   addMessage("user", input);
+  const pendingMessageId = addMessage("assistant", "", "", {
+    status: "running",
+    progressSteps: [],
+    progressStepIndex: 0,
+    progressLabel: ""
+  });
+  startAssistantProgress(pendingMessageId, input);
   state.submitInFlight = true;
   setWakeState("listening");
   submitButton.disabled = true;
 
   try {
     const result = await window.assistantAPI.submitCommand(input);
-    await handleAssistantResult(result);
+    stopAssistantProgress();
+    await handleAssistantResult(result, pendingMessageId);
   } catch (error) {
-    addMessage("assistant", `처리 중 문제가 있었어요: ${error.message}`);
+    stopAssistantProgress();
+    updateMessage(pendingMessageId, {
+      status: "done",
+      content: `처리 중 문제가 있었어요: ${error.message}`,
+      progressLabel: "",
+      progressSteps: [],
+      progressStepIndex: 0
+    });
     await speakText(`처리 중 문제가 있었어요. ${error.message}`, detectLanguage(error.message || ""));
   } finally {
     state.submitInFlight = false;

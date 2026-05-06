@@ -13,12 +13,24 @@ const {
 } = require("./agent-tool-registry.cjs");
 
 const BROWSER_AGENT_DEFAULTS = {
-  maxSteps: 15,
-  maxConsecutiveFailures: 3,
-  maxRepeatActions: 2,
-  maxNoProgressActions: 3,
+  maxSteps: 18,
+  maxConsecutiveFailures: 4,
+  maxRepeatActions: 3,
+  maxNoProgressActions: 4,
   maxPingPongActions: 4
 };
+
+function chooseBrowserAgentReasoningTier() {
+  return "complex";
+}
+
+function buildPlannerModelOptions(tier = "fast") {
+  return tier === "fast"
+    ? {
+        model: FAST_PLANNER_MODEL
+      }
+    : {};
+}
 
 const STRUCTURED_BROWSER_AGENT_DECISION_SCHEMA = {
   type: "object",
@@ -782,6 +794,7 @@ class BrowserAgentRuntime {
   }
 
   async repairPlannerResponse(rawResponse, language = "en") {
+    const plannerTier = chooseBrowserAgentReasoningTier();
     const repairPrompt = [
       "Convert the following browser-planner output into valid JSON only.",
       "Do not explain or add markdown.",
@@ -796,8 +809,8 @@ class BrowserAgentRuntime {
 
     return this.chatClient({
       systemPrompt: this.systemPrompt,
-      tier: "fast",
-      model: FAST_PLANNER_MODEL,
+      tier: plannerTier,
+      ...buildPlannerModelOptions(plannerTier),
       jsonOnly: true,
       jsonSchema: STRUCTURED_BROWSER_AGENT_DECISION_SCHEMA,
       history: [],
@@ -1071,6 +1084,7 @@ class BrowserAgentRuntime {
     let finished = false;
     let lastObservation = null;
     let pendingConfirmation = null;
+    const plannerTier = chooseBrowserAgentReasoningTier(input, goalGuardrails, sessionContext);
 
     for (let step = 1; step <= maxSteps; step++) {
       const recentActions = actions.map((action) => ({
@@ -1101,8 +1115,8 @@ class BrowserAgentRuntime {
         const sessionMemory = this.buildSessionMemorySnippet();
         aiResponse = await this.chatClient({
           systemPrompt: this.systemPrompt,
-          tier: "fast",
-          model: FAST_PLANNER_MODEL,
+          tier: plannerTier,
+          ...buildPlannerModelOptions(plannerTier),
           jsonOnly: true,
           jsonSchema: STRUCTURED_BROWSER_AGENT_DECISION_SCHEMA,
           history: [
@@ -1141,8 +1155,8 @@ class BrowserAgentRuntime {
         const sessionMemory = this.buildSessionMemorySnippet();
         const localResponse = await this.chatClient({
           systemPrompt: this.systemPrompt,
-          tier: "fast",
-          model: FAST_PLANNER_MODEL,
+          tier: plannerTier,
+          ...buildPlannerModelOptions(plannerTier),
           jsonOnly: true,
           jsonSchema: STRUCTURED_BROWSER_AGENT_DECISION_SCHEMA,
           history: agentHistory.slice(-8),
@@ -1364,6 +1378,7 @@ module.exports = {
   BROWSER_AGENT_SYSTEM_PROMPT,
   BrowserAgentRuntime,
   MACOS_AUTOMATION_PERMISSION_MESSAGE,
+  chooseBrowserAgentReasoningTier,
   deriveBrowserAgentStopReason,
   mapStructuredBrowserToolToActionType,
   parseStructuredBrowserAgentDecision,

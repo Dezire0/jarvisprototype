@@ -2,7 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-  BrowserAgentRuntime
+  BrowserAgentRuntime,
+  chooseBrowserAgentReasoningTier
 } = require("../../src/main/browser-agent-runtime.cjs");
 
 function createRuntime(overrides = {}) {
@@ -151,6 +152,40 @@ test("browser agent rejects desktop.click while observed browser elements are av
 
   assert.equal(desktopClicked, false);
   assert.match(result.error, /desktop\.click is unsafe/);
+});
+
+test("browser agent uses the complex reasoning tier for structured automation", async () => {
+  const seenTiers = [];
+  const runtime = createRuntime({
+    chatClient: async (options) => {
+      seenTiers.push(options.tier);
+      return JSON.stringify({
+        thought: "I can answer now.",
+        action: null,
+        expectedOutcome: "",
+        isFinal: true,
+        finalMessage: "done"
+      });
+    }
+  });
+
+  const result = await runtime.runLoop({
+    input: "gmail에서 최신 메일 확인하고 내용 알려줘",
+    language: "ko",
+    initialState: {
+      url: "https://mail.google.com/",
+      title: "Gmail",
+      elements: [],
+      visibleText: "Inbox"
+    },
+    goalGuardrails: {
+      requiresMeaningfulInteraction: false
+    }
+  });
+
+  assert.equal(chooseBrowserAgentReasoningTier(), "complex");
+  assert.deepEqual(seenTiers, ["complex"]);
+  assert.equal(result.stopReason, "success");
 });
 
 test("browser agent rejects browser.click when the target element is missing from the current observation", async () => {

@@ -5,6 +5,14 @@ declare global {
     assistantAPI?: {
       getBootstrap: () => Promise<unknown>;
       getAppState: () => Promise<unknown>;
+      getLivePreview: () => Promise<{
+        ok?: boolean;
+        source?: string;
+        imageDataUrl?: string;
+        title?: string;
+        url?: string;
+        error?: string;
+      }>;
       checkForUpdates: () => Promise<unknown>;
       installUpdate: () => Promise<unknown>;
       transcribeAudio: (payload: {

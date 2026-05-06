@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   getAppState() {
     return ipcRenderer.invoke("assistant:get-app-state");
   },
+  getLivePreview() {
+    return ipcRenderer.invoke("assistant:get-live-preview");
+  },
   submitCommand(input) {
     return ipcRenderer.invoke("assistant:submit-command", input);
   },
