@@ -6,11 +6,14 @@ const fs = require("node:fs/promises");
 const electronBinary = require("electron");
 const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell, protocol } = electronBinary;
 
-// Register jarvis-desktop protocol
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient("jarvis-desktop", process.execPath, [path.resolve(process.argv[1])]);
-  }
+// Register jarvis-desktop protocol.
+// In development we must explicitly pass the app entry path or macOS may reopen
+// the bare Electron binary welcome screen instead of this project.
+const isDevProtocolRegistration = !app.isPackaged;
+const protocolAppEntry = path.resolve(app.getAppPath());
+
+if (isDevProtocolRegistration) {
+  app.setAsDefaultProtocolClient("jarvis-desktop", process.execPath, [protocolAppEntry]);
 } else {
   app.setAsDefaultProtocolClient("jarvis-desktop");
 }

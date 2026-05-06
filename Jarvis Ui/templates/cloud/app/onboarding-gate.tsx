@@ -41,6 +41,22 @@ import { Assistant } from "./assistant";
 
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
 
+function buildGoogleAuthUrl() {
+  if (typeof window === "undefined") {
+    return `${API_BASE}/api/auth/google`;
+  }
+
+  const authUrl = new URL(`${API_BASE}/api/auth/google`);
+  const isDesktopRuntime = Boolean((window as any).assistantAPI);
+
+  if (!isDesktopRuntime) {
+    const returnTo = `${window.location.origin}${window.location.pathname}`;
+    authUrl.searchParams.set("return_to", returnTo);
+  }
+
+  return authUrl.toString();
+}
+
 type OnboardingStep = "loading" | "auth" | "setup" | "ready";
 
 export function OnboardingGate() {
@@ -310,8 +326,7 @@ export function OnboardingGate() {
               variant="outline"
               className="h-11 rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all active:scale-95 flex gap-2"
               onClick={() => {
-                // Open the Google OAuth URL from the backend
-                window.location.href = `${API_BASE}/api/auth/google`;
+                window.location.href = buildGoogleAuthUrl();
               }}
             >
               <svg className="size-4" viewBox="0 0 24 24">

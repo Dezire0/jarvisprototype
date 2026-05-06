@@ -14,8 +14,69 @@ async function hashPassword(password: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function encodeAuthState(payload: Record<string, string>): string {
+  return btoa(JSON.stringify(payload))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function decodeAuthState(raw = ""): Record<string, string> | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const normalized = raw
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(raw.length / 4) * 4, "=");
+
+    return JSON.parse(atob(normalized));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeReturnTarget(candidate = ""): string {
+  if (!candidate) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(candidate);
+
+    if (parsed.protocol === "jarvis-desktop:") {
+      return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+    }
+
+    const allowedHosts = new Set(["127.0.0.1", "localhost"]);
+
+    if (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      allowedHosts.has(parsed.hostname)
+    ) {
+      parsed.search = "";
+      parsed.hash = "";
+      return parsed.toString();
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+function buildAuthReturnUrl(target: string, token: string, userPayload: string): string {
+  const normalizedTarget = normalizeReturnTarget(target) || "jarvis-desktop://auth";
+  const redirectUrl = new URL(normalizedTarget);
+  redirectUrl.searchParams.set("token", token);
+  redirectUrl.searchParams.set("user", userPayload);
+  return redirectUrl.toString();
+}
+
 auth.post("/register", async (c) => {
-  const { email, password } = await c.req.json();
+  const { email, password, name } = await c.req.json();
   if (!email || !password) {
     return c.json({ error: "Email and password are required" }, 400);
   }
@@ -112,19 +173,22 @@ auth.put("/plan", async (c) => {
 auth.get("/google", async (c) => {
   const clientId = c.env.GOOGLE_CLIENT_ID;
   const redirectUri = `${new URL(c.req.url).origin}/api/auth/google-callback`;
+  const returnTo = normalizeReturnTarget(c.req.query("return_to") || "");
   
   if (!clientId) {
     return c.json({ error: "Google Client ID not configured in backend" }, 500);
   }
 
   const scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
-  const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+  const state = returnTo ? encodeAuthState({ returnTo }) : "";
+  const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent${state ? `&state=${encodeURIComponent(state)}` : ""}`;
   
   return c.redirect(googleUrl);
 });
 
 auth.get("/google-callback", async (c) => {
   const code = c.req.query("code");
+  const state = decodeAuthState(c.req.query("state") || "");
   const clientId = c.env.GOOGLE_CLIENT_ID;
   const clientSecret = c.env.GOOGLE_CLIENT_SECRET;
   const redirectUri = `${new URL(c.req.url).origin}/api/auth/google-callback`;
@@ -177,12 +241,12 @@ auth.get("/google-callback", async (c) => {
       c.env.JWT_SECRET || "fallback-secret"
     );
 
-    // 5. Redirect back to App (Deep Link)
-    const frontendUrl = "jarvis-desktop://auth"; 
-    
-    const userJson = encodeURIComponent(JSON.stringify({ id: user.id, email: user.email, plan: user.plan }));
-    
-    return c.redirect(`${frontendUrl}?token=${token}&user=${userJson}`);
+    // 5. Redirect back to App (deep link by default, local browser callback when requested)
+    const frontendUrl = normalizeReturnTarget(state?.returnTo || "") || "jarvis-desktop://auth";
+
+    const userJson = JSON.stringify({ id: user.id, email: user.email, plan: user.plan });
+
+    return c.redirect(buildAuthReturnUrl(frontendUrl, token, userJson));
   } catch (error: any) {
     console.error("Google Auth Error:", error);
     return c.json({ error: error.message || "Authentication failed" }, 500);

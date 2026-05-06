@@ -16,6 +16,12 @@
   - `fillStoredCredential(...)` now supports two-step login flows by filling username first, advancing with Continue/Next when needed, then filling the password field.
   - `handleBrowserLogin(...)` now prefills saved credentials on "로그인창 먼저" flows with `submit: false` so the user still controls the final sensitive submit step.
 
+- Browser auth handoff:
+  - `Jarvis Ui/templates/cloud/app/onboarding-gate.tsx` now sends browser-based Google login flows to `/api/auth/google?return_to=<current local UI>` instead of always relying on a desktop deep link.
+  - `backend/src/routes/auth.ts` now preserves a sanitized `return_to` target through Google OAuth `state` and redirects back to that local URL with `token` and `user` query params after callback.
+  - The auth Worker was deployed successfully to `https://jarvis-auth-service.dexproject.workers.dev` as version `640141d9-7c96-4d1e-af94-0bab793cea9a`.
+  - `src/main/main.cjs` also keeps the development `jarvis-desktop://` protocol registration explicit so packaged-app handoff and browser-based handoff are both covered.
+
 - In-thread progress UX:
   - `src/main/main.cjs` and `src/preload.cjs` expose `assistant:get-live-preview`.
   - `src/renderer/renderer.js` adds a running assistant message, safe high-level progress stages, and live preview polling during in-flight actions.
@@ -24,6 +30,7 @@
 - Verification:
   - `npm run check` passed.
   - `node --test tests/node/assistant-service.test.cjs tests/node/web-ai-dom-helpers.test.cjs` passed with `40/40`.
+  - `corepack pnpm --dir 'Jarvis Ui' --filter assistant-ui-starter-cloud build` passed.
   - `npm run dev` booted successfully and served `http://127.0.0.1:3310`.
   - Electron `Jarvis Desktop` launched and rendered the login gate successfully.
 
