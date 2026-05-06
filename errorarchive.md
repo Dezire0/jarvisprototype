@@ -1,27 +1,31 @@
-# 2026-05-05 Latest Fixes
+# 2026-05-06 Latest Fixes
 
-1. Created the tracking issue from the validation logs.
-   GitHub issue [#7](https://github.com/Dezire0/jarvisprototype/issues/7) now records the OpenClaw-first browser fallback gap, the Gmail/Amazon regressions, and the requested direction for session-command integration.
+- Browser continuity:
+  - `src/main/assistant-service.cjs` now keeps browser opens inside the controlled assistant browser first through `openBrowserTargetForUser(...)` instead of preferring external `open_url` recovery.
+  - Mailbox follow-up detection now treats latest-message requests as mailbox actions and routes them to a deterministic controlled-browser action.
 
-2. Added a real OpenClaw session adapter.
-   `src/main/openclaw-service.cjs` now calls the bundled `claw` CLI with JSON output, reuses `--resume latest` when a local `.claw/sessions` history exists, and asks OpenClaw for a constrained browser plan instead of leaving web fallback entirely to Jarvis heuristics.
+- Mailbox execution:
+  - `src/main/beta/browser-service-beta.cjs` adds `openLatestMailboxMessage()` and mailbox-item marking heuristics so `가장 최신 메시지 들어가줘` opens the newest visible item instead of only replying as if it did.
 
-3. Promoted browser handling to OpenClaw-first planning.
-   `src/main/assistant-service.cjs` now asks OpenClaw for browser plans first, records planner/session metadata in command details, and only drops back to the old Jarvis heuristic planner if the OpenClaw call is unavailable or fails.
+- Login context inheritance:
+  - `src/main/assistant-service.cjs` adds `looksLikeGenericBrowserLoginRequest(...)` and reuses `lastBrowserTargetUrl` / `lastBrowserTargetLabel` for generic follow-ups like `로그인 진행해줘 로그인창으로 먼저 들어가`.
+  - Manual login replies on this route are now deterministic instead of being rephrased by the chat model, preventing false "로그인 완료" responses.
 
-4. Preserved Jarvis ownership for local-only strengths.
-   The `jarvis-structured` vs `openclaw-fallback` execution split remains intact: browser and official-site recovery now use the OpenClaw session planner, while local app control, OBS, files, games, and other specialized desktop flows stay on Jarvis-owned handlers.
+- Login screen entry and credential fill:
+  - `src/main/beta/browser-service-beta.cjs` adds `openLoginEntry(...)` for semantic sign-in entry clicks plus known login URL fallback.
+  - `fillStoredCredential(...)` now supports two-step login flows by filling username first, advancing with Continue/Next when needed, then filling the password field.
+  - `handleBrowserLogin(...)` now prefills saved credentials on "로그인창 먼저" flows with `submit: false` so the user still controls the final sensitive submit step.
 
-5. Upgraded the BrowserService execution surface so OpenClaw plans can actually run.
-   `src/main/beta/browser-service-beta.cjs` now implements `open`, `search`, `readPage`, `executePlan`, and `loginWithStoredCredential`, plus generic semantic helpers for site search, visible-link selection, and stored-credential login submission.
+- In-thread progress UX:
+  - `src/main/main.cjs` and `src/preload.cjs` expose `assistant:get-live-preview`.
+  - `src/renderer/renderer.js` adds a running assistant message, safe high-level progress stages, and live preview polling during in-flight actions.
+  - `src/renderer/styles.css` adds compact preview-card and thinking-state styling sized for a small inline popup.
 
-6. Wired OpenClaw into the main runtime and syntax validation.
-   `src/main/main.cjs` now instantiates `OpenClawService` and injects it into every `AssistantService`, and `package.json` now includes `src/main/openclaw-service.cjs` in `npm run check`.
+- Verification:
+  - `npm run check` passed.
+  - `node --test tests/node/assistant-service.test.cjs tests/node/web-ai-dom-helpers.test.cjs` passed with `40/40`.
+  - `npm run dev` booted successfully and served `http://127.0.0.1:3310`.
+  - Electron `Jarvis Desktop` launched and rendered the login gate successfully.
 
-7. Added regression coverage for OpenClaw planning success and failure.
-   `tests/node/assistant-service.test.cjs` now verifies that simple browser opens can come from an OpenClaw session plan, that Jarvis heuristics still recover cleanly when the OpenClaw planner fails, and that multi-step OpenClaw plans go through the structured browser executor.
-
-8. Validation result.
-   `npm run check` passed.
-   `node --test tests/node/assistant-service.test.cjs tests/node/web-ai-dom-helpers.test.cjs` passed with `37/37`.
-   `npm run dev` completed the nested UI build and reached `http://127.0.0.1:3310` before manual stop.
+- Remaining limitation:
+  - Full visual confirmation of the logged-in chat preview card was not completed in this cycle because the onboarding flow currently wipes local auth state on version change and the dev session remained at the login gate without a fresh authenticated session.

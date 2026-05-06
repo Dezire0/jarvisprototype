@@ -587,6 +587,10 @@ textarea {
   gap: 8px;
 }
 
+.message.running {
+  opacity: 0.98;
+}
+
 .message.assistant {
   justify-self: stretch;
 }
@@ -604,6 +608,13 @@ textarea {
 
 .message-body {
   padding: 0 2px;
+}
+
+.message.assistant.running .message-body {
+  padding: 14px 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .message.user .message-body {
@@ -632,6 +643,101 @@ textarea {
     "JetBrains Mono",
     monospace;
   font-size: 12px;
+}
+
+.message-thinking {
+  display: grid;
+  gap: 10px;
+}
+
+.message-thinking-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.message-thinking-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45);
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+
+.message-thinking-copy {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.message-thinking-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.message-thinking-stage {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.message-thinking-stage.active {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--text);
+}
+
+.message-preview-card {
+  width: min(100%, 320px);
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(12, 12, 14, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.message-preview-card.compact {
+  width: min(100%, 300px);
+}
+
+.message-preview-image {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 12px;
+  display: block;
+  background: #0c0c0f;
+}
+
+.message-preview-meta {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@keyframes thinking-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.35);
+    opacity: 0.7;
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
+    opacity: 1;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    opacity: 0.7;
+  }
 }
 
 .composer {

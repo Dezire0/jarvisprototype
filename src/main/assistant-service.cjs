@@ -290,6 +290,12 @@ function extractMailboxSearchQuery(text = "") {
   return "";
 }
 
+function looksLikeLatestMailboxOpenRequest(text = "") {
+  return /(?:가장\s*최신\s*(?:메시지|메일|이메일)|최신\s*(?:메시지|메일|이메일)|방금\s*온\s*(?:메일|이메일)|recent\s*(?:message|mail|email)|latest\s*(?:message|mail|email)).*(?:열어|들어가|보여|open|go|show)/i.test(
+    normalizePlanText(text)
+  );
+}
+
 function guessSiteName(text) {
   const normalized = normalizePlanText(text);
   const stripped = stripCommandPrefix(normalized);
@@ -882,6 +888,12 @@ function buildHeuristicBrowserPlan(input) {
 function wantsSavedBrowserLogin(text = "") {
   return /(?:자동 로그인|저장된 (?:계정|로그인|자격 증명)|saved (?:login|credential|credentials)|autofill|auto[- ]?login|use (?:my )?saved (?:login|credential|credentials))/i.test(
     normalizePlanText(text)
+  );
+}
+
+function looksLikeGenericBrowserLoginRequest(text = "") {
+  return /^(?:로그인(?:\s*진행해줘|\s*해줘|\s*해|\s*진행)?(?:\s*로그인창으로\s*먼저\s*들어가)?|로그인창(?:으로)?\s*(?:먼저\s*)?(?:들어가|열어줘)|sign\s*in|log\s*in|login)(?:\s*(?:please|now|first))?$/i.test(
+    normalizePlanText(stripCommandPrefix(text))
   );
 }
 
@@ -2808,9 +2820,28 @@ class AssistantService {
     return this.executeRoute(pending.originalInput || input, mergedRoute);
   }
 
-  async openBrowserTargetForUser(targetUrl) {
+  async openBrowserTargetForUser(targetUrl, options = {}) {
     if (!targetUrl) {
       throw new Error("A browser target is required.");
+    }
+
+    const preferControlledBrowser = options.preferControlledBrowser !== false;
+
+    try {
+      if (preferControlledBrowser && (typeof this.browser.open === "function" || typeof this.browser.navigate === "function")) {
+        const page =
+          typeof this.browser.open === "function"
+            ? await this.browser.open(targetUrl)
+            : await this.browser.navigate(targetUrl);
+
+        return {
+          url: page.url || targetUrl,
+          title: page.title || "",
+          openMode: "assistant-browser"
+        };
+      }
+    } catch (_error) {
+      // Fall through to external browser recovery below.
     }
 
     try {
@@ -3464,6 +3495,7 @@ class AssistantService {
     }
 
     return (
+      looksLikeLatestMailboxOpenRequest(input) ||
       Boolean(extractMailboxSearchQuery(input)) ||
       /(?:이메일\s*내용|메일\s*내용|이\s*메일|그\s*메일|이\s*이메일|그\s*이메일|최근\s*메일|방금\s*온\s*메일|발신자|보낸\s*사람|sender|latest\s*email|recent\s*email|email\s*content|mail\s*content)/i.test(
         normalizePlanText(input)
@@ -4708,6 +4740,30 @@ class AssistantService {
     const plannedWorkflow = browserPlanning.plan;
     const stayInCurrentBrowserContext = this.looksLikeBrowserContextFollowUp(input);
 
+    if (
+      stayInCurrentBrowserContext &&
+      this.looksLikeMailboxContextFollowUp(input) &&
+      looksLikeLatestMailboxOpenRequest(input) &&
+      typeof this.browser.openLatestMailboxMessage === "function"
+    ) {
+      const data = await this.browser.openLatestMailboxMessage();
+      const title = inferFriendlyBrowserLabel(data.title || this.lastBrowserTargetLabel || "message", language) || (language === "ko" ? "최신 메시지" : "the latest message");
+      this.rememberBrowserContext(data.url || this.lastBrowserTargetUrl, title);
+
+      return {
+        reply:
+          language === "ko"
+            ? "가장 최신 메일을 열어봤어요."
+            : "I opened the latest email.",
+        actions: [this.makeAction("browser_open_latest_mailbox_message", data.openedMailboxItem || title)],
+        provider: "assistant-browser",
+        details: this.attachBrowserPlannerDetails({
+          ...data,
+          openMode: "assistant-browser"
+        }, plannerMeta)
+      };
+    }
+
     if (!stayInCurrentBrowserContext && plannedWorkflow.login?.required && plannedWorkflow.steps?.length) {
       return this.beginPendingBrowserContinuation(input, plannedWorkflow, plannerMeta);
     }
@@ -4929,7 +4985,26 @@ class AssistantService {
 
   async handleBrowserLogin(input, route) {
     const language = detectReplyLanguage(input);
-    const siteOrUrl = cleanupParsedText(route.siteOrUrl || extractUrl(input) || stripCommandPrefix(input));
+    const explicitSiteOrUrl = cleanupParsedText(
+      route.siteOrUrl ||
+      extractUrl(input) ||
+      ""
+    );
+    const inferredInputTarget = cleanupParsedText(stripCommandPrefix(input));
+    const genericContextOnlyRequest =
+      !explicitSiteOrUrl &&
+      (!inferredInputTarget || looksLikeGenericBrowserLoginRequest(inferredInputTarget));
+    const preferredContextLabel = genericContextOnlyRequest
+      ? cleanupParsedText(this.lastBrowserTargetLabel || "")
+      : "";
+    const contextSite = cleanupParsedText(
+      explicitSiteOrUrl ||
+      (genericContextOnlyRequest
+        ? (this.lastBrowserTargetUrl || this.lastBrowserTargetLabel)
+        : inferredInputTarget) ||
+      (this.lastBrowserTargetUrl ? this.lastBrowserTargetUrl : this.lastBrowserTargetLabel)
+    );
+    const siteOrUrl = contextSite;
 
     if (!siteOrUrl || /^(?:login|log in|sign in|로그인(?:해줘|해)?|사인인)$/i.test(siteOrUrl)) {
       return this.beginClarification(
@@ -4946,39 +5021,63 @@ class AssistantService {
       );
     }
 
+    const savedCredential = this.credentials?.getCredential
+      ? await this.credentials.getCredential(siteOrUrl).catch(() => null)
+      : null;
+
+    if (savedCredential && typeof this.browser.fillStoredCredential === "function") {
+      const data = await this.browser.fillStoredCredential(siteOrUrl, {
+        submit: false,
+        ensureLoginPage: true
+      });
+      const fallback =
+        language === "ko"
+          ? `${savedCredential.site || siteOrUrl} 로그인 화면으로 이동하고 저장된 아이디와 비밀번호를 먼저 채워뒀어요.`
+          : `I opened the login screen for ${savedCredential.site || siteOrUrl} and prefilled the saved username and password.`;
+
+      this.rememberBrowserContext(data.url || this.lastBrowserTargetUrl, savedCredential.site || siteOrUrl);
+
+      return {
+        reply: fallback,
+        actions: [this.makeAction("browser_login_prefill", savedCredential.site || siteOrUrl)],
+        provider: "assistant-browser",
+        details: {
+          ...data,
+          loginMode: "prefilled"
+        }
+      };
+    }
+
     if (!wantsSavedBrowserLogin(input)) {
-      const targetUrl = buildDirectSiteUrl(siteOrUrl) || normalizeBrowserOpenUrl(siteOrUrl);
-      const opened = await this.openBrowserTargetForUser(targetUrl);
+      let opened;
+
+      if (typeof this.browser.openLoginEntry === "function") {
+        opened = await this.browser.openLoginEntry(siteOrUrl);
+        opened.openMode = "assistant-browser";
+      } else {
+        const targetUrl = buildDirectSiteUrl(siteOrUrl) || normalizeBrowserOpenUrl(siteOrUrl);
+        opened = await this.openBrowserTargetForUser(targetUrl);
+      }
+
+      const targetUrl = opened.url || buildDirectSiteUrl(siteOrUrl) || normalizeBrowserOpenUrl(siteOrUrl);
       const siteLabel =
+        preferredContextLabel ||
         inferFriendlyBrowserLabel(siteOrUrl || opened.title || targetUrl, language) ||
         (language === "ko" ? "사이트" : "the site");
       const fallback =
         language === "ko"
-          ? `${siteLabel} 로그인 화면을 열어뒀어요. 여기서 직접 로그인하시면 돼요.`
+          ? `${siteLabel} 로그인 화면으로 먼저 이동해뒀어요.`
           : `I opened the ${siteLabel} login page so you can sign in there yourself.`;
 
-      this.rememberBrowserContext(opened.url || targetUrl, siteLabel);
+      this.rememberBrowserContext(targetUrl, siteLabel);
 
       return {
-        reply: await this.polishCommandReply(
-          input,
-          {
-            actions: [this.makeAction("browser_login", siteLabel)],
-            details: {
-              title: opened.title || "",
-              url: opened.url || targetUrl,
-              openMode: opened.openMode,
-              loginMode: "manual",
-              site: siteLabel
-            }
-          },
-          fallback
-        ),
+        reply: fallback,
         actions: [this.makeAction("browser_login", siteLabel)],
         provider: opened.openMode,
         details: {
           title: opened.title || "",
-          url: opened.url || targetUrl,
+          url: targetUrl,
           openMode: opened.openMode,
           loginMode: "manual",
           site: siteLabel

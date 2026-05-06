@@ -1,9 +1,4 @@
-# 2026-05-05 Latest Errors
+# 2026-05-06 Latest Errors
 
-- No blocking runtime error reproduced in this validation cycle.
-- Non-blocking note: `npm run dev` still prints the nested workspace prepare warning `.git can't be found` from Husky, but the build continues and the Next dev server reaches ready state.
-- Validation run in this cycle:
-  1. `npm run check`
-  2. `node --test tests/node/assistant-service.test.cjs tests/node/web-ai-dom-helpers.test.cjs`
-  3. `npm run dev`
-- Remaining unverified area: authenticated live website flows inside the Electron window were not manually driven end-to-end in this cycle.
+- No reproducible browser follow-up or login regression remains in the current automated cycle.
+- Validation gap: the logged-in chat surface could not be visually exercised end-to-end today because the current `Jarvis Ui/templates/cloud/app/onboarding-gate.tsx` flow auto-wipes local auth state on version change and the dev session stops at the login gate without a fresh authenticated session.

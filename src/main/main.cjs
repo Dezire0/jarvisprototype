@@ -97,6 +97,43 @@ function ensureReadyServices() {
   };
 }
 
+async function captureLivePreviewSnapshot() {
+  const { services: liveServices } = ensureReadyServices();
+
+  try {
+    const browserStatus = await liveServices.browser.peekStatus?.();
+
+    if (browserStatus?.pageActive && typeof liveServices.browser.capturePreview === "function") {
+      const preview = await liveServices.browser.capturePreview();
+      return {
+        ok: true,
+        source: "assistant-browser",
+        imageDataUrl: preview.imageDataUrl,
+        title: preview.title || "",
+        url: preview.url || ""
+      };
+    }
+  } catch (_error) {
+    // Fall through to desktop screenshot below.
+  }
+
+  try {
+    const { imagePath } = await liveServices.screen.captureScreen();
+    const bytes = await fs.readFile(imagePath);
+    return {
+      ok: true,
+      source: "desktop-screen",
+      imageDataUrl: `data:image/png;base64,${bytes.toString("base64")}`
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      source: "unavailable",
+      error: error.message
+    };
+  }
+}
+
 async function createServices() {
   const credentials = new CredentialStore({ app, safeStorage });
   const memory = new MemoryStore({ app });
@@ -1175,6 +1212,10 @@ ipcMain.handle("assistant:get-app-state", async () => {
     updater: updaterService ? updaterService.getStatus() : null,
     muted: assistantMuted
   };
+});
+
+ipcMain.handle("assistant:get-live-preview", async () => {
+  return captureLivePreviewSnapshot();
 });
 
 ipcMain.handle("assistant:check-for-updates", async () => {

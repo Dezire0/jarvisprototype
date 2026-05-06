@@ -297,15 +297,11 @@ test("handleBrowser waits for manual login before running the rest of a chained 
 
   const pending = await service.handleBrowser("깃허브에서 openai 검색하고 로그인하고 활동 보여줘");
 
-  assert.deepEqual(calls, [
-    {
-      type: "open_url",
-      target: "https://github.com/"
-    }
-  ]);
+  assert.deepEqual(calls, []);
   assert.equal(browserPlans.length, 0);
   assert.equal(pending.details.pendingBrowserContinuation, true);
   assert.match(pending.reply, /로그인 화면/);
+  assert.equal(pending.provider, "assistant-browser");
 
   const resumed = await service.continuePendingBrowserContinuation("계속");
 
@@ -350,6 +346,36 @@ test("handleBrowser maps a generic email-site follow-up to Gmail instead of a Go
   ]);
   assert.equal(result.provider, "system-browser");
   assert.equal(result.reply, "지메일 열었어요.");
+});
+
+test("handleBrowser opens the latest mailbox message inside the controlled browser context", async () => {
+  const service = new AssistantService({
+    automation: {},
+    browser: {
+      async openLatestMailboxMessage() {
+        return {
+          url: "https://mail.google.com/mail/u/0/#inbox/FMfcgzQ...",
+          title: "Inbox - Gmail",
+          openedMailboxItem: "Latest message",
+          visibleText: "Latest message body"
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  service.lastBrowserTargetUrl = "https://mail.google.com/mail/u/0/#inbox";
+  service.lastBrowserTargetLabel = "Gmail";
+
+  const result = await service.handleBrowser("가장 최신 메시지 들어가줘");
+
+  assert.equal(result.provider, "assistant-browser");
+  assert.equal(result.actions[0].type, "browser_open_latest_mailbox_message");
+  assert.match(result.reply, /최신 메일/);
 });
 
 test("handleBrowser prefers an OpenClaw session plan when available", async () => {
@@ -745,17 +771,19 @@ test("handleBrowserLogin opens the login page for manual sign-in by default", as
       }
     },
     browser: {
-      async loginWithStoredCredential() {
-        assert.fail("manual login should not autofill saved credentials by default");
-      },
-      async open(target) {
+      async openLoginEntry(target) {
         return {
           url: target,
-          title: "GitHub"
+          title: "GitHub",
+          openMode: "assistant-browser"
         };
       }
     },
-    credentials: {},
+    credentials: {
+      async getCredential() {
+        return null;
+      }
+    },
     files: {},
     obs: {},
     screen: {},
@@ -766,14 +794,98 @@ test("handleBrowserLogin opens the login page for manual sign-in by default", as
     siteOrUrl: "깃허브"
   });
 
-  assert.deepEqual(calls, [
+  assert.deepEqual(calls, []);
+  assert.equal(result.details.loginMode, "manual");
+  assert.equal(result.provider, "assistant-browser");
+  assert.match(result.reply, /로그인 화면/);
+});
+
+test("handleBrowserLogin reuses the current browser context when the user does not repeat the site", async () => {
+  const loginTargets = [];
+  const service = new AssistantService({
+    automation: {},
+    browser: {
+      async openLoginEntry(target) {
+        loginTargets.push(target);
+        return {
+          url: "https://www.amazon.ca/ap/signin",
+          title: "Amazon Sign-In",
+          openMode: "assistant-browser"
+        };
+      }
+    },
+    credentials: {
+      async getCredential() {
+        return null;
+      }
+    },
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  service.lastBrowserTargetUrl = "https://www.amazon.ca/";
+  service.lastBrowserTargetLabel = "Amazon";
+
+  const result = await service.handleBrowserLogin("로그인 진행해줘 로그인창으로 먼저 들어가", {});
+
+  assert.deepEqual(loginTargets, ["https://www.amazon.ca/"]);
+  assert.equal(result.details.site, "Amazon");
+  assert.equal(result.provider, "assistant-browser");
+});
+
+test("handleBrowserLogin prefills saved credentials after opening the login screen", async () => {
+  const fillCalls = [];
+  const service = new AssistantService({
+    automation: {},
+    browser: {
+      async fillStoredCredential(target, options) {
+        fillCalls.push({
+          target,
+          options
+        });
+        return {
+          site: "amazon.ca",
+          url: "https://www.amazon.ca/ap/signin",
+          title: "Amazon Sign-In",
+          usernameFilled: true,
+          passwordFilled: true,
+          loginPrefilled: true
+        };
+      }
+    },
+    credentials: {
+      async getCredential() {
+        return {
+          site: "amazon.ca",
+          username: "user@example.com",
+          password: "secret"
+        };
+      }
+    },
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowserLogin("amazon.ca 로그인 진행해줘", {
+    siteOrUrl: "amazon.ca"
+  });
+
+  assert.deepEqual(fillCalls, [
     {
-      type: "open_url",
-      target: "https://github.com/"
+      target: "amazon.ca",
+      options: {
+        submit: false,
+        ensureLoginPage: true
+      }
     }
   ]);
-  assert.equal(result.details.loginMode, "manual");
-  assert.match(result.reply, /직접 로그인/);
+  assert.equal(result.details.loginMode, "prefilled");
+  assert.equal(result.provider, "assistant-browser");
+  assert.match(result.reply, /아이디와 비밀번호/);
 });
 
 test("handleInput still uses the local action router when a web AI provider is connected", async () => {

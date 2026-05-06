@@ -309,6 +309,132 @@ async function clickFirstAvailable(page, selectors = []) {
   return "";
 }
 
+function normalizeSiteHost(input = "") {
+  const raw = String(input || "").trim();
+
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(raw.includes("://") ? raw : `https://${raw}`);
+    return parsed.hostname.replace(/^www\./i, "");
+  } catch (_error) {
+    return raw.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/.*$/, "");
+  }
+}
+
+function buildKnownLoginUrl(siteOrUrl = "") {
+  const host = normalizeSiteHost(siteOrUrl);
+
+  if (!host) {
+    return "";
+  }
+
+  if (/^amazon\./i.test(host)) {
+    return `https://${host}/ap/signin`;
+  }
+
+  if (host === "github.com") {
+    return "https://github.com/login";
+  }
+
+  if (host === "google.com" || host === "mail.google.com" || host === "gmail.com") {
+    return "https://accounts.google.com/ServiceLogin";
+  }
+
+  if (host === "outlook.live.com" || host === "hotmail.com" || host === "login.live.com") {
+    return "https://login.live.com/";
+  }
+
+  return `https://${host}/login`;
+}
+
+function browserUrlMatchesSite(currentUrl = "", siteOrUrl = "") {
+  const currentHost = normalizeSiteHost(currentUrl);
+  const targetHost = normalizeSiteHost(siteOrUrl);
+
+  if (!currentHost || !targetHost) {
+    return false;
+  }
+
+  return currentHost === targetHost || currentHost.endsWith(`.${targetHost}`) || targetHost.endsWith(`.${currentHost}`);
+}
+
+async function markBestMailboxItem(page) {
+  return page.evaluate(() => {
+    document.querySelectorAll("[data-jarvis-mail-target]").forEach((node) => {
+      node.removeAttribute("data-jarvis-mail-target");
+    });
+
+    const selectors = [
+      "[role='main'] [role='option']",
+      "[role='main'] [role='link']",
+      "[role='main'] tr",
+      "[role='main'] article",
+      "main [role='option']",
+      "main a",
+      "main tr",
+      "main article",
+      "main li"
+    ];
+    const ignorePattern = /(inbox|compose|drafts|sent|spam|trash|starred|archive|settings|메일함|받은편지함|보낸편지함|임시보관함|스팸|휴지통|설정)/i;
+    const nodes = Array.from(document.querySelectorAll(selectors.join(",")));
+    let bestNode = null;
+    let bestScore = -Infinity;
+
+    for (const node of nodes) {
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      const text = (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
+
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+        continue;
+      }
+
+      if (rect.width === 0 || rect.height === 0 || rect.bottom < 80 || rect.top > window.innerHeight) {
+        continue;
+      }
+
+      if (text.length < 8 || ignorePattern.test(text)) {
+        continue;
+      }
+
+      let score = 10000 - rect.top;
+
+      if (node.matches("[role='option'], tr, article")) {
+        score += 120;
+      }
+
+      if (node.matches("a[href]")) {
+        score += 80;
+      }
+
+      if (text.length >= 18 && text.length <= 220) {
+        score += 40;
+      }
+
+      if (/unread|읽지 않음|새 메일|new/i.test(text)) {
+        score += 60;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestNode = node;
+      }
+    }
+
+    if (!bestNode) {
+      return null;
+    }
+
+    bestNode.setAttribute("data-jarvis-mail-target", "latest");
+    return {
+      text: (bestNode.innerText || bestNode.textContent || "").replace(/\s+/g, " ").trim().slice(0, 160)
+    };
+  });
+}
+
 async function resolveVisibleLinkHref(page, index = 1) {
   return page.locator("main a[href], article a[href], nav a[href], a[href]").evaluateAll((nodes, targetIndex) => {
     const visible = nodes
@@ -626,7 +752,88 @@ class BrowserService {
     return observeState(page);
   }
 
-  async loginWithStoredCredential(siteOrUrl) {
+  async openLatestMailboxMessage() {
+    const page = await this.getPage();
+    const marked = await markBestMailboxItem(page);
+
+    if (!marked) {
+      throw new Error("Could not find a visible latest message item in the current mailbox.");
+    }
+
+    const locator = page.locator("[data-jarvis-mail-target='latest']").first();
+    await locator.scrollIntoViewIfNeeded().catch(() => {});
+    await locator.click({ timeout: 5000 });
+    await waitForPageSettle(page, 1000);
+
+    return {
+      ...(await observeState(page)),
+      openedMailboxItem: marked.text
+    };
+  }
+
+  async openLoginEntry(siteOrUrl = "") {
+    const page = await this.getPage();
+    const currentUrl = page.url();
+
+    if (!browserUrlMatchesSite(currentUrl, siteOrUrl)) {
+      await page.goto(normalizeUrl(siteOrUrl), {
+        waitUntil: "domcontentloaded",
+        timeout: 15000
+      });
+      await waitForPageSettle(page, 700);
+    }
+
+    const clickedBy = await clickFirstAvailable(page, [
+      "a:has-text('Sign in')",
+      "button:has-text('Sign in')",
+      "[role='link']:has-text('Sign in')",
+      "[role='button']:has-text('Sign in')",
+      "a:has-text('Log in')",
+      "button:has-text('Log in')",
+      "[role='link']:has-text('Log in')",
+      "[role='button']:has-text('Log in')",
+      "a:has-text('Login')",
+      "button:has-text('Login')",
+      "[role='link']:has-text('Login')",
+      "[role='button']:has-text('Login')",
+      "a:has-text('로그인')",
+      "button:has-text('로그인')",
+      "[role='link']:has-text('로그인')",
+      "[role='button']:has-text('로그인')",
+      "a:has-text('Hello, sign in')",
+      "a:has-text('Sign In')",
+      "button:has-text('Sign In')"
+    ]);
+
+    if (clickedBy) {
+      return {
+        ...(await observeState(page)),
+        loginEntry: clickedBy
+      };
+    }
+
+    const knownLoginUrl = buildKnownLoginUrl(siteOrUrl);
+
+    if (knownLoginUrl && normalizeUrl(knownLoginUrl) !== normalizeUrl(page.url())) {
+      await page.goto(knownLoginUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 15000
+      });
+      await waitForPageSettle(page, 900);
+
+      return {
+        ...(await observeState(page)),
+        loginEntry: knownLoginUrl
+      };
+    }
+
+    return {
+      ...(await observeState(page)),
+      loginEntry: ""
+    };
+  }
+
+  async fillStoredCredential(siteOrUrl, options = {}) {
     if (!this.credentialStore?.getCredential) {
       throw new Error("Credential storage is not configured.");
     }
@@ -637,15 +844,15 @@ class BrowserService {
       throw new Error(`No saved credential was found for ${siteOrUrl}.`);
     }
 
-    const targetUrl = credential.loginUrl || siteOrUrl;
-    const page = await this.getPage();
-    await page.goto(normalizeUrl(targetUrl), {
-      waitUntil: "domcontentloaded",
-      timeout: 15000
-    });
-    await waitForPageSettle(page, 700);
+    const submit = options.submit !== false;
+    const ensureLoginPage = options.ensureLoginPage !== false;
 
-    await fillFirstAvailable(page, [
+    if (ensureLoginPage) {
+      await this.openLoginEntry(credential.loginUrl || siteOrUrl);
+    }
+
+    const page = await this.getPage();
+    const usernameSelector = await fillFirstAvailable(page, [
       "input[autocomplete='username']",
       "input[autocomplete='email']",
       "input[type='email']",
@@ -656,36 +863,88 @@ class BrowserService {
       "input[type='text']"
     ], credential.username);
 
-    const passwordSelector = await fillFirstAvailable(page, [
+    let passwordSelector = await fillFirstAvailable(page, [
       "input[autocomplete='current-password']",
       "input[type='password']"
     ], credential.password);
+
+    let intermediateSelector = "";
+
+    if (!passwordSelector && usernameSelector) {
+      intermediateSelector = await clickFirstAvailable(page, [
+        "button:has-text('Continue')",
+        "button:has-text('Next')",
+        "button:has-text('계속')",
+        "button:has-text('다음')",
+        "input[type='submit']",
+        "[role='button']:has-text('Continue')",
+        "[role='button']:has-text('Next')"
+      ]);
+
+      if (!intermediateSelector) {
+        await page.keyboard.press("Enter").catch(() => {});
+        await waitForPageSettle(page, 900);
+      }
+
+      passwordSelector = await fillFirstAvailable(page, [
+        "input[autocomplete='current-password']",
+        "input[type='password']"
+      ], credential.password);
+    }
 
     if (!passwordSelector) {
       throw new Error("Could not find a visible password field on the login page.");
     }
 
-    const submittedBy = await clickFirstAvailable(page, [
-      "button[type='submit']",
-      "input[type='submit']",
-      "button:has-text('Sign in')",
-      "button:has-text('Log in')",
-      "button:has-text('Continue')",
-      "[role='button']:has-text('Sign in')",
-      "[role='button']:has-text('Log in')"
-    ]);
+    let submittedBy = "";
 
-    if (!submittedBy) {
-      await page.keyboard.press("Enter").catch(() => {});
+    if (submit) {
+      submittedBy = await clickFirstAvailable(page, [
+        "button[type='submit']",
+        "input[type='submit']",
+        "button:has-text('Sign in')",
+        "button:has-text('Log in')",
+        "button:has-text('Continue')",
+        "[role='button']:has-text('Sign in')",
+        "[role='button']:has-text('Log in')"
+      ]);
+
+      if (!submittedBy) {
+        await page.keyboard.press("Enter").catch(() => {});
+      }
+
+      await waitForPageSettle(page, 1200);
+    } else {
+      await waitForPageSettle(page, 500);
     }
 
-    await waitForPageSettle(page, 1200);
     const state = await observeState(page);
     return {
       ...state,
       credentialSite: credential.site,
-      loginUrl: normalizeUrl(targetUrl),
-      submittedBy: submittedBy || "keyboard-enter"
+      loginUrl: normalizeUrl(credential.loginUrl || siteOrUrl),
+      usernameFilled: Boolean(usernameSelector),
+      passwordFilled: Boolean(passwordSelector),
+      continuedToPassword: Boolean(intermediateSelector),
+      submittedBy: submit ? submittedBy || "keyboard-enter" : "not-submitted",
+      loginPrefilled: true
+    };
+  }
+
+  async loginWithStoredCredential(siteOrUrl) {
+    return this.fillStoredCredential(siteOrUrl, {
+      submit: true,
+      ensureLoginPage: true
+    });
+  }
+
+  async capturePreview() {
+    const page = await this.getPage();
+    const buffer = await page.screenshot({ type: "png", fullPage: false });
+    return {
+      imageDataUrl: `data:image/png;base64,${buffer.toString("base64")}`,
+      url: page.url(),
+      title: await page.title().catch(() => "")
     };
   }
 
