@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require("electron");
+const { buildDomHelperSource } = require("./web-ai-dom-helpers.cjs");
 
 /**
  * This script is injected into the ChatGPT web session to act as a bridge
@@ -8,36 +9,36 @@ const { contextBridge, ipcRenderer } = require("electron");
 // We use IPC to listen for prompts from the main process
 ipcRenderer.on("web-ai-prompt", async (event, prompt) => {
   try {
-    // Note: These selectors are highly volatile and depend on ChatGPT's current UI
-    const textAreaSelector = "textarea#prompt-textarea";
-    const sendButtonSelector = "[data-testid='send-button']";
+    const helperSource = buildDomHelperSource();
+    const runner = new Function(
+      "promptValue",
+      `
+      ${helperSource}
+      return (async () => {
+        let composer = null;
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          composer = jarvisFindChatInput();
+          if (composer) {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
 
-    const textArea = document.querySelector(textAreaSelector);
-    if (!textArea) {
-      throw new Error("Could not find prompt textarea");
-    }
+        if (!composer) {
+          throw new Error("Could not find a chat input");
+        }
 
-    // React needs a bit of coercing to accept programmatic input
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-    nativeInputValueSetter.call(textArea, prompt);
-    
-    // Dispatch input event so React knows the value changed
-    textArea.dispatchEvent(new Event('input', { bubbles: true }));
+        const baselineSnapshot = jarvisSnapshotConversation();
+        jarvisSetComposerValue(composer, promptValue);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        jarvisSubmitPrompt(composer);
+        return baselineSnapshot;
+      })();
+    `
+    );
 
-    // Wait a brief moment for the send button to become active
-    await new Promise(r => setTimeout(r, 100));
-
-    const sendBtn = document.querySelector(sendButtonSelector);
-    if (!sendBtn) {
-      throw new Error("Could not find send button");
-    }
-
-    sendBtn.click();
-
-    // Now we need to wait for the response to finish generating.
-    // ChatGPT usually shows a 'stop generating' button while working.
-    // We poll until that button disappears or until a new response block is fully formed.
-    waitForResponse();
+    const baselineSnapshot = await runner(prompt);
+    waitForResponse(prompt, baselineSnapshot);
 
   } catch (err) {
     console.error("Web AI Error:", err);
@@ -45,32 +46,62 @@ ipcRenderer.on("web-ai-prompt", async (event, prompt) => {
   }
 });
 
-async function waitForResponse() {
+async function waitForResponse(prompt, baselineSnapshot) {
   let attempts = 0;
-  const maxAttempts = 120; // 60 seconds
-  
-  // Wait for the generation to start
-  await new Promise(r => setTimeout(r, 1000));
+  let generationStarted = false;
+  let stableChecks = 0;
+  let lastSnapshot = baselineSnapshot;
+  const maxAttempts = 450;
+  const helperSource = buildDomHelperSource();
+
+  await new Promise((resolve) => setTimeout(resolve, 600));
 
   const checkInterval = setInterval(() => {
     attempts++;
-    
-    // Check if the "Stop generating" button is present
-    const isGenerating = document.querySelector("button[aria-label='Stop generating']") !== null;
-    
-    if (!isGenerating || attempts > maxAttempts) {
+
+    const stateReader = new Function(
+      "baselineValue",
+      "promptValue",
+      `
+      ${helperSource}
+      const snapshot = jarvisSnapshotConversation();
+      const sendButton = jarvisFindActionButton("send");
+      const stopButton = jarvisFindActionButton("stop");
+      const changed = snapshot !== baselineValue;
+      return {
+        snapshot,
+        deltaText: jarvisExtractDeltaText(baselineValue, snapshot, promptValue),
+        changed,
+        sendDisabled: Boolean(sendButton && sendButton.disabled),
+        stopVisible: Boolean(stopButton)
+      };
+    `
+    );
+
+    const state = stateReader(baselineSnapshot, prompt);
+
+    if (state.changed || state.sendDisabled || state.stopVisible) {
+      generationStarted = true;
+    }
+
+    if (state.snapshot === lastSnapshot) {
+      stableChecks += 1;
+    } else {
+      stableChecks = 0;
+      lastSnapshot = state.snapshot;
+    }
+
+    const isDone =
+      generationStarted &&
+      !state.stopVisible &&
+      !state.sendDisabled &&
+      stableChecks >= 2;
+
+    if (isDone || attempts > maxAttempts) {
       clearInterval(checkInterval);
-      
-      // Grab the last assistant message
-      const messages = document.querySelectorAll("div[data-message-author-role='assistant']");
-      if (messages.length > 0) {
-        const lastMessage = messages[messages.length - 1];
-        // Extract text (simplified, might need to parse markdown/code blocks better)
-        const responseText = lastMessage.innerText;
-        ipcRenderer.send("web-ai-response", responseText);
-      } else {
-        ipcRenderer.send("web-ai-response", "[Error: No assistant message found]");
-      }
+
+      const responseText = state.deltaText || state.snapshot || "[Error: No assistant response found]";
+      ipcRenderer.send("web-ai-response", responseText);
     }
   }, 500);
 }

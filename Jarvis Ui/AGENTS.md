@@ -1,3 +1,9 @@
+## Project Overrides
+
+- In this workspace, track non-trivial fixes and regressions through the issue workflow first. If OpenClaw is available, create or update the related `/issue` entry before coding.
+- Prefer the configured Jarvis runtime and OpenClaw skill surfaces over ad-hoc automation.
+- Do not hardcode volatile page selectors when a stable alternative exists. Prefer provider APIs, accessibility roles, visible labels, or Jarvis-tagged DOM ids.
+
 ## Architecture
 
 ```

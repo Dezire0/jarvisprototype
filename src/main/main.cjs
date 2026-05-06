@@ -27,6 +27,7 @@ const { GameService } = require("./game-service.cjs");
 const { getTierProviderLabel, setExternalApiKeyProvider } = require("./ollama-service.cjs");
 const { MemoryStore } = require("./memory-store.cjs");
 const { ObsService } = require("./obs-service.cjs");
+const { OpenClawService } = require("./openclaw-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
 const { createAutomationAdapter } = require("./platform-adapters.cjs");
 const { SettingsStore } = require("./settings-store.cjs");
@@ -113,6 +114,9 @@ async function createServices() {
     userDataDir: app.getPath("userData"),
     credentialStore: credentials
   });
+  const openClaw = new OpenClawService({
+    workspaceRoot: process.cwd()
+  });
   const files = new FileService({
     workspaceRoot: process.cwd()
   });
@@ -145,6 +149,7 @@ async function createServices() {
     games,
     memory,
     obs,
+    openClaw,
     screen: screenService,
     settings,
     stt,
@@ -161,6 +166,7 @@ async function createServices() {
     games,
     memory,
     obs,
+    openClaw,
     screen: screenService,
     tts,
     settings
@@ -179,6 +185,7 @@ async function createServices() {
         games,
         memory,
         obs,
+        openClaw,
         screen: screenService,
         tts,
         settings

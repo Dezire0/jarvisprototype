@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const unofficialAI = require("../../src/main/unofficial-ai-provider.cjs");
 
 const {
   AssistantService,
@@ -114,6 +115,13 @@ test("buildRouteFallback keeps chained login workflows on the browser route", ()
   });
 });
 
+test("buildRouteFallback treats Korean email-site follow-ups as browser work", () => {
+  assert.deepEqual(buildRouteFallback("이메일 사이트에 접속할게"), {
+    route: "browser",
+    language: "ko"
+  });
+});
+
 test("buildHeuristicBrowserPlan builds a chained site workflow", () => {
   const plan = buildHeuristicBrowserPlan("깃허브에서 openai 검색하고 로그인하고 활동 보여줘");
 
@@ -137,6 +145,17 @@ test("buildHeuristicBrowserPlan opens known sites directly instead of searching 
     {
       action: "open_url",
       target: "https://www.google.com/"
+    }
+  ]);
+});
+
+test("buildHeuristicBrowserPlan treats Amazon official-site requests as direct site opens", () => {
+  const plan = buildHeuristicBrowserPlan("아마존 공식 사이트");
+
+  assert.deepEqual(plan.steps, [
+    {
+      action: "open_url",
+      target: "https://www.amazon.com/"
     }
   ]);
 });
@@ -298,6 +317,422 @@ test("handleBrowser waits for manual login before running the rest of a chained 
   assert.equal(resumed.details.resumedBrowserContinuation, true);
 });
 
+test("handleBrowser maps a generic email-site follow-up to Gmail instead of a Google search", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async executePlan() {
+        assert.fail("generic email site open should not invoke the browser planner");
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowser("이메일 사이트에 접속할게");
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_url",
+      target: "https://mail.google.com/"
+    }
+  ]);
+  assert.equal(result.provider, "system-browser");
+  assert.equal(result.reply, "지메일 열었어요.");
+});
+
+test("handleBrowser prefers an OpenClaw session plan when available", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async executePlan() {
+        assert.fail("simple OpenClaw open_url plan should use the external browser open path");
+      }
+    },
+    openClaw: {
+      async planBrowserTask() {
+        return {
+          plan: {
+            steps: [
+              {
+                action: "open_url",
+                target: "https://www.amazon.com/"
+              }
+            ]
+          },
+          sessionRef: "latest",
+          commandLine: "claw --resume latest prompt ...",
+          toolUses: []
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowser("아마존 공식 사이트");
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_url",
+      target: "https://www.amazon.com/"
+    }
+  ]);
+  assert.equal(result.details.planner, "openclaw-session");
+  assert.equal(result.details.plannerReason, "claw-session-plan");
+  assert.equal(result.details.openClawSessionRef, "latest");
+});
+
+test("handleBrowser falls back to Jarvis heuristics when the OpenClaw planner errors", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async executePlan() {
+        assert.fail("simple heuristic browser open should not invoke the structured planner");
+      }
+    },
+    openClaw: {
+      async planBrowserTask() {
+        throw new Error("claw unavailable");
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowser("구글 열어줘");
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_url",
+      target: "https://www.google.com/"
+    }
+  ]);
+  assert.equal(result.details.planner, "jarvis-heuristic");
+  assert.equal(result.details.plannerReason, "openclaw-error");
+});
+
+test("handleBrowser executes multi-step OpenClaw plans through the browser executor", async () => {
+  const executedPlans = [];
+  const service = new AssistantService({
+    automation: {
+      async execute() {
+        assert.fail("structured OpenClaw plans should stay inside the browser executor");
+      }
+    },
+    browser: {
+      async executePlan(steps) {
+        executedPlans.push(steps);
+        return {
+          steps: steps.map((step) => ({
+            ...step,
+            result: {
+              url: "https://github.com/search?q=openai"
+            }
+          })),
+          final: {
+            url: "https://github.com/search?q=openai",
+            title: "GitHub",
+            text: "OpenAI repositories"
+          }
+        };
+      }
+    },
+    openClaw: {
+      async planBrowserTask() {
+        return {
+          plan: {
+            steps: [
+              {
+                action: "open_url",
+                target: "https://github.com/"
+              },
+              {
+                action: "site_search",
+                query: "openai"
+              },
+              {
+                action: "read_page",
+                limit: 4000
+              }
+            ]
+          },
+          sessionRef: "latest",
+          toolUses: []
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleBrowser("깃허브에서 openai 검색해줘");
+
+  assert.equal(executedPlans.length, 1);
+  assert.deepEqual(
+    executedPlans[0].map((step) => step.action),
+    ["open_url", "site_search", "read_page"]
+  );
+  assert.equal(result.details.planner, "openclaw-session");
+  assert.equal(result.details.plannerReason, "claw-session-plan");
+});
+
+test("handleAppOpen falls back to the official site when the app is missing", async () => {
+  const service = new AssistantService({
+    automation: {
+      async listInstalledApps() {
+        return {
+          apps: []
+        };
+      },
+      async execute(action) {
+        assert.equal(action.type, "open_app");
+        throw new Error("app not found");
+      }
+    },
+    browser: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const browserCalls = [];
+  service.handleBrowser = async (query) => {
+    browserCalls.push(query);
+    return {
+      reply: "아마존 열었어요.",
+      actions: [{ type: "browser_open_url", target: "https://www.amazon.com/" }],
+      provider: "system-browser",
+      details: {
+        url: "https://www.amazon.com/"
+      }
+    };
+  };
+
+  const result = await service.handleAppOpen("아마존 열어줘", {
+    appName: "Amazon Shopping"
+  });
+
+  assert.deepEqual(browserCalls, ["Amazon Shopping 공식 사이트"]);
+  assert.equal(result.provider, "system-browser");
+  assert.match(result.reply, /공식 사이트/);
+  assert.equal(result.details.fallbackMode, "official-site");
+  assert.equal(result.details.executionEngine, "openclaw-fallback");
+});
+
+test("handleAppOpen falls back to the download page for install-style requests", async () => {
+  const service = new AssistantService({
+    automation: {
+      async listInstalledApps() {
+        return {
+          apps: []
+        };
+      },
+      async execute(action) {
+        assert.equal(action.type, "open_app");
+        throw new Error("app not found");
+      }
+    },
+    browser: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const browserCalls = [];
+  service.handleBrowser = async (query) => {
+    browserCalls.push(query);
+    return {
+      reply: "설치 페이지 열었어요.",
+      actions: [{ type: "browser_open_url", target: "https://example.com/download" }],
+      provider: "system-browser",
+      details: {
+        url: "https://example.com/download"
+      }
+    };
+  };
+
+  const result = await service.handleAppOpen("Amazon Shopping 설치해줘", {
+    appName: "Amazon Shopping"
+  });
+
+  assert.deepEqual(browserCalls, ["Amazon Shopping 다운로드 공식 사이트"]);
+  assert.equal(result.provider, "system-browser");
+  assert.match(result.reply, /설치 페이지/);
+  assert.equal(result.details.fallbackMode, "download-page");
+  assert.equal(result.details.executionEngine, "openclaw-fallback");
+});
+
+test("executeRoute annotates browser work as openclaw fallback", async () => {
+  const service = new AssistantService({
+    automation: {},
+    browser: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  service.handleBrowser = async () => ({
+    reply: "browser",
+    actions: [],
+    provider: "local",
+    details: {}
+  });
+
+  const result = await service.executeRoute("아마존 공식 사이트", {
+    route: "browser",
+    language: "ko"
+  });
+
+  assert.equal(result.details.executionEngine, "openclaw-fallback");
+  assert.equal(result.details.executionReason, "web-task");
+});
+
+test("executeRoute keeps installed app opens on the Jarvis structured path", async () => {
+  const service = new AssistantService({
+    automation: {
+      async listInstalledApps() {
+        return {
+          apps: [{ name: "Calculator" }]
+        };
+      },
+      async execute(action) {
+        assert.equal(action.type, "open_app");
+        return {
+          resolvedTarget: "Calculator"
+        };
+      }
+    },
+    browser: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.executeRoute("Calculator 열어줘", {
+    route: "app_open",
+    language: "ko",
+    appName: "Calculator"
+  });
+
+  assert.equal(result.details.executionEngine, "jarvis-structured");
+  assert.equal(result.details.executionReason, "installed-app-candidate");
+});
+
+test("buildHeuristicBrowserPlan does not mistake Google Pay email requests for the Google homepage", () => {
+  const plan = buildHeuristicBrowserPlan("google pay한테 온 이메일");
+
+  assert.deepEqual(plan.steps, [
+    {
+      action: "open_url",
+      target: "google pay한테 온 이메일"
+    }
+  ]);
+});
+
+test("mailbox follow-ups keep the current Gmail context instead of falling back to chat", async () => {
+  const originalIsConnected = unofficialAI.isConnected;
+
+  try {
+    unofficialAI.isConnected = async () => false;
+
+    const service = new AssistantService({
+      automation: {},
+      browser: {},
+      credentials: {},
+      files: {},
+      obs: {},
+      screen: {},
+      tts: {}
+    });
+
+    service.lastBrowserTargetUrl = "https://mail.google.com/mail/u/0/#inbox";
+    service.lastBrowserTargetLabel = "Gmail";
+    service.routeInput = async () => ({
+      route: "chat",
+      language: "ko"
+    });
+    service.executeRoute = async (input, route) => ({
+      reply: `${route.route}:${input}`,
+      actions: [],
+      provider: "local"
+    });
+    service.handleGeneral = async () => ({
+      reply: "chat:ok",
+      actions: [],
+      provider: "cloud"
+    });
+
+    const result = await service.handleInput("google pay한테 온 이메일");
+
+    assert.equal(result.reply, "browser:google pay한테 온 이메일");
+    assert.equal(result.provider, "local");
+  } finally {
+    unofficialAI.isConnected = originalIsConnected;
+  }
+});
+
+test("generic email-site opens do not get trapped inside an unrelated previous browser context", () => {
+  const service = new AssistantService({
+    automation: {},
+    browser: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  service.lastBrowserTargetUrl = "https://github.com/openai";
+  service.lastBrowserTargetLabel = "GitHub";
+
+  assert.equal(service.looksLikeBrowserContextFollowUp("이메일 사이트에 접속할게"), false);
+});
+
 test("handleBrowserLogin opens the login page for manual sign-in by default", async () => {
   const calls = [];
   const service = new AssistantService({
@@ -339,4 +774,44 @@ test("handleBrowserLogin opens the login page for manual sign-in by default", as
   ]);
   assert.equal(result.details.loginMode, "manual");
   assert.match(result.reply, /직접 로그인/);
+});
+
+test("handleInput still uses the local action router when a web AI provider is connected", async () => {
+  const originalIsConnected = unofficialAI.isConnected;
+
+  try {
+    unofficialAI.isConnected = async () => "connected-web-ai";
+
+    const service = new AssistantService({
+      automation: {},
+      browser: {},
+      credentials: {},
+      files: {},
+      obs: {},
+      screen: {},
+      tts: {}
+    });
+
+    service.routeInput = async () => ({
+      route: "browser",
+      language: "ko"
+    });
+    service.executeRoute = async (_input, route) => ({
+      reply: `${route.route}:ok`,
+      actions: [],
+      provider: "local"
+    });
+    service.handleGeneral = async () => ({
+      reply: "chat:ok",
+      actions: [],
+      provider: "cloud"
+    });
+
+    const result = await service.handleInput("구글 열어줘");
+
+    assert.equal(result.reply, "browser:ok");
+    assert.equal(result.provider, "local");
+  } finally {
+    unofficialAI.isConnected = originalIsConnected;
+  }
 });

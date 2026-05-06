@@ -1,5 +1,6 @@
 const { BrowserWindow, session, net } = require("electron");
 const crypto = require("crypto");
+const { buildDomHelperSource } = require("./web-ai-dom-helpers.cjs");
 
 const CHATGPT_URL = "https://chatgpt.com";
 const CHATGPT_PARTITION = "persist:chatgpt";
@@ -519,73 +520,73 @@ class UnofficialAIProvider {
     return this.chatWindow;
   }
 
-  async _chatViaDOM_ChatGPT(prompt) {
-    const chatWindow = await this.ensureChatWindow(`${CHATGPT_URL}/`);
+  async _chatViaDOM(prompt, targetUrl) {
+    const chatWindow = await this.ensureChatWindow(targetUrl);
     const escapedPrompt = JSON.stringify(prompt);
+    const helperSource = buildDomHelperSource();
     const script = `
       (async function() {
+        ${helperSource}
         try {
-          // 입력창이 렌더링될 때까지 최대 5초 대기 (Polling)
-          let textarea = null;
-          for (let i = 0; i < 50; i++) {
-            textarea = document.querySelector('#prompt-textarea') || 
-                       document.querySelector('div[contenteditable="true"]') ||
-                       document.querySelector('textarea');
-            if (textarea) break;
-            await new Promise(r => setTimeout(r, 100));
+          let composer = null;
+          for (let attempt = 0; attempt < 50; attempt += 1) {
+            composer = jarvisFindChatInput();
+            if (composer) break;
+            await new Promise((resolve) => setTimeout(resolve, 100));
           }
 
-          if (!textarea) return { error: "Chat input not found after 5 seconds." };
-          
-          // Clear and set value
-          textarea.value = ${escapedPrompt};
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-          textarea.dispatchEvent(new Event('change', { bubbles: true }));
-
-          // Wait a moment for the Send button to enable
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          const findSendButton = () => {
-            return document.querySelector('button[data-testid="send-button"]') ||
-                   document.querySelector('button[aria-label="Send message"]') ||
-                   document.querySelector('button.absolute.bottom-1.5');
-          };
-
-          const sendBtn = findSendButton();
-          if (sendBtn && !sendBtn.disabled) {
-            sendBtn.click();
-          } else {
-            // Fallback: Try Enter key multiple times
-            const enter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, ctrlKey: true });
-            textarea.dispatchEvent(enter);
+          if (!composer) {
+            return { error: "Chat input not found after 5 seconds." };
           }
+
+          const baselineSnapshot = jarvisSnapshotConversation();
+          jarvisSetComposerValue(composer, ${escapedPrompt});
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          jarvisSubmitPrompt(composer);
 
           return await new Promise((resolve) => {
-            let lastText = "";
             let checkCount = 0;
+            let generationStarted = false;
+            let stableChecks = 0;
+            let lastSnapshot = baselineSnapshot;
+
             const interval = setInterval(() => {
               checkCount += 1;
-              const assistants = document.querySelectorAll('div[data-message-author-role="assistant"]');
-              const sendBtnNow = findSendButton();
+              const snapshot = jarvisSnapshotConversation();
+              const sendButton = jarvisFindActionButton("send");
+              const stopButton = jarvisFindActionButton("stop");
+              const snapshotChanged = snapshot !== baselineSnapshot;
 
-              if (assistants.length > 0) {
-                const currentText = assistants[assistants.length - 1].innerText;
-                if (currentText !== lastText) {
-                  lastText = currentText;
-                }
+              if (snapshotChanged || (sendButton && sendButton.disabled) || stopButton) {
+                generationStarted = true;
               }
 
-              // Generation is done when send button is enabled again
-              // We wait at least 10 checks (200ms) to ensure it started
-              const isDone = sendBtnNow && !sendBtnNow.disabled && checkCount > 5;
+              if (snapshot === lastSnapshot) {
+                stableChecks += 1;
+              } else {
+                stableChecks = 0;
+                lastSnapshot = snapshot;
+              }
+
+              const isDone =
+                generationStarted &&
+                !stopButton &&
+                (!sendButton || !sendButton.disabled) &&
+                stableChecks >= 2;
+
               if (isDone) {
                 clearInterval(interval);
-                resolve({ text: lastText });
-              } else if (checkCount > 1500) { // 30 seconds timeout
+                resolve({
+                  text: jarvisExtractDeltaText(baselineSnapshot, snapshot, ${escapedPrompt}) || snapshot
+                });
+              } else if (checkCount > 600) {
                 clearInterval(interval);
-                resolve({ text: lastText || "Timeout", timeout: true });
+                resolve({
+                  text: jarvisExtractDeltaText(baselineSnapshot, snapshot, ${escapedPrompt}) || snapshot || "Timeout",
+                  timeout: true
+                });
               }
-            }, 20);
+            }, 150);
           });
         } catch (err) {
           return { error: err.message };
@@ -600,58 +601,12 @@ class UnofficialAIProvider {
     return result?.text || "";
   }
 
+  async _chatViaDOM_ChatGPT(prompt) {
+    return this._chatViaDOM(prompt, `${CHATGPT_URL}/`);
+  }
+
   async _chatViaDOM_Gemini(prompt) {
-    const chatWindow = await this.ensureChatWindow(GEMINI_URL);
-    const escapedPrompt = JSON.stringify(prompt);
-    const script = `
-      (async function() {
-        try {
-          const textarea = document.querySelector('div[role="textbox"][contenteditable="true"]') || document.querySelector('rich-textarea');
-          if (!textarea) return { error: "Gemini input not found." };
-
-          textarea.innerHTML = ${escapedPrompt}.replace(/\\n/g, '<br>');
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-
-          await new Promise((resolve) => setTimeout(resolve, 180));
-          const sendBtn = document.querySelector('button[aria-label="Send message"], button[aria-label="메시지 전송"]');
-          if (sendBtn && !sendBtn.disabled) {
-            sendBtn.click();
-          } else {
-            textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-          }
-
-          return await new Promise((resolve) => {
-            let lastText = "";
-            let checkCount = 0;
-            const interval = setInterval(() => {
-              checkCount += 1;
-              const messages = document.querySelectorAll('message-content');
-              const sendBtnNow = document.querySelector('button[aria-label="Send message"], button[aria-label="메시지 전송"]');
-
-              if (messages.length > 0) {
-                lastText = messages[messages.length - 1].innerText;
-              }
-
-              if (sendBtnNow && checkCount > 20) {
-                clearInterval(interval);
-                resolve({ text: lastText });
-              } else if (checkCount > 450) {
-                clearInterval(interval);
-                resolve({ text: lastText || "Timeout", timeout: true });
-              }
-            }, 100);
-          });
-        } catch (err) {
-          return { error: err.message };
-        }
-      })();
-    `;
-
-    const result = await chatWindow.webContents.executeJavaScript(script);
-    if (result?.error) {
-      throw new Error(result.error);
-    }
-    return result?.text || "";
+    return this._chatViaDOM(prompt, GEMINI_URL);
   }
 }
 

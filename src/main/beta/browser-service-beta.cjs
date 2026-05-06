@@ -257,6 +257,91 @@ function detectPageAnomalies(url, title, text) {
   return found;
 }
 
+async function waitForPageSettle(page, extraDelayMs = 800) {
+  await page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(extraDelayMs);
+}
+
+async function fillFirstAvailable(page, selectors = [], value = "") {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    const count = await locator.count().catch(() => 0);
+
+    if (!count) {
+      continue;
+    }
+
+    const visible = await locator.isVisible().catch(() => false);
+
+    if (!visible) {
+      continue;
+    }
+
+    await locator.click({ delay: 50 }).catch(() => {});
+    await locator.fill("");
+    await locator.fill(String(value));
+    return selector;
+  }
+
+  return "";
+}
+
+async function clickFirstAvailable(page, selectors = []) {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    const count = await locator.count().catch(() => 0);
+
+    if (!count) {
+      continue;
+    }
+
+    const visible = await locator.isVisible().catch(() => false);
+
+    if (!visible) {
+      continue;
+    }
+
+    await locator.scrollIntoViewIfNeeded().catch(() => {});
+    await locator.click({ timeout: 5000 });
+    return selector;
+  }
+
+  return "";
+}
+
+async function resolveVisibleLinkHref(page, index = 1) {
+  return page.locator("main a[href], article a[href], nav a[href], a[href]").evaluateAll((nodes, targetIndex) => {
+    const visible = nodes
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const text = (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
+        const href = node.href || node.getAttribute("href") || "";
+
+        if (!href || href.startsWith("javascript:")) {
+          return null;
+        }
+
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+          return null;
+        }
+
+        if (rect.width === 0 || rect.height === 0) {
+          return null;
+        }
+
+        if (!text) {
+          return null;
+        }
+
+        return href;
+      })
+      .filter(Boolean);
+
+    return visible[Math.max(0, Number(targetIndex || 1) - 1)] || "";
+  }, index);
+}
+
 // ─── BrowserService v2 ──────────────────────────────────────────────────────
 
 class BrowserService {
@@ -381,8 +466,20 @@ class BrowserService {
   async navigate(target) {
     const page = await this.getPage();
     await page.goto(normalizeUrl(target), { waitUntil: "domcontentloaded", timeout: 15000 });
-    await page.waitForTimeout(500);
+    await waitForPageSettle(page, 500);
     return observeState(page);
+  }
+
+  async open(target) {
+    return this.navigate(target);
+  }
+
+  async search(query) {
+    return this.navigate(`https://www.google.com/search?q=${encodeURIComponent(String(query || "").trim())}`);
+  }
+
+  async readPage() {
+    return this.observe();
   }
 
   /**
@@ -395,7 +492,7 @@ class BrowserService {
     if (count === 0) throw new Error(`Element [${elementId}] not found on page.`);
     await locator.first().scrollIntoViewIfNeeded().catch(() => {});
     await locator.first().click({ timeout: 5000 });
-    await page.waitForTimeout(800);
+    await waitForPageSettle(page, 800);
     return observeState(page);
   }
 
@@ -410,6 +507,7 @@ class BrowserService {
     await locator.first().click({ delay: 50 });
     await locator.first().fill("");
     await locator.first().fill(text);
+    await waitForPageSettle(page, 250);
     return observeState(page);
   }
 
@@ -419,7 +517,7 @@ class BrowserService {
   async pressKey(key) {
     const page = await this.getPage();
     await page.keyboard.press(key);
-    await page.waitForTimeout(600);
+    await waitForPageSettle(page, 600);
     return observeState(page);
   }
 
@@ -430,7 +528,7 @@ class BrowserService {
     const page = await this.getPage();
     const delta = direction === "up" ? -600 : 600;
     await page.mouse.wheel(0, delta);
-    await page.waitForTimeout(400);
+    await waitForPageSettle(page, 400);
     return observeState(page);
   }
 
@@ -458,6 +556,196 @@ class BrowserService {
     const page = await this.getPage();
     const buffer = await page.screenshot({ type: "png", fullPage: false });
     return buffer;
+  }
+
+  async clickSearchResult(index = 1) {
+    const page = await this.getPage();
+    const href = await resolveVisibleLinkHref(page, index);
+
+    if (!href) {
+      throw new Error(`Search result ${index} not found on the current page.`);
+    }
+
+    await page.goto(href, {
+      waitUntil: "domcontentloaded",
+      timeout: 15000
+    });
+    await waitForPageSettle(page, 700);
+    return observeState(page);
+  }
+
+  async clickByVisibleText(text) {
+    const targetText = String(text || "").trim();
+
+    if (!targetText) {
+      throw new Error("Visible link text is required.");
+    }
+
+    const page = await this.getPage();
+    const textSelector = `a[href], button, [role='button']`;
+    const locator = page.locator(textSelector).filter({
+      hasText: targetText
+    }).first();
+    const count = await locator.count().catch(() => 0);
+
+    if (!count) {
+      throw new Error(`No visible element matched "${targetText}".`);
+    }
+
+    await locator.scrollIntoViewIfNeeded().catch(() => {});
+    await locator.click({ timeout: 5000 });
+    await waitForPageSettle(page, 800);
+    return observeState(page);
+  }
+
+  async searchCurrentSite(query) {
+    const text = String(query || "").trim();
+
+    if (!text) {
+      throw new Error("A site search query is required.");
+    }
+
+    const page = await this.getPage();
+    const selector = await fillFirstAvailable(page, [
+      "input[type='search']",
+      "[role='searchbox']",
+      "input[autocomplete='search']",
+      "input[name*='search' i]",
+      "input[placeholder*='search' i]",
+      "input[aria-label*='search' i]",
+      "input[type='text']",
+      "textarea"
+    ], text);
+
+    if (!selector) {
+      throw new Error("Could not find a visible search field on the current site.");
+    }
+
+    await page.keyboard.press("Enter").catch(() => {});
+    await waitForPageSettle(page, 1000);
+    return observeState(page);
+  }
+
+  async loginWithStoredCredential(siteOrUrl) {
+    if (!this.credentialStore?.getCredential) {
+      throw new Error("Credential storage is not configured.");
+    }
+
+    const credential = await this.credentialStore.getCredential(siteOrUrl);
+
+    if (!credential) {
+      throw new Error(`No saved credential was found for ${siteOrUrl}.`);
+    }
+
+    const targetUrl = credential.loginUrl || siteOrUrl;
+    const page = await this.getPage();
+    await page.goto(normalizeUrl(targetUrl), {
+      waitUntil: "domcontentloaded",
+      timeout: 15000
+    });
+    await waitForPageSettle(page, 700);
+
+    await fillFirstAvailable(page, [
+      "input[autocomplete='username']",
+      "input[autocomplete='email']",
+      "input[type='email']",
+      "input[name*='email' i]",
+      "input[name*='user' i]",
+      "input[placeholder*='email' i]",
+      "input[placeholder*='user' i]",
+      "input[type='text']"
+    ], credential.username);
+
+    const passwordSelector = await fillFirstAvailable(page, [
+      "input[autocomplete='current-password']",
+      "input[type='password']"
+    ], credential.password);
+
+    if (!passwordSelector) {
+      throw new Error("Could not find a visible password field on the login page.");
+    }
+
+    const submittedBy = await clickFirstAvailable(page, [
+      "button[type='submit']",
+      "input[type='submit']",
+      "button:has-text('Sign in')",
+      "button:has-text('Log in')",
+      "button:has-text('Continue')",
+      "[role='button']:has-text('Sign in')",
+      "[role='button']:has-text('Log in')"
+    ]);
+
+    if (!submittedBy) {
+      await page.keyboard.press("Enter").catch(() => {});
+    }
+
+    await waitForPageSettle(page, 1200);
+    const state = await observeState(page);
+    return {
+      ...state,
+      credentialSite: credential.site,
+      loginUrl: normalizeUrl(targetUrl),
+      submittedBy: submittedBy || "keyboard-enter"
+    };
+  }
+
+  async executePlan(steps = []) {
+    const normalizedSteps = Array.isArray(steps) ? steps : [];
+    const executedSteps = [];
+    let finalState = null;
+
+    for (const step of normalizedSteps) {
+      if (!step?.action) {
+        continue;
+      }
+
+      switch (step.action) {
+        case "open_url":
+          finalState = await this.navigate(step.target);
+          break;
+        case "search_google":
+          finalState = await this.search(step.query);
+          break;
+        case "search_youtube":
+          finalState = await this.navigate(`https://www.youtube.com/results?search_query=${encodeURIComponent(String(step.query || "").trim())}`);
+          break;
+        case "click_text":
+          finalState = await this.clickByVisibleText(step.text);
+          break;
+        case "click_search_result":
+          finalState = await this.clickSearchResult(step.index || 1);
+          break;
+        case "site_search":
+          finalState = await this.searchCurrentSite(step.query);
+          break;
+        case "read_page":
+          finalState = await this.observe();
+          break;
+        default:
+          throw new Error(`Unsupported browser plan step: ${step.action}`);
+      }
+
+      executedSteps.push({
+        ...step,
+        result: {
+          url: finalState?.url || "",
+          title: finalState?.title || ""
+        }
+      });
+    }
+
+    if (!finalState) {
+      finalState = await this.observe();
+    }
+
+    return {
+      steps: executedSteps,
+      final: {
+        url: finalState.url || "",
+        title: finalState.title || "",
+        text: finalState.visibleText || ""
+      }
+    };
   }
 }
 

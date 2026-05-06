@@ -6,6 +6,7 @@ const {
   FAST_PLANNER_MODEL,
   getTierProviderLabel
 } = require("./ollama-service.cjs");
+const { normalizeOpenClawBrowserPlan } = require("./openclaw-service.cjs");
 
 const unofficialAI = require("./unofficial-ai-provider.cjs");
 const osAutomation = require("./os-automation.cjs");
@@ -66,7 +67,21 @@ const WEB_TARGET_ALIASES = new Set([
   "트위터",
   "x",
   "spotify",
-  "스포티파이"
+  "스포티파이",
+  "email",
+  "mail",
+  "inbox",
+  "이메일",
+  "메일",
+  "받은편지함",
+  "outlook",
+  "hotmail",
+  "아웃룩",
+  "핫메일",
+  "네이버메일",
+  "다음메일",
+  "yahoo mail",
+  "proton mail"
 ]);
 
 function hasAny(text, keywords) {
@@ -85,7 +100,7 @@ function extractAfterWakeWord(text) {
 }
 
 function looksLikeActionableCommandStart(text = "") {
-  return /^(?:open|go to|visit|search|browse|launch|run|start|play|watch|listen|find|click|type|press|switch|focus|show|open app|open the app|열어|들어가|검색|찾아|실행|켜|재생|틀어|들려|보여|이동|유튜브|youtube|구글|google|스포티파이|spotify)/i.test(
+  return /^(?:open|go to|visit|search|browse|launch|run|start|play|watch|listen|find|click|type|press|switch|focus|show|connect|open app|open the app|열어|들어가|접속|검색|찾아|실행|켜|재생|틀어|들려|보여|이동|유튜브|youtube|구글|google|스포티파이|spotify)/i.test(
     String(text).trim()
   );
 }
@@ -169,25 +184,118 @@ function normalizeEntityToken(value = "") {
 function stripCommandPrefix(text) {
   return normalizePlanText(text)
     .replace(
-      /^(open|go to|visit|search|browse|launch|run|open app|open the app|브라우저|열어|검색해|검색해서|찾아|찾아서|실행해|실행해줘|켜줘|켜)\s*/i,
+      /^(open|go to|visit|search|browse|launch|run|connect(?: to)?|open app|open the app|브라우저|열어|접속해|접속해줘|검색해|검색해서|찾아|찾아서|실행해|실행해줘|켜줘|켜)\s*/i,
       ""
     )
     .trim();
 }
 
+function stripKoreanParticleSuffix(value = "") {
+  return String(value).replace(
+    /(에서|으로부터|로부터|한테|에게|으로|로|에|을|를|은|는|이|가|와|과|도|만)$/u,
+    ""
+  );
+}
+
+function tokenizeIntentWords(text = "") {
+  return String(text).match(/[A-Za-z0-9가-힣]+/g) || [];
+}
+
+function looksLikeSiteActionWord(token = "") {
+  return /^(?:open|visit|go|to|connect|login|log|sign|search|find|read|show|site|website|homepage|page|official|download|install|mail|email|inbox|열어|접속|로그인|검색|찾아|읽어|보여|공식|다운로드|설치|사이트|웹사이트|홈페이지|페이지|이메일|메일|받은편지함)/i.test(
+    stripKoreanParticleSuffix(token)
+  );
+}
+
+function guessKnownSiteFromTokens(text = "") {
+  const normalized = normalizePlanText(text);
+  const stripped = stripCommandPrefix(normalized);
+  const tokens = tokenizeIntentWords(stripped)
+    .map((token) => stripKoreanParticleSuffix(token).toLowerCase())
+    .filter(Boolean);
+
+  const knownSites = [
+    { label: "Amazon", aliases: ["amazon", "아마존"] },
+    { label: "YouTube", aliases: ["youtube", "유튜브"] },
+    { label: "GitHub", aliases: ["github", "깃허브"] },
+    { label: "Gmail", aliases: ["gmail", "지메일"] },
+    { label: "Google", aliases: ["google", "구글"] },
+    { label: "Outlook", aliases: ["outlook", "hotmail", "아웃룩", "핫메일"] }
+  ];
+  const hasSiteIntentToken = tokens.some((token) => looksLikeSiteActionWord(token));
+
+  for (const site of knownSites) {
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (!site.aliases.includes(token)) {
+        continue;
+      }
+
+      const previous = tokens[index - 1] || "";
+      const next = tokens[index + 1] || "";
+      const singleToken = tokens.length === 1;
+      const trailingToken = index === tokens.length - 1;
+
+      if (
+        singleToken ||
+        trailingToken ||
+        hasSiteIntentToken ||
+        looksLikeSiteActionWord(previous) ||
+        looksLikeSiteActionWord(next)
+      ) {
+        return site.label;
+      }
+    }
+  }
+
+  return "";
+}
+
+function isMailboxUrl(target = "") {
+  const normalized = normalizeBrowserOpenUrl(target);
+  return /(mail\.google\.com|outlook\.live\.com\/mail|mail\.naver\.com|mail\.daum\.net|mail\.yahoo\.com|mail\.proton\.me)/i.test(
+    normalized
+  );
+}
+
+function prefersDownloadFallback(input = "") {
+  return /(?:download|install|setup|installer|설치|다운로드|세팅)/i.test(normalizePlanText(input));
+}
+
+function prefersOfficialSiteFallback(input = "") {
+  return /(?:official\s+(?:site|website|page)|공식\s*(?:사이트|웹사이트|홈페이지|페이지))/i.test(
+    normalizePlanText(input)
+  );
+}
+
+function extractMailboxSearchQuery(text = "") {
+  const normalized = normalizePlanText(text);
+  const patterns = [
+    /(.+?)(?:한테|에게|으로부터|로부터|from)\s+온\s+(?:이메일|메일|email|mail)/i,
+    /(?:이메일|메일|email|mail)\s+(?:from|보낸\s*사람)\s+(.+)$/i,
+    /(.+?)\s+(?:보낸\s*메일|보낸\s*이메일)$/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    const candidate = cleanupParsedText(
+      stripKoreanParticleSuffix(match?.[1] || "")
+    );
+
+    if (candidate && !/^(?:이|그|this|that)$/i.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
 function guessSiteName(text) {
   const normalized = normalizePlanText(text);
+  const stripped = stripCommandPrefix(normalized);
 
-  if (/(youtube|유튜브)/i.test(normalized)) {
-    return "YouTube";
-  }
-
-  if (/(google|구글)/i.test(normalized)) {
-    return "Google";
-  }
-
-  if (/(github|깃허브)/i.test(normalized)) {
-    return "GitHub";
+  if (extractMailboxSearchQuery(normalized)) {
+    return "";
   }
 
   const domain = extractUrl(normalized);
@@ -196,12 +304,28 @@ function guessSiteName(text) {
     return domain.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
   }
 
-  const firstPhrase = normalized.match(/([A-Za-z0-9가-힣_-]{2,})/);
+  const knownSite = guessKnownSiteFromTokens(normalized);
+  if (knownSite) {
+    return knownSite;
+  }
+
+  const firstPhrase = stripped.match(/([A-Za-z0-9가-힣_-]{2,})/);
+  const firstToken = stripKoreanParticleSuffix(firstPhrase?.[1] || "").toLowerCase();
+  const blockedAmbiguousAliases = new Set(["google", "구글", "github", "깃허브", "youtube", "유튜브", "gmail", "지메일"]);
+
+  if (blockedAmbiguousAliases.has(firstToken) && tokenizeIntentWords(stripped).length > 1) {
+    return "";
+  }
+
   return firstPhrase ? firstPhrase[1] : "";
 }
 
 function getKnownSiteUrl(siteName = "") {
   const lowered = siteName.toLowerCase();
+
+  if (lowered === "amazon" || lowered === "아마존") {
+    return "https://www.amazon.com/";
+  }
 
   if (lowered === "youtube" || lowered === "유튜브") {
     return "https://www.youtube.com/";
@@ -215,26 +339,77 @@ function getKnownSiteUrl(siteName = "") {
     return "https://www.google.com/";
   }
 
+  if (
+    [
+      "gmail",
+      "지메일",
+      "email",
+      "mail",
+      "inbox",
+      "이메일",
+      "메일",
+      "받은편지함"
+    ].includes(lowered) || lowered.includes("mail.google.com")
+  ) {
+    return "https://mail.google.com/";
+  }
+
+  if (["outlook", "hotmail", "아웃룩", "핫메일"].includes(lowered) || lowered.includes("outlook.live.com")) {
+    return "https://outlook.live.com/mail/";
+  }
+
+  if (lowered === "네이버메일") {
+    return "https://mail.naver.com/";
+  }
+
+  if (lowered === "다음메일") {
+    return "https://mail.daum.net/";
+  }
+
+  if (lowered === "yahoo mail") {
+    return "https://mail.yahoo.com/";
+  }
+
+  if (lowered === "proton mail") {
+    return "https://mail.proton.me/";
+  }
+
   return "";
 }
 
 function getLocalizedKnownSiteLabel(siteName = "", language = "en") {
   const lowered = String(siteName || "").trim().toLowerCase();
 
-  if (lowered === "google" || lowered === "구글") {
+  if (lowered === "amazon" || lowered === "아마존" || lowered.includes("amazon.com")) {
+    return language === "ko" ? "아마존" : "Amazon";
+  }
+
+  if (
+    lowered === "google" ||
+    lowered === "구글" ||
+    (lowered.includes("google.com") && !lowered.includes("mail.google.com"))
+  ) {
     return language === "ko" ? "구글" : "Google";
   }
 
-  if (lowered === "youtube" || lowered === "유튜브") {
+  if (lowered === "youtube" || lowered === "유튜브" || lowered.includes("youtube.com")) {
     return language === "ko" ? "유튜브" : "YouTube";
   }
 
-  if (lowered === "github" || lowered === "깃허브") {
+  if (lowered === "github" || lowered === "깃허브" || lowered.includes("github.com")) {
     return language === "ko" ? "깃허브" : "GitHub";
   }
 
-  if (lowered === "gmail" || lowered === "지메일") {
+  if (lowered === "gmail" || lowered === "지메일" || lowered.includes("mail.google.com")) {
     return language === "ko" ? "지메일" : "Gmail";
+  }
+
+  if (["email", "mail", "inbox", "이메일", "메일", "받은편지함"].includes(lowered)) {
+    return language === "ko" ? "이메일" : "email";
+  }
+
+  if (["outlook", "hotmail", "아웃룩", "핫메일"].includes(lowered) || lowered.includes("outlook.live.com")) {
+    return language === "ko" ? "아웃룩" : "Outlook";
   }
 
   return "";
@@ -1486,7 +1661,7 @@ function isLikelyWebTarget(text = "") {
     WEB_TARGET_ALIASES.has(normalized) ||
     WEB_TARGET_ALIASES.has(stripped) ||
     WEB_TARGET_ALIASES.has(appLike) ||
-    /\b(?:website|site|url|browser|search|검색|브라우저|홈페이지|페이지)\b/i.test(text)
+    /(?:website|site|url|browser|search|검색|브라우저|홈페이지|페이지|사이트|웹사이트)/i.test(text)
   );
 }
 
@@ -1512,9 +1687,21 @@ function looksLikeAppLaunch(text) {
 
 function looksLikeWebOpen(text) {
   const lowered = normalizePlanText(text).toLowerCase();
-  const hasOpenVerb = hasAny(lowered, ["open", "visit", "go to", "열어", "들어가", "켜"]);
+  const hasOpenVerb = hasAny(lowered, ["open", "visit", "go to", "connect", "열어", "들어가", "접속", "켜"]);
 
   return hasOpenVerb && isLikelyWebTarget(text);
+}
+
+function looksLikeEmailSiteRequest(text = "") {
+  return /(gmail|email|mail|inbox|outlook|hotmail|지메일|이메일|메일|받은편지함|아웃룩|핫메일)/i.test(
+    normalizePlanText(text)
+  );
+}
+
+function looksLikeBrowserReference(text = "") {
+  return /(?:거기|그 사이트|이 사이트|그 페이지|이 페이지|방금 연 사이트|방금 연 페이지|there|that site|this site|that page|this page)/i.test(
+    normalizePlanText(text)
+  );
 }
 
 function extractAppName(text) {
@@ -2421,7 +2608,7 @@ function buildRouteFallback(input) {
 }
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, screen, tts, settings }) {
+  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
@@ -2430,12 +2617,15 @@ class AssistantService {
     this.files = files;
     this.games = games || null;
     this.memory = memory || null;
+    this.openClaw = openClaw || null;
     this.obs = obs;
     this.screen = screen;
     this.tts = tts;
     this.settings = settings;
     this.history = [];
     this.lastActiveApp = "";
+    this.lastBrowserTargetUrl = "";
+    this.lastBrowserTargetLabel = "";
     this.lastMemoryFingerprint = "";
     this.pendingWorkspaceMessage = null;
     this.pendingClarification = null;
@@ -2635,16 +2825,20 @@ class AssistantService {
         openMode: "external-browser"
       };
     } catch (_error) {
-      const page = await this.browser.open(targetUrl);
+      const page =
+        typeof this.browser.open === "function"
+          ? await this.browser.open(targetUrl)
+          : await this.browser.navigate(targetUrl);
 
       return {
-        ...page,
+        url: page.url || targetUrl,
+        title: page.title || "",
         openMode: "assistant-browser"
       };
     }
   }
 
-  async beginPendingBrowserContinuation(input, plan) {
+  async beginPendingBrowserContinuation(input, plan, plannerMeta = {}) {
     const language = detectReplyLanguage(input);
     const site = cleanupParsedText(plan?.login?.site || guessSiteName(input) || "");
     const fallbackTarget = buildExternalBrowserTarget(plan?.steps?.[0] || {});
@@ -2654,9 +2848,12 @@ class AssistantService {
       inferFriendlyBrowserLabel(site || opened.title || targetUrl, language) ||
       (language === "ko" ? "사이트" : "the site");
 
+    this.rememberBrowserContext(opened.url || targetUrl, siteLabel);
+
     this.pendingBrowserContinuation = {
       originalInput: input,
       language,
+      plannerMeta,
       site: siteLabel,
       targetUrl: opened.url || targetUrl,
       steps: Array.isArray(plan?.steps) ? plan.steps : []
@@ -2669,17 +2866,17 @@ class AssistantService {
           : `I opened ${siteLabel} so you can finish the login there. Once you're in, say "continue" and I will handle the rest.`,
       actions: [this.makeAction("open_url", opened.url || targetUrl)],
       provider: opened.openMode,
-      details: {
+      details: this.attachBrowserPlannerDetails({
         title: opened.title || "",
         url: opened.url || targetUrl,
         openMode: opened.openMode,
         pendingBrowserContinuation: true,
         site: siteLabel
-      }
+      }, plannerMeta)
     };
   }
 
-  async completeBrowserPlan(input, data) {
+  async completeBrowserPlan(input, data, plannerMeta = {}) {
     const language = detectReplyLanguage(input);
     const finalPage = data.final || {};
     const actions = data.steps.map((step) =>
@@ -2690,7 +2887,7 @@ class AssistantService {
     );
     const actionNames = data.steps.map((step) => step.action).join(" -> ");
     const notices = detectBrowserSpecialCases(finalPage);
-    const details = {
+    const details = this.attachBrowserPlannerDetails({
       title: finalPage.title || "",
       url: finalPage.url || "",
       text: finalPage.text || "",
@@ -2701,7 +2898,7 @@ class AssistantService {
       })),
       actionNames,
       notices
-    };
+    }, plannerMeta);
     const fallback = appendBrowserNotices(
       buildCompactBrowserReply(input, data.steps, finalPage),
       notices,
@@ -2800,11 +2997,15 @@ class AssistantService {
 
     try {
       const data = await this.browser.executePlan(pending.steps);
-      const result = await this.completeBrowserPlan(pending.originalInput || input, data);
-      result.details = {
+      const result = await this.completeBrowserPlan(
+        pending.originalInput || input,
+        data,
+        pending.plannerMeta || {}
+      );
+      result.details = this.attachBrowserPlannerDetails({
         ...(result.details || {}),
         resumedBrowserContinuation: true
-      };
+      }, pending.plannerMeta || {});
       return result;
     } catch (error) {
       this.pendingBrowserContinuation = pending;
@@ -2816,10 +3017,10 @@ class AssistantService {
             : `It looks like the login or page is not ready yet. ${error.message} Finish the login, then say "continue" again.`,
         actions: [],
         provider: "local",
-        details: {
+        details: this.attachBrowserPlannerDetails({
           pendingBrowserContinuation: true,
           error: error.message
-        }
+        }, pending.plannerMeta || {})
       };
     }
   }
@@ -3047,6 +3248,103 @@ class AssistantService {
     };
   }
 
+  annotateExecutionDecision(result = {}, decision = {}) {
+    return {
+      ...result,
+      details: {
+        ...(result.details || {}),
+        executionEngine: decision.engine || "jarvis-structured",
+        executionReason: decision.reason || "default"
+      }
+    };
+  }
+
+  async decideAppOpenExecution(input, requestedApp = "") {
+    const normalizedApp = cleanupParsedText(requestedApp);
+    const browserPrompt = prefersDownloadFallback(input)
+      ? `${normalizedApp} 다운로드 공식 사이트`
+      : `${normalizedApp} 공식 사이트`;
+
+    if (!normalizedApp) {
+      return {
+        engine: "jarvis-structured",
+        reason: "missing-app-name"
+      };
+    }
+
+    if (prefersOfficialSiteFallback(input) || prefersDownloadFallback(input)) {
+      return {
+        engine: "openclaw-fallback",
+        reason: prefersDownloadFallback(input) ? "explicit-download-request" : "explicit-official-site-request",
+        browserPrompt
+      };
+    }
+
+    const specializedSkill = getSpecializedAppSkill(normalizedApp);
+    if (specializedSkill) {
+      return {
+        engine: "jarvis-structured",
+        reason: `specialized-${specializedSkill}`
+      };
+    }
+
+    const candidates = await this.findAppCandidates(normalizedApp).catch(() => []);
+    if (candidates.length > 0) {
+      return {
+        engine: "jarvis-structured",
+        reason: "installed-app-candidate",
+        appCandidates: candidates.slice(0, 4).map((candidate) => candidate.name)
+      };
+    }
+
+    const knownSiteUrl = buildDirectSiteUrl(normalizedApp) || buildDirectSiteUrl(guessSiteName(normalizedApp));
+    if (knownSiteUrl) {
+      return {
+        engine: "openclaw-fallback",
+        reason: "known-web-brand-missing-local-app",
+        browserPrompt
+      };
+    }
+
+    return {
+      engine: "jarvis-structured",
+      reason: "default-local-open-attempt"
+    };
+  }
+
+  async chooseExecutionEngine(input, route = {}) {
+    switch (route.route) {
+      case "browser":
+        return {
+          engine: "openclaw-fallback",
+          reason: "web-task"
+        };
+      case "browser_login":
+        return {
+          engine: "openclaw-fallback",
+          reason: "web-login"
+        };
+      case "app_open": {
+        const requestedApp = this.normalizeRequestedAppName(
+          route.appName ||
+          extractAppName(input) ||
+          (refersToCurrentAppContext(input) ? this.lastActiveApp : "")
+        );
+        return this.decideAppOpenExecution(input, requestedApp);
+      }
+      case "app_action":
+        return {
+          engine: "jarvis-structured",
+          reason: "desktop-app-automation"
+        };
+      default:
+        return {
+          engine: "jarvis-structured",
+          reason: "jarvis-structured-skill"
+        };
+    }
+  }
+
   async executeRoute(cleanInput, route) {
     // 로그인 진행 중에는 자동화 동작이 간섭하지 않도록 제한합니다.
     if (unofficialAI.isLoggingIn && ["browser", "app_action", "browser_login"].includes(route.route)) {
@@ -3059,47 +3357,53 @@ class AssistantService {
       };
     }
 
+    const executionDecision = await this.chooseExecutionEngine(cleanInput, route);
+    const routeWithDecision = {
+      ...route,
+      executionDecision
+    };
+
     // 사용자의 입력 의도(Route)에 따라 적절한 핸들러를 호출합니다.
     switch (route.route) {
       case "system_briefing":
-        return this.handleSystemBriefing(cleanInput);
+        return this.annotateExecutionDecision(await this.handleSystemBriefing(cleanInput), executionDecision);
       case "screen_academic":
-        return this.handleScreenAcademic(cleanInput);
+        return this.annotateExecutionDecision(await this.handleScreenAcademic(cleanInput), executionDecision);
       case "screen_summary":
-        return this.handleScreenSummary(cleanInput);
+        return this.annotateExecutionDecision(await this.handleScreenSummary(cleanInput), executionDecision);
       case "browser_login":
-        return this.handleBrowserLogin(cleanInput, route);
+        return this.annotateExecutionDecision(await this.handleBrowserLogin(cleanInput, routeWithDecision), executionDecision);
       case "browser":
-        return this.handleBrowser(cleanInput);
+        return this.annotateExecutionDecision(await this.handleBrowser(cleanInput), executionDecision);
       case "app_action":
-        return this.handleAppAction(cleanInput, route);
+        return this.annotateExecutionDecision(await this.handleAppAction(cleanInput, routeWithDecision), executionDecision);
       case "code_project":
-        return this.handleCodeProject(cleanInput, route);
+        return this.annotateExecutionDecision(await this.handleCodeProject(cleanInput, routeWithDecision), executionDecision);
       case "game_install":
       case "game_list":
       case "game_update":
-        return this.handleGameRoute(cleanInput, route);
+        return this.annotateExecutionDecision(await this.handleGameRoute(cleanInput, routeWithDecision), executionDecision);
       case "obs_connect":
       case "obs_status":
       case "obs_start":
       case "obs_stop":
       case "obs_scene":
-        return this.handleObsRoute(cleanInput, route);
+        return this.annotateExecutionDecision(await this.handleObsRoute(cleanInput, routeWithDecision), executionDecision);
       case "file_read":
       case "file_write":
       case "file_list":
-        return this.handleFileRoute(cleanInput, route);
+        return this.annotateExecutionDecision(await this.handleFileRoute(cleanInput, routeWithDecision), executionDecision);
       case "stream_prep":
-        return this.handleStreamPrep(cleanInput);
+        return this.annotateExecutionDecision(await this.handleStreamPrep(cleanInput), executionDecision);
       case "app_open":
-        return this.handleAppOpen(cleanInput, route);
+        return this.annotateExecutionDecision(await this.handleAppOpen(cleanInput, routeWithDecision), executionDecision);
       case "app_list":
-        return this.handleAppList(cleanInput);
+        return this.annotateExecutionDecision(await this.handleAppList(cleanInput), executionDecision);
       case "spotify_play":
-        return this.handleSpotifyRoute(cleanInput, route);
+        return this.annotateExecutionDecision(await this.handleSpotifyRoute(cleanInput, routeWithDecision), executionDecision);
       case "chat":
       default:
-        return this.handleGeneral(cleanInput);
+        return this.annotateExecutionDecision(await this.handleGeneral(cleanInput), executionDecision);
     }
   }
 
@@ -3142,6 +3446,119 @@ class AssistantService {
     }
 
     this.lastActiveApp = appName;
+  }
+
+  rememberBrowserContext(targetUrl = "", label = "") {
+    if (targetUrl) {
+      this.lastBrowserTargetUrl = targetUrl;
+    }
+
+    if (label) {
+      this.lastBrowserTargetLabel = label;
+    }
+  }
+
+  looksLikeMailboxContextFollowUp(input = "") {
+    if (!isMailboxUrl(this.lastBrowserTargetUrl)) {
+      return false;
+    }
+
+    return (
+      Boolean(extractMailboxSearchQuery(input)) ||
+      /(?:이메일\s*내용|메일\s*내용|이\s*메일|그\s*메일|이\s*이메일|그\s*이메일|최근\s*메일|방금\s*온\s*메일|발신자|보낸\s*사람|sender|latest\s*email|recent\s*email|email\s*content|mail\s*content)/i.test(
+        normalizePlanText(input)
+      )
+    );
+  }
+
+  looksLikeBrowserContextFollowUp(input = "") {
+    if (!this.lastBrowserTargetUrl) {
+      return false;
+    }
+
+    return (
+      looksLikeBrowserReference(input) ||
+      this.looksLikeMailboxContextFollowUp(input)
+    );
+  }
+
+  buildBrowserPlanningContext(input = "") {
+    return {
+      currentBrowserUrl: this.lastBrowserTargetUrl,
+      currentBrowserLabel: this.lastBrowserTargetLabel,
+      mailboxContext: isMailboxUrl(this.lastBrowserTargetUrl),
+      pendingContinuation: Boolean(this.pendingBrowserContinuation),
+      officialSiteRequested: prefersOfficialSiteFallback(input),
+      downloadRequested: prefersDownloadFallback(input)
+    };
+  }
+
+  buildBrowserPlannerMeta(bundle = {}) {
+    return {
+      planner: bundle.planner || "jarvis-heuristic",
+      plannerReason: bundle.plannerReason || "heuristic-fallback",
+      openClawSessionRef: bundle.sessionRef || "",
+      openClawCommandLine: bundle.commandLine || "",
+      openClawToolUses: Array.isArray(bundle.toolUses) ? bundle.toolUses : [],
+      openClawUsage: bundle.usage || null
+    };
+  }
+
+  attachBrowserPlannerDetails(details = {}, plannerMeta = {}) {
+    return {
+      ...details,
+      planner: plannerMeta.planner || "jarvis-heuristic",
+      plannerReason: plannerMeta.plannerReason || "heuristic-fallback",
+      ...(plannerMeta.openClawSessionRef ? { openClawSessionRef: plannerMeta.openClawSessionRef } : {}),
+      ...(plannerMeta.openClawCommandLine ? { openClawCommandLine: plannerMeta.openClawCommandLine } : {}),
+      ...(plannerMeta.openClawToolUses?.length ? { openClawToolUses: plannerMeta.openClawToolUses } : {}),
+      ...(plannerMeta.openClawUsage ? { openClawUsage: plannerMeta.openClawUsage } : {})
+    };
+  }
+
+  async planBrowserWorkflow(input = "") {
+    const fallbackPlan = buildHeuristicBrowserPlan(input);
+
+    if (!this.openClaw?.planBrowserTask) {
+      return {
+        plan: fallbackPlan,
+        planner: "jarvis-heuristic",
+        plannerReason: "openclaw-unavailable"
+      };
+    }
+
+    try {
+      const response = await this.openClaw.planBrowserTask(
+        input,
+        this.buildBrowserPlanningContext(input)
+      );
+      const plan = normalizeOpenClawBrowserPlan(response?.plan || response);
+
+      if (plan.steps.length) {
+        return {
+          plan,
+          planner: "openclaw-session",
+          plannerReason: "claw-session-plan",
+          sessionRef: response?.sessionRef || "latest",
+          commandLine: response?.commandLine || "",
+          toolUses: Array.isArray(response?.toolUses) ? response.toolUses : [],
+          usage: response?.usage || null
+        };
+      }
+    } catch (error) {
+      console.warn("OpenClaw browser planner failed:", error.message);
+      return {
+        plan: fallbackPlan,
+        planner: "jarvis-heuristic",
+        plannerReason: "openclaw-error"
+      };
+    }
+
+    return {
+      plan: fallbackPlan,
+      planner: "jarvis-heuristic",
+      plannerReason: "heuristic-fallback"
+    };
   }
 
   buildLongTermMemorySnippet() {
@@ -3986,9 +4403,53 @@ class AssistantService {
       systemPrompt: options.systemPrompt || buildBasePrompt(),
       tier: options.tier || "complex",
       model: options.model,
+      localOnly: options.localOnly === true,
       history: includeHistory ? this.getRecentHistory() : [],
       userPrompt: finalUserPrompt
     });
+  }
+
+  async polishCommandReply(input, result = {}, fallback = "") {
+    if (!fallback) {
+      return "";
+    }
+
+    const language = detectReplyLanguage(input);
+    const actions = Array.isArray(result.actions) ? result.actions : [];
+
+    if (!actions.length) {
+      return fallback;
+    }
+
+    try {
+      const reply = await this.replyWithModel(
+        input,
+        [
+          "The user's desktop request has already been completed.",
+          `Reply only in ${buildLanguageName(language)}.`,
+          "Keep the reply short, concrete, and outcome-focused.",
+          `Completed actions: ${JSON.stringify(actions)}`,
+          result.details ? `Relevant details: ${JSON.stringify(result.details)}` : "",
+          `Fallback reply: ${fallback}`
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        {
+          tier: "fast",
+          includeHistory: false,
+          includeMemory: false,
+          localOnly: true
+        }
+      );
+      const polished = normalizeWhitespace(reply);
+      if (!polished || /^\[(?:🚨|⚠️)/.test(polished)) {
+        return fallback;
+      }
+
+      return polished;
+    } catch (_error) {
+      return fallback;
+    }
   }
 
   async routeInput(input) {
@@ -4090,7 +4551,13 @@ class AssistantService {
    * v2: Resolve the initial URL to navigate to based on user intent (heuristic).
    * This replaces the old planBrowserTask for the initial navigation step only.
    */
-  resolveInitialBrowserUrl(input) {
+  resolveInitialBrowserUrl(input, plan = null) {
+    const plannedTarget = buildExternalBrowserTarget(plan?.steps?.[0] || {});
+
+    if (plannedTarget) {
+      return plannedTarget;
+    }
+
     const normalized = normalizePlanText(input);
 
     // Explicit URL in input
@@ -4236,11 +4703,72 @@ class AssistantService {
    */
   async handleBrowser(input) {
     const language = detectReplyLanguage(input);
+    const browserPlanning = await this.planBrowserWorkflow(input);
+    const plannerMeta = this.buildBrowserPlannerMeta(browserPlanning);
+    const plannedWorkflow = browserPlanning.plan;
+    const stayInCurrentBrowserContext = this.looksLikeBrowserContextFollowUp(input);
+
+    if (!stayInCurrentBrowserContext && plannedWorkflow.login?.required && plannedWorkflow.steps?.length) {
+      return this.beginPendingBrowserContinuation(input, plannedWorkflow, plannerMeta);
+    }
+
+    if (!stayInCurrentBrowserContext && isSimpleExternalBrowserPlan(plannedWorkflow)) {
+      const step = plannedWorkflow.steps[0] || {};
+      const targetUrl = buildExternalBrowserTarget(step);
+      const opened = await this.openBrowserTargetForUser(targetUrl);
+      const finalPage = {
+        url: opened.url || targetUrl,
+        title: opened.title || "",
+        text: ""
+      };
+      const contextLabel =
+        inferFriendlyBrowserLabel(finalPage.title || step.target || finalPage.url || "", language) ||
+        finalPage.url ||
+        step.target ||
+        "";
+
+      this.rememberBrowserContext(finalPage.url || targetUrl, contextLabel);
+
+      return {
+        reply: buildCompactBrowserReply(input, plannedWorkflow.steps, finalPage),
+        actions: [
+          this.makeAction(
+            `browser_${step.action || "open_url"}`,
+            step.target || step.query || finalPage.url || targetUrl
+          )
+        ],
+        provider: opened.openMode === "external-browser" ? "system-browser" : opened.openMode,
+        details: this.attachBrowserPlannerDetails({
+          url: finalPage.url || targetUrl,
+          title: finalPage.title || "",
+          openMode: opened.openMode,
+          plannedSteps: plannedWorkflow.steps
+        }, plannerMeta)
+      };
+    }
+
+    if (!stayInCurrentBrowserContext && plannedWorkflow.steps.length > 1 && typeof this.browser.executePlan === "function") {
+      try {
+        const data = await this.browser.executePlan(plannedWorkflow.steps);
+        const finalUrl = data?.final?.url || buildExternalBrowserTarget(plannedWorkflow.steps[0]) || "";
+        const finalLabel =
+          inferFriendlyBrowserLabel(data?.final?.title || data?.final?.url || finalUrl, language) ||
+          finalUrl;
+
+        this.rememberBrowserContext(finalUrl, finalLabel);
+        return this.completeBrowserPlan(input, data, plannerMeta);
+      } catch (_error) {
+        // Fall through to the ReAct browser agent when the structured executor is unavailable.
+      }
+    }
+
     const actions = [];
     const maxSteps = AssistantService.REACT_MAX_STEPS;
 
     // Step 0: Navigate to initial URL
-    const initialUrl = this.resolveInitialBrowserUrl(input);
+    const initialUrl = this.looksLikeBrowserContextFollowUp(input)
+      ? this.lastBrowserTargetUrl
+      : this.resolveInitialBrowserUrl(input, plannedWorkflow);
     let state;
     try {
       state = await this.browser.navigate(initialUrl);
@@ -4249,11 +4777,15 @@ class AssistantService {
       try {
         await this.automation.execute({ type: "open_url", target: initialUrl });
         const label = inferFriendlyBrowserLabel(initialUrl, language) || initialUrl;
+        this.rememberBrowserContext(initialUrl, label);
         return {
           reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
           actions: [this.makeAction("open_url", initialUrl)],
           provider: "system-browser",
-          details: { url: initialUrl, openMode: "external-browser" }
+          details: this.attachBrowserPlannerDetails({
+            url: initialUrl,
+            openMode: "external-browser"
+          }, plannerMeta)
         };
       } catch {
         throw navError;
@@ -4272,11 +4804,15 @@ class AssistantService {
 
     if (isSimpleOpen && !state.anomalies?.length) {
       const label = inferFriendlyBrowserLabel(state.title || initialUrl, language) || initialUrl;
+      this.rememberBrowserContext(state.url || initialUrl, label);
       return {
         reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
         actions,
         provider: "local",
-        details: { url: state.url, title: state.title }
+        details: this.attachBrowserPlannerDetails({
+          url: state.url,
+          title: state.title
+        }, plannerMeta)
       };
     }
 
@@ -4373,17 +4909,21 @@ class AssistantService {
     }
 
     reply = appendBrowserNotices(reply, notices, language);
+    this.rememberBrowserContext(
+      finalState.url || initialUrl,
+      inferFriendlyBrowserLabel(finalState.title || finalState.url || initialUrl, language) || initialUrl
+    );
 
     return {
       reply,
       actions,
       provider: "react-agent",
-      details: {
+      details: this.attachBrowserPlannerDetails({
         url: finalState.url || "",
         title: finalState.title || "",
         stepsExecuted: actions.length,
         anomalies: notices
-      }
+      }, plannerMeta)
     };
   }
 
@@ -4416,6 +4956,8 @@ class AssistantService {
         language === "ko"
           ? `${siteLabel} 로그인 화면을 열어뒀어요. 여기서 직접 로그인하시면 돼요.`
           : `I opened the ${siteLabel} login page so you can sign in there yourself.`;
+
+      this.rememberBrowserContext(opened.url || targetUrl, siteLabel);
 
       return {
         reply: await this.polishCommandReply(
@@ -4830,29 +5372,85 @@ class AssistantService {
       throw new Error("I could not tell which app you wanted to open.");
     }
 
-    const data = await this.automation.execute({
-      type: "open_app",
-      target: requestedApp
-    });
-    const openedName = data.resolvedTarget || data.appName || requestedApp;
-    this.rememberAppContext(openedName);
-    const fallback = detectReplyLanguage(input) === "ko"
-      ? `${openedName} 열었어요.`
-      : `I opened ${openedName}.`;
+    const executionDecision =
+      route.executionDecision ||
+      await this.decideAppOpenExecution(input, requestedApp);
 
-    return {
-      reply: await this.polishCommandReply(
-        input,
-        {
-          actions: [this.makeAction("open_app", openedName)],
-          details: data
-        },
-        fallback
-      ),
-      actions: [this.makeAction("open_app", openedName)],
-      provider: "local",
-      details: data
-    };
+    if (executionDecision.engine === "openclaw-fallback" && executionDecision.browserPrompt) {
+      const language = detectReplyLanguage(input);
+      const browserResult = await this.handleBrowser(executionDecision.browserPrompt);
+
+      return {
+        ...browserResult,
+        reply:
+          language === "ko"
+            ? prefersDownloadFallback(input)
+              ? `${requestedApp} 앱 대신 설치 페이지를 먼저 열어봤어요.`
+              : `${requestedApp} 앱 대신 공식 사이트를 먼저 열어봤어요.`
+            : prefersDownloadFallback(input)
+              ? `I opened the download page for ${requestedApp} first instead of a local app.`
+              : `I opened the official site for ${requestedApp} first instead of a local app.`,
+        details: {
+          ...(browserResult.details || {}),
+          missingApp: requestedApp,
+          fallbackMode: prefersDownloadFallback(input) ? "download-page" : "official-site",
+          executionEngine: "openclaw-fallback",
+          executionReason: executionDecision.reason
+        }
+      };
+    }
+
+    try {
+      const data = await this.automation.execute({
+        type: "open_app",
+        target: requestedApp
+      });
+      const openedName = data.resolvedTarget || data.appName || requestedApp;
+      this.rememberAppContext(openedName);
+      const fallback = detectReplyLanguage(input) === "ko"
+        ? `${openedName} 열었어요.`
+        : `I opened ${openedName}.`;
+
+      return {
+        reply: await this.polishCommandReply(
+          input,
+          {
+            actions: [this.makeAction("open_app", openedName)],
+            details: data
+          },
+          fallback
+        ),
+        actions: [this.makeAction("open_app", openedName)],
+        provider: "local",
+        details: data
+      };
+    } catch (error) {
+      const language = detectReplyLanguage(input);
+      const browserPrompt = prefersDownloadFallback(input)
+        ? `${requestedApp} 다운로드 공식 사이트`
+        : `${requestedApp} 공식 사이트`;
+      const browserResult = await this.handleBrowser(browserPrompt);
+
+      return {
+        ...browserResult,
+        reply:
+          language === "ko"
+            ? prefersDownloadFallback(input)
+              ? `${requestedApp} 앱을 이 컴퓨터에서 찾지 못해서 설치 페이지를 먼저 열어봤어요.`
+              : `${requestedApp} 앱을 이 컴퓨터에서 찾지 못해서 공식 사이트를 먼저 열어봤어요.`
+            : prefersDownloadFallback(input)
+              ? `I could not find ${requestedApp} on this computer, so I opened the download page first.`
+              : `I could not find ${requestedApp} on this computer, so I opened the official site first.`,
+        details: {
+          ...(browserResult.details || {}),
+          missingApp: requestedApp,
+          fallbackMode: prefersDownloadFallback(input) ? "download-page" : "official-site",
+          executionEngine: "openclaw-fallback",
+          executionReason: "missing-local-app-at-runtime",
+          originalError: error.message
+        }
+      };
+    }
   }
 
   async handleGeneral(input) {
@@ -5114,33 +5712,35 @@ class AssistantService {
       return extensionWebhookResult;
     }
 
-    let route;
     const connectedProvider = await unofficialAI.isConnected();
+    let route = await this.routeInput(cleanInput);
 
-    if (connectedProvider) {
-      // Web AI가 연결된 경우, 로컬 라우터를 거치지 않고 바로 handleGeneral(ChatGPT)로 보냅니다.
-      // ChatGPT가 답변 과정에서 [ACTION: ...] 태그를 통해 스스로 라우팅을 수행합니다.
-      route = { route: "chat", language: detectReplyLanguage(cleanInput) };
-    } else {
-      route = await this.routeInput(cleanInput);
+    if (route.route === "chat" && this.looksLikeBrowserContextFollowUp(cleanInput)) {
+      route = {
+        ...route,
+        route: "browser"
+      };
+    }
 
-      if (
-        route.route === "chat" &&
-        looksLikeAppAction(cleanInput) &&
-        this.lastActiveApp
-      ) {
-        route = {
-          ...route,
-          route: "app_action",
-          appName: this.lastActiveApp
-        };
-      }
+    if (
+      route.route === "chat" &&
+      looksLikeAppAction(cleanInput) &&
+      this.lastActiveApp
+    ) {
+      route = {
+        ...route,
+        route: "app_action",
+        appName: this.lastActiveApp
+      };
     }
 
     let result;
 
     try {
-      result = await this.executeRoute(cleanInput, route);
+      result =
+        connectedProvider && route.route === "chat"
+          ? await this.handleGeneral(cleanInput)
+          : await this.executeRoute(cleanInput, route);
     } catch (error) {
       result = {
         reply:
