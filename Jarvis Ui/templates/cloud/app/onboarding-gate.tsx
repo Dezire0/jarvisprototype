@@ -40,6 +40,7 @@ import {
 import { Assistant } from "./assistant";
 
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
+const DESKTOP_AUTH_CALLBACK_URL = process.env.NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL || "";
 
 function buildGoogleAuthUrl() {
   if (typeof window === "undefined") {
@@ -50,7 +51,7 @@ function buildGoogleAuthUrl() {
   const currentUrl = new URL(window.location.href);
 
   if ((window as any).assistantAPI) {
-    authUrl.searchParams.set("return_to", "jarvis-desktop://auth");
+    authUrl.searchParams.set("return_to", DESKTOP_AUTH_CALLBACK_URL || "jarvis-desktop://auth");
   } else if (currentUrl.protocol === "http:" || currentUrl.protocol === "https:") {
     const returnTo = `${currentUrl.origin}${currentUrl.pathname}`;
     authUrl.searchParams.set("return_to", returnTo);

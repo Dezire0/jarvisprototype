@@ -107,7 +107,17 @@ function focusSettingsWindow() {
   });
 }
 
+function persistAuthSession(payload = {}) {
+  if (payload.token) {
+    piiManager.set("auth.token", String(payload.token));
+  }
+  if (payload.user) {
+    piiManager.set("auth.user", JSON.stringify(payload.user));
+  }
+}
+
 function deliverAuthCallback(payload) {
+  persistAuthSession(payload);
   pendingAuthCallback = payload;
 
   if (!settingsWindow || settingsWindow.isDestroyed()) {
@@ -265,6 +275,9 @@ async function createServices() {
 
   assistantTransportServer = createAssistantTransportServer({
     port: Number(process.env.JARVIS_ASSISTANT_PORT || 8010),
+    onAuthCallback(payload) {
+      deliverAuthCallback(payload);
+    },
     createAssistantForThread() {
       return new AssistantService({
         automation,
@@ -287,6 +300,7 @@ async function createServices() {
   await assistantTransportServer.start();
   process.env.JARVIS_TRANSPORT_URL = assistantTransportServer.url;
   process.env.NEXT_PUBLIC_API_URL = assistantTransportServer.url;
+  process.env.NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL = assistantTransportServer.authCallbackUrl;
 }
 
 async function ensureDesktopUiServer() {
@@ -1022,12 +1036,7 @@ async function dispatchTool(tool, payload = {}) {
       };
     }
     case "auth:session-save": {
-      if (payload.token) {
-        piiManager.set("auth.token", String(payload.token));
-      }
-      if (payload.user) {
-        piiManager.set("auth.user", JSON.stringify(payload.user));
-      }
+      persistAuthSession(payload);
       return { ok: true, tool };
     }
     case "auth:session-restore": {
