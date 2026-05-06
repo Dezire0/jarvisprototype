@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   AssistantService,
+  chooseAutomationReasoningTier,
   buildHeuristicBrowserPlan,
   buildRouteFallback,
   chooseChatModelTier,
@@ -42,6 +43,33 @@ test("chooseChatModelTier uses the complex tier for long context-heavy follow-up
       "지금까지 조건을 다 합쳐서 설계상 위험한 부분이 뭔지 정리하고 우선순위까지 나눠줘",
       history
     ),
+    "complex"
+  );
+});
+
+test("chooseAutomationReasoningTier keeps simple browser opens fast", () => {
+  assert.equal(
+    chooseAutomationReasoningTier("구글 열어줘", {
+      route: "browser",
+      requires_automation: false
+    }),
+    "fast"
+  );
+});
+
+test("chooseAutomationReasoningTier escalates browser judgment and login flows", () => {
+  assert.equal(
+    chooseAutomationReasoningTier("지메일 들어가서 가장 최신 메시지 누가 보냈는지 확인해줘", {
+      route: "browser",
+      requires_automation: true
+    }),
+    "complex"
+  );
+  assert.equal(
+    chooseAutomationReasoningTier("amazon.ca 로그인 진행해줘", {
+      route: "browser_login",
+      requires_automation: false
+    }),
     "complex"
   );
 });
@@ -361,6 +389,199 @@ test("handleBrowser prefers Playwright for official install or verification page
   assert.match(result.details.url, /google\.com\/search/);
 });
 
+test("handleBrowser prefers an OpenClaw session plan when available", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async execute(action) {
+        calls.push(action);
+        return {
+          target: action.target
+        };
+      }
+    },
+    browser: {
+      async executePlan() {
+        assert.fail("simple OpenClaw open_url plans should use the direct open path");
+      }
+    },
+    openClaw: {
+      async planBrowserTask() {
+        return {
+          plan: {
+            steps: [
+              {
+                action: "open_url",
+                target: "https://www.amazon.com/"
+              }
+            ]
+          },
+          sessionRef: "latest",
+          commandLine: "claw --resume latest prompt ...",
+          toolUses: []
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleAutonomousTask("아마존 공식 사이트", {
+    route: "browser",
+    language: "ko",
+    requires_automation: false
+  });
+
+  assert.deepEqual(calls, [
+    {
+      type: "open_url",
+      target: "https://www.amazon.com/"
+    }
+  ]);
+  assert.equal(result.details.planner, "openclaw-session");
+  assert.equal(result.details.plannerReason, "claw-session-plan");
+  assert.equal(result.details.openClawSessionRef, "latest");
+});
+
+test("handleBrowser executes multi-step OpenClaw plans through the browser executor", async () => {
+  const executedPlans = [];
+  const service = new AssistantService({
+    automation: {
+      async execute() {
+        assert.fail("structured OpenClaw plans should stay inside the browser executor");
+      }
+    },
+    browser: {
+      async executePlan(steps) {
+        executedPlans.push(steps);
+        return {
+          steps: steps.map((step) => ({
+            ...step,
+            result: {
+              url: "https://github.com/search?q=openai"
+            }
+          })),
+          final: {
+            url: "https://github.com/search?q=openai",
+            title: "GitHub",
+            text: "OpenAI repositories"
+          }
+        };
+      }
+    },
+    openClaw: {
+      async planBrowserTask() {
+        return {
+          plan: {
+            steps: [
+              {
+                action: "open_url",
+                target: "https://github.com/"
+              },
+              {
+                action: "site_search",
+                query: "openai"
+              },
+              {
+                action: "read_page",
+                limit: 4000
+              }
+            ]
+          },
+          sessionRef: "latest",
+          toolUses: []
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleAutonomousTask("깃허브에서 openai 검색해줘", {
+    route: "browser",
+    language: "ko",
+    requires_automation: true
+  });
+
+  assert.equal(executedPlans.length, 1);
+  assert.deepEqual(
+    executedPlans[0].map((step) => step.action),
+    ["open_url", "site_search", "read_page"]
+  );
+  assert.equal(result.details.planner, "openclaw-session");
+  assert.equal(result.details.plannerReason, "claw-session-plan");
+});
+
+test("handleBrowser uses an OpenClaw Jarvis delegate for login continuations", async () => {
+  const service = new AssistantService({
+    automation: {},
+    browser: {
+      async navigate(target) {
+        return {
+          url: target,
+          title: "GitHub"
+        };
+      }
+    },
+    openClaw: {
+      async planBrowserTask() {
+        return {
+          plan: {
+            steps: [
+              {
+                action: "open_url",
+                target: "https://github.com/"
+              },
+              {
+                action: "jarvis_delegate",
+                route: "browser_login",
+                site: "GitHub",
+                reason: "Need Jarvis secure credential prompt"
+              },
+              {
+                action: "site_search",
+                query: "openai"
+              },
+              {
+                action: "read_page",
+                limit: 4000
+              }
+            ]
+          },
+          sessionRef: "latest",
+          toolUses: []
+        };
+      }
+    },
+    credentials: {
+      async getCredential() {
+        return null;
+      }
+    },
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const pending = await service.handleAutonomousTask("깃허브에서 openai 검색하고 로그인하고 활동 보여줘", {
+    route: "browser",
+    language: "ko",
+    requires_automation: true
+  });
+
+  assert.equal(pending.provider, "assistant-browser");
+  assert.equal(pending.details.pendingBrowserContinuation, true);
+  assert.equal(pending.details.planner, "openclaw-session");
+  assert.match(pending.reply, /로그인 화면/);
+});
+
 test("handleInput opens Chrome and navigates Gmail for mixed Korean open command", async () => {
   const calls = [];
   const service = new AssistantService({
@@ -607,6 +828,44 @@ test("handleBrowser waits for manual login before running the rest of a chained 
     ["open_url", "site_search", "read_page"]
   );
   assert.equal(resumed.details.resumedBrowserContinuation, true);
+});
+
+test("handleBrowser opens the latest mailbox message inside the current browser context", async () => {
+  const service = new AssistantService({
+    automation: {},
+    browser: {
+      async openLatestMailboxMessage() {
+        return {
+          url: "https://mail.google.com/mail/u/0/#inbox/FMfcgzQ...",
+          title: "Inbox - Gmail",
+          openedMailboxItem: "Latest message",
+          visibleText: "Latest message body"
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  service.lastBrowserContext = {
+    url: "https://mail.google.com/mail/u/0/#inbox",
+    title: "Inbox - Gmail",
+    label: "Gmail",
+    updatedAt: Date.now()
+  };
+
+  const result = await service.handleAutonomousTask("가장 최신 메시지 들어가줘", {
+    route: "browser",
+    language: "ko",
+    requires_automation: true
+  });
+
+  assert.equal(result.provider, "assistant-browser");
+  assert.equal(result.actions[0].type, "browser_open_latest_mailbox_message");
+  assert.match(result.reply, /최신 메일/);
 });
 
 test("handleBrowserLogin opens a secure credential prompt when no saved login exists", async () => {

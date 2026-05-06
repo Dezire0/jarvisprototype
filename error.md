@@ -1,8 +1,10 @@
 # 2026-05-06 Latest Errors
 
-- The previous test branch was based on Jarvis `1.6.0` while the current upstream/release line is `1.8.9`. The updater correctly reported `1.8.9` as available, so the app under test was a stale code line.
-- The stale `1.6.0` branch mixed new login patches with old UI/auth assumptions, which made login behavior hard to reason about.
-- After moving to `1.8.9`, the current code still had two auth hazards:
-  - Onboarding used `CURRENT_VERSION = "1.8.4"` and cleared `localStorage` plus Electron auth whenever the version marker changed.
-  - Google OAuth still defaulted to `jarvis-desktop://auth`, which can hit stale macOS protocol registration instead of the running Jarvis Desktop.
-- Runtime validation also revealed old stored tokens can fail against the current backend with `Unauthorized: Invalid session` / `signature mismatched`; these must be cleared through the unified auth-session path before asking the user to log in again.
+- 재현 가능한 차단 오류 없음.
+- 검증 기준:
+  - `npm run check` 통과
+  - `npm run test:node` 통과 (`105/105`)
+  - `npm run dev` 부팅 성공
+  - 로컬 UI 진입 확인: `http://127.0.0.1:3310/` / title `Jarvis Desktop`
+- 참고:
+  - 노드 테스트 중 `getconf DARWIN_USER_DIR` 기반 알림 조회 경고가 출력되지만, 기존 테스트 환경 노이즈이며 이번 OpenClaw/Jarvis 이식 실패로 이어지지는 않았음.

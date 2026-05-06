@@ -9,6 +9,7 @@ const {
   resolveConfig,
   isUnconfiguredAutoFallback
 } = require("./ollama-service.cjs");
+const { normalizeOpenClawBrowserPlan } = require("./openclaw-service.cjs");
 
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
@@ -489,6 +490,13 @@ function normalizeEntityToken(value = "") {
     .replace(/[^a-z0-9가-힣]+/g, "");
 }
 
+function stripKoreanParticleSuffix(value = "") {
+  return String(value).replace(
+    /(에서|으로부터|로부터|한테|에게|으로|로|에|을|를|은|는|이|가|와|과|도|만)$/u,
+    ""
+  );
+}
+
 function findOfficialAppFallback(appName = "") {
   const normalized = normalizeEntityToken(appName);
 
@@ -609,9 +617,58 @@ function findKnownWebTarget(text = "") {
   return bestMatch?.target || null;
 }
 
+function isMailboxUrl(target = "") {
+  const normalized = normalizeBrowserOpenUrl(target);
+  return /(mail\.google\.com|outlook\.live\.com\/mail|mail\.naver\.com|mail\.daum\.net|mail\.yahoo\.com|mail\.proton\.me)/i.test(
+    normalized
+  );
+}
+
+function prefersDownloadFallback(input = "") {
+  return /(?:download|install|setup|installer|설치|다운로드|세팅)/i.test(normalizePlanText(input));
+}
+
+function prefersOfficialSiteFallback(input = "") {
+  return /(?:official\s+(?:site|website|page)|공식\s*(?:사이트|웹사이트|홈페이지|페이지))/i.test(
+    normalizePlanText(input)
+  );
+}
+
+function extractMailboxSearchQuery(text = "") {
+  const normalized = normalizePlanText(text);
+  const patterns = [
+    /(.+?)(?:한테|에게|으로부터|로부터|from)\s+온\s+(?:이메일|메일|email|mail)/i,
+    /(?:이메일|메일|email|mail)\s+(?:from|보낸\s*사람)\s+(.+)$/i,
+    /(.+?)\s+(?:보낸\s*메일|보낸\s*이메일)$/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    const candidate = cleanupParsedText(
+      stripKoreanParticleSuffix(match?.[1] || "")
+    );
+
+    if (candidate && !/^(?:이|그|this|that)$/i.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
+function looksLikeLatestMailboxOpenRequest(text = "") {
+  return /(?:가장\s*최신\s*(?:메시지|메일|이메일)|최신\s*(?:메시지|메일|이메일)|방금\s*온\s*(?:메일|이메일)|recent\s*(?:message|mail|email)|latest\s*(?:message|mail|email)).*(?:열어|들어가|보여|open|go|show)/i.test(
+    normalizePlanText(text)
+  );
+}
+
 function guessSiteName(text) {
   const normalized = normalizePlanText(text);
   const directTarget = findKnownWebTarget(normalized);
+
+  if (extractMailboxSearchQuery(normalized)) {
+    return "";
+  }
 
   if (directTarget) {
     return directTarget.label;
@@ -1364,6 +1421,51 @@ function chooseChatModelTier(input = "", history = []) {
   }
 
   return "fast";
+}
+
+function chooseAutomationReasoningTier(input = "", route = {}) {
+  const normalized = normalizePlanText(input);
+  const routeName = String(route?.route || "").trim().toLowerCase();
+
+  if (!normalized) {
+    return "fast";
+  }
+
+  if (route?.requires_automation === true) {
+    return "complex";
+  }
+
+  if (routeName === "browser_login") {
+    return "complex";
+  }
+
+  if (routeName === "browser") {
+    if (looksComplexChainedRequest(normalized)) {
+      return "complex";
+    }
+
+    if (
+      /(로그인|login|sign in|log in|메일|이메일|email|mail|message|최신|latest|누구|who|읽|read|요약|summary|확인|check|판단|compare|activity|content|보여줘|찾아줘)/i.test(
+        normalized
+      )
+    ) {
+      return "complex";
+    }
+  }
+
+  if (routeName === "app_action" && looksComplexChainedRequest(normalized)) {
+    return "complex";
+  }
+
+  return "fast";
+}
+
+function buildPlannerModelOptions(tier = "fast") {
+  return tier === "fast"
+    ? {
+        model: FAST_PLANNER_MODEL
+      }
+    : {};
 }
 
 function looksLikeModelIdentityQuestion(input = "") {
@@ -2999,8 +3101,32 @@ function buildRouteFallback(input) {
   };
 }
 
+const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
+  "browser_login",
+  "app_open",
+  "app_action",
+  "app_list",
+  "screen_summary",
+  "screen_academic",
+  "system_briefing",
+  "obs_connect",
+  "obs_status",
+  "obs_start",
+  "obs_stop",
+  "obs_scene",
+  "file_read",
+  "file_write",
+  "file_list",
+  "stream_prep",
+  "code_project",
+  "game_install",
+  "game_update",
+  "game_list",
+  "spotify_play"
+]);
+
 class AssistantService {
-  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, screen, tts, settings }) {
+  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
@@ -3010,6 +3136,7 @@ class AssistantService {
     this.games = games || null;
     this.memory = memory || null;
     this.obs = obs;
+    this.openClaw = openClaw || null;
     this.screen = screen;
     this.tts = tts;
     this.settings = settings;
@@ -3258,6 +3385,203 @@ class AssistantService {
     return this.lastBrowserContext;
   }
 
+  looksLikeMailboxContextFollowUp(input = "") {
+    if (!isMailboxUrl(this.lastBrowserContext?.url || "")) {
+      return false;
+    }
+
+    return (
+      looksLikeLatestMailboxOpenRequest(input) ||
+      Boolean(extractMailboxSearchQuery(input)) ||
+      /(?:이메일\s*내용|메일\s*내용|이\s*메일|그\s*메일|이\s*이메일|그\s*이메일|최근\s*메일|방금\s*온\s*메일|발신자|보낸\s*사람|sender|latest\s*email|recent\s*email|email\s*content|mail\s*content)/i.test(
+        normalizePlanText(input)
+      )
+    );
+  }
+
+  looksLikeBrowserContextFollowUp(input = "") {
+    if (!this.lastBrowserContext?.url) {
+      return false;
+    }
+
+    return (
+      refersToCurrentBrowserContext(input) ||
+      this.looksLikeMailboxContextFollowUp(input)
+    );
+  }
+
+  buildBrowserPlanningContext(input = "", route = {}) {
+    return {
+      currentBrowserUrl: this.lastBrowserContext?.url || "",
+      currentBrowserLabel: this.lastBrowserContext?.label || "",
+      mailboxContext: isMailboxUrl(this.lastBrowserContext?.url || ""),
+      pendingContinuation: Boolean(this.pendingBrowserContinuation),
+      officialSiteRequested: prefersOfficialSiteFallback(input),
+      downloadRequested: prefersDownloadFallback(input),
+      preferredSite: guessSiteName(input),
+      requestedApp: cleanupParsedText(route.appName || ""),
+      routeHint: cleanupParsedText(route.route || "browser"),
+      lastActiveApp: this.lastActiveApp || ""
+    };
+  }
+
+  buildBrowserPlannerMeta(bundle = {}) {
+    return {
+      planner: bundle.planner || "jarvis-heuristic",
+      plannerReason: bundle.plannerReason || "heuristic-fallback",
+      openClawSessionRef: bundle.sessionRef || "",
+      openClawCommandLine: bundle.commandLine || "",
+      openClawToolUses: Array.isArray(bundle.toolUses) ? bundle.toolUses : [],
+      openClawUsage: bundle.usage || null
+    };
+  }
+
+  attachBrowserPlannerDetails(details = {}, plannerMeta = {}) {
+    return {
+      ...details,
+      planner: plannerMeta.planner || "jarvis-heuristic",
+      plannerReason: plannerMeta.plannerReason || "heuristic-fallback",
+      ...(plannerMeta.openClawSessionRef ? { openClawSessionRef: plannerMeta.openClawSessionRef } : {}),
+      ...(plannerMeta.openClawCommandLine ? { openClawCommandLine: plannerMeta.openClawCommandLine } : {}),
+      ...(plannerMeta.openClawToolUses?.length ? { openClawToolUses: plannerMeta.openClawToolUses } : {}),
+      ...(plannerMeta.openClawUsage ? { openClawUsage: plannerMeta.openClawUsage } : {})
+    };
+  }
+
+  async planBrowserWorkflow(input = "", route = {}) {
+    const fallbackPlan = buildHeuristicBrowserPlan(input);
+
+    if (!this.openClaw?.planBrowserTask) {
+      return {
+        plan: fallbackPlan,
+        planner: "jarvis-heuristic",
+        plannerReason: "openclaw-unavailable"
+      };
+    }
+
+    try {
+      const response = await this.openClaw.planBrowserTask(
+        input,
+        this.buildBrowserPlanningContext(input, route)
+      );
+      const plan = normalizeOpenClawBrowserPlan(response?.plan || response);
+
+      if (plan.steps.length || plan.login?.required) {
+        return {
+          plan,
+          planner: "openclaw-session",
+          plannerReason: "claw-session-plan",
+          sessionRef: response?.sessionRef || "latest",
+          commandLine: response?.commandLine || "",
+          toolUses: Array.isArray(response?.toolUses) ? response.toolUses : [],
+          usage: response?.usage || null
+        };
+      }
+    } catch (error) {
+      console.warn("OpenClaw browser planner failed:", error.message);
+      return {
+        plan: fallbackPlan,
+        planner: "jarvis-heuristic",
+        plannerReason: "openclaw-error"
+      };
+    }
+
+    return {
+      plan: fallbackPlan,
+      planner: "jarvis-heuristic",
+      plannerReason: "heuristic-fallback"
+    };
+  }
+
+  buildOpenClawDelegateRoute(delegateStep = {}, fallbackRoute = {}, language = "en") {
+    const routeName = cleanupParsedText(delegateStep.route || delegateStep.capability || "");
+
+    if (!OPENCLAW_JARVIS_DELEGATE_ROUTES.has(routeName)) {
+      return null;
+    }
+
+    const delegateRoute = {
+      route: routeName,
+      language: delegateStep.language || language
+    };
+
+    if (routeName === "browser_login") {
+      delegateRoute.siteOrUrl = delegateStep.site || delegateStep.target || fallbackRoute.siteOrUrl || fallbackRoute.appName || "";
+    }
+
+    if (routeName === "app_open" || routeName === "app_action") {
+      delegateRoute.appName = delegateStep.target || fallbackRoute.appName || delegateStep.site || "";
+    }
+
+    if (routeName === "obs_scene" && delegateStep.sceneName) {
+      delegateRoute.sceneName = delegateStep.sceneName;
+    }
+
+    if (delegateStep.path && routeName.startsWith("file_")) {
+      delegateRoute.path = delegateStep.path;
+    }
+
+    if (delegateStep.content && routeName === "file_write") {
+      delegateRoute.content = delegateStep.content;
+    }
+
+    if (delegateStep.query && routeName.startsWith("game_")) {
+      delegateRoute.query = delegateStep.query;
+    }
+
+    if (delegateStep.platform && routeName.startsWith("game_")) {
+      delegateRoute.platform = delegateStep.platform;
+    }
+
+    if (delegateStep.query && routeName === "spotify_play") {
+      delegateRoute.query = delegateStep.query;
+    }
+
+    return delegateRoute;
+  }
+
+  async executeOpenClawDelegate(input, delegateStep = {}, options = {}) {
+    const language = options.language || detectReplyLanguage(input);
+    const delegateRoute = this.buildOpenClawDelegateRoute(
+      delegateStep,
+      options.route || {},
+      language
+    );
+
+    if (!delegateRoute) {
+      throw new Error(`Unsupported OpenClaw Jarvis delegate route: ${delegateStep.route || delegateStep.capability || "unknown"}`);
+    }
+
+    if (delegateRoute.route === "browser_login" && options.remainingSteps?.length) {
+      return this.beginPendingBrowserContinuation(
+        input,
+        {
+          steps: options.remainingSteps,
+          targetUrl: options.targetUrl || "",
+          login: {
+            required: true,
+            mode: "manual",
+            site: delegateStep.site || delegateStep.target || delegateRoute.siteOrUrl || ""
+          }
+        },
+        options.plannerMeta || {}
+      );
+    }
+
+    const result = await this.executeRoute(input, delegateRoute);
+    result.details = this.attachBrowserPlannerDetails(
+      {
+        ...(result.details || {}),
+        openClawDelegate: {
+          route: delegateRoute.route,
+          reason: delegateStep.reason || ""
+        }
+      },
+      options.plannerMeta || {}
+    );
+    return result;
+  }
+
   resolveBrowserLoginTarget(routeSiteOrUrl = "", originalInput = "") {
     const combined = `${routeSiteOrUrl} ${originalInput}`;
     const directTarget = findKnownWebTarget(combined);
@@ -3417,24 +3741,28 @@ class AssistantService {
     const choice = String(route.appRecoveryChoice || "").trim();
 
     if (choice === "web" && officialFallback?.webRunnable && officialFallback.webUrl) {
-      const opened = await this.openBrowserTargetForUser(officialFallback.webUrl, {
-        preferAssistant: true
-      });
+      const browserResult = await this.handleAutonomousTask(
+        `${label} 공식 웹 앱 ${officialFallback.webUrl} 열어줘`,
+        {
+          route: "browser",
+          language,
+          appName: label,
+          requires_automation: false
+        }
+      );
 
       return {
+        ...browserResult,
         reply:
           language === "ko"
-            ? `${label} 앱은 로컬에 없어서 공식 웹 앱을 Playwright 브라우저로 열었어요.`
-            : `${label} is not installed locally, so I opened the official web app in the Playwright browser.`,
-        actions: [this.makeAction("open_url", opened.url || officialFallback.webUrl)],
-        provider: opened.openMode || "assistant-browser",
+            ? `${label} 앱은 로컬에 없어서 OpenClaw 세션 기준 공식 웹 앱 경로를 열었어요.`
+            : `${label} is not installed locally, so I opened the official web app route through the OpenClaw session.`,
         details: {
+          ...(browserResult.details || {}),
           missingApp: true,
           appName: label,
           recovery: "web",
-          officialWebUrl: officialFallback.webUrl,
-          title: opened.title || "",
-          url: opened.url || officialFallback.webUrl
+          officialWebUrl: officialFallback.webUrl
         }
       };
     }
@@ -3455,27 +3783,30 @@ class AssistantService {
     }
 
     if (choice === "install") {
-      const targetUrl = officialFallback?.installUrl || `${requestedApp} 공식 사이트 다운로드`;
-      const opened = await this.openBrowserTargetForUser(targetUrl, {
-        preferAssistant: true
+      const targetPrompt = officialFallback?.installUrl
+        ? `${label} 공식 설치 다운로드 페이지 ${officialFallback.installUrl} 열어줘`
+        : `${requestedApp} 공식 사이트 다운로드`;
+      const browserResult = await this.handleAutonomousTask(targetPrompt, {
+        route: "browser",
+        language,
+        appName: label,
+        requires_automation: false
       });
 
       return {
+        ...browserResult,
         reply:
           language === "ko"
-            ? `${label} 앱은 로컬에 없어서 공식 설치 경로를 Playwright 브라우저로 열었어요.${officialFallback?.kind === "cli" ? "\n\n" + this.buildCliFallbackReply(input, requestedApp, officialFallback) : ""}`
-            : `${label} is not installed locally, so I opened the official install route in the Playwright browser.${officialFallback?.kind === "cli" ? "\n\n" + this.buildCliFallbackReply(input, requestedApp, officialFallback) : ""}`,
-        actions: [this.makeAction("open_url", opened.url || targetUrl)],
-        provider: opened.openMode || "assistant-browser",
+            ? `${label} 앱은 로컬에 없어서 OpenClaw 세션 기준 공식 설치 경로를 열었어요.${officialFallback?.kind === "cli" ? "\n\n" + this.buildCliFallbackReply(input, requestedApp, officialFallback) : ""}`
+            : `${label} is not installed locally, so I opened the official install route through the OpenClaw session.${officialFallback?.kind === "cli" ? "\n\n" + this.buildCliFallbackReply(input, requestedApp, officialFallback) : ""}`,
         details: {
+          ...(browserResult.details || {}),
           missingApp: true,
           appName: label,
           recovery: "install",
           installUrl: officialFallback?.installUrl || "",
-          title: opened.title || "",
-          url: opened.url || targetUrl,
-          installCommands: officialFallback?.installCommands || [],
-          runCommands: officialFallback?.runCommands || []
+          installCommands: officialFallback.installCommands || [],
+          runCommands: officialFallback.runCommands || []
         }
       };
     }
@@ -3508,10 +3839,10 @@ class AssistantService {
     );
   }
 
-  async beginPendingBrowserContinuation(input, plan) {
+  async beginPendingBrowserContinuation(input, plan, plannerMeta = {}) {
     const language = detectReplyLanguage(input);
     const site = cleanupParsedText(plan?.login?.site || guessSiteName(input) || "");
-    const fallbackTarget = buildExternalBrowserTarget(plan?.steps?.[0] || {});
+    const fallbackTarget = cleanupParsedText(plan?.targetUrl || buildExternalBrowserTarget(plan?.steps?.[0] || {}));
     const targetUrl = buildDirectSiteUrl(site) || fallbackTarget || normalizeBrowserOpenUrl(site || input);
     const opened = await this.openBrowserTargetForUser(targetUrl, {
       preferAssistant: true
@@ -3526,7 +3857,8 @@ class AssistantService {
       language,
       site: siteLabel,
       targetUrl: opened.url || targetUrl,
-      steps: Array.isArray(plan?.steps) ? plan.steps : []
+      steps: Array.isArray(plan?.steps) ? plan.steps : [],
+      plannerMeta
     };
 
     if (savedCredential && typeof this.browser?.loginWithStoredCredential === "function") {
@@ -3538,12 +3870,12 @@ class AssistantService {
             : `I filled the saved login for ${siteLabel}. If a code or CAPTCHA appears, finish it and say "continue."`,
         actions: [this.makeAction("browser_login", data.site || siteLabel)],
         provider: "local",
-        details: {
+        details: this.attachBrowserPlannerDetails({
           ...data,
           pendingBrowserContinuation: true,
           site: siteLabel,
           loginMode: "saved"
-        }
+        }, plannerMeta)
       };
     }
 
@@ -3554,7 +3886,7 @@ class AssistantService {
           : `I opened ${siteLabel}. Use the secure login card below and I will fill the current login form.`,
       actions: [this.makeAction("open_url", opened.url || targetUrl)],
       provider: opened.openMode,
-      details: {
+      details: this.attachBrowserPlannerDetails({
         title: opened.title || "",
         url: opened.url || targetUrl,
         openMode: opened.openMode,
@@ -3566,7 +3898,7 @@ class AssistantService {
           loginUrl: opened.url || targetUrl,
           language
         })
-      }
+      }, plannerMeta)
     };
   }
 
@@ -3652,7 +3984,7 @@ class AssistantService {
     };
   }
 
-  async completeBrowserPlan(input, data) {
+  async completeBrowserPlan(input, data, plannerMeta = {}) {
     const language = detectReplyLanguage(input);
     const finalPage = data.final || {};
     const actions = data.steps.map((step) =>
@@ -3706,14 +4038,14 @@ class AssistantService {
           reply: appendBrowserNotices(reply, notices, language),
           actions,
           provider: getTierProviderLabel("complex"),
-          details
+          details: this.attachBrowserPlannerDetails(details, plannerMeta)
         };
       } catch (_error) {
         return {
           reply: fallback,
           actions,
           provider: "local",
-          details
+          details: this.attachBrowserPlannerDetails(details, plannerMeta)
         };
       }
     }
@@ -3729,7 +4061,7 @@ class AssistantService {
       ),
       actions,
       provider: "local",
-      details
+      details: this.attachBrowserPlannerDetails(details, plannerMeta)
     };
   }
 
@@ -3767,17 +4099,22 @@ class AssistantService {
             ? "좋아요. 로그인은 그 창에서 계속 유지될 거예요."
             : "Sounds good. The login should stay available in that browser session.",
         actions: [],
-        provider: "local"
+        provider: "local",
+        details: this.attachBrowserPlannerDetails({}, pending.plannerMeta || {})
       };
     }
 
     try {
       const data = await this.browser.executePlan(pending.steps);
-      const result = await this.completeBrowserPlan(pending.originalInput || input, data);
-      result.details = {
+      const result = await this.completeBrowserPlan(
+        pending.originalInput || input,
+        data,
+        pending.plannerMeta || {}
+      );
+      result.details = this.attachBrowserPlannerDetails({
         ...(result.details || {}),
         resumedBrowserContinuation: true
-      };
+      }, pending.plannerMeta || {});
       return result;
     } catch (error) {
       this.pendingBrowserContinuation = pending;
@@ -3789,10 +4126,10 @@ class AssistantService {
             : `It looks like the login or page is not ready yet. ${error.message} Finish the login, then say "continue" again.`,
         actions: [],
         provider: "local",
-        details: {
+        details: this.attachBrowserPlannerDetails({
           pendingBrowserContinuation: true,
           error: error.message
-        }
+        }, pending.plannerMeta || {})
       };
     }
   }
@@ -5066,7 +5403,7 @@ class AssistantService {
       "Use code_project when the user asks you to create a coding project, generate an app, scaffold a prototype, or build something like a snake game or todo app.",
       "Use browser for website navigation, URLs, searches, web logins, reading web pages, or multi-step site workflows like open site, log in, search, and show activity.",
       "Use browser_login only for explicit login requests.",
-      "Set requires_automation to true ONLY if the user request requires you to read the screen, log in, click buttons, summarize, or perform multi-step workflows. Set to false if they just want to open a page or do a simple search.",
+      "Set requires_automation to true when the request requires screen reading, login handling, button clicks, summarizing page content, checking who/what is on a page, opening the latest mail/message, or any multi-step website workflow. Set it to false only for simple page opens or simple searches.",
       "When the user names a specific app or website, prioritize that named target over generic nouns like music, song, video, message, or search.",
       "Do not route recommendation-style questions into desktop actions unless the user clearly asks you to play, open, search, or control something.",
       "Use system_briefing when the user asks what is happening on this computer, the current machine status, frontmost app, browser state, or a direct system overview.",
@@ -5082,9 +5419,10 @@ class AssistantService {
     ].join(" ");
 
     try {
+      const routeTier = chooseAutomationReasoningTier(input, fallback);
       const raw = await chat({
         systemPrompt: routerPrompt,
-        tier: "fast",
+        tier: routeTier,
         userPrompt: [
           "Recent conversation:",
           this.buildHistorySnippet(),
@@ -5344,17 +5682,80 @@ class AssistantService {
     const language = detectReplyLanguage(input);
     const actions = [];
     let state = {};
+    let plannerMeta = {};
+    const plannerTier = chooseAutomationReasoningTier(input, route);
 
     if (route.route === "browser") {
-      const plan = buildHeuristicBrowserPlan(input);
+      const browserPlanning = await this.planBrowserWorkflow(input, route);
+      plannerMeta = this.buildBrowserPlannerMeta(browserPlanning);
+      const plan = browserPlanning.plan;
       const normalizedInput = normalizePlanText(input);
+      const isComplexBrowserTask = route.requires_automation === true;
+      const stayInCurrentBrowserContext = this.looksLikeBrowserContextFollowUp(input);
+      const delegateIndex = Array.isArray(plan?.steps)
+        ? plan.steps.findIndex((step) => step.action === "jarvis_delegate")
+        : -1;
+      const delegateStep = delegateIndex >= 0 ? plan.steps[delegateIndex] : null;
+      const deterministicSteps = Array.isArray(plan?.steps)
+        ? plan.steps.filter((step) => step.action !== "jarvis_delegate")
+        : [];
 
-      if (plan?.login?.required && plan.login.mode === "manual") {
-        return this.beginPendingBrowserContinuation(input, plan);
+      if (
+        stayInCurrentBrowserContext &&
+        this.looksLikeMailboxContextFollowUp(input) &&
+        looksLikeLatestMailboxOpenRequest(input) &&
+        typeof this.browser?.openLatestMailboxMessage === "function"
+      ) {
+        const data = await this.browser.openLatestMailboxMessage();
+        const title =
+          inferFriendlyBrowserLabel(
+            data.title || this.lastBrowserContext?.label || "message",
+            language
+          ) ||
+          (language === "ko" ? "최신 메시지" : "the latest message");
+        this.rememberBrowserContext(data.url || this.lastBrowserContext?.url || "", title, {
+          language
+        });
+
+        return {
+          reply:
+            language === "ko"
+              ? "가장 최신 메일을 열어봤어요."
+              : "I opened the latest email.",
+          actions: [this.makeAction("browser_open_latest_mailbox_message", data.openedMailboxItem || title)],
+          provider: "assistant-browser",
+          details: this.attachBrowserPlannerDetails({
+            ...data,
+            openMode: "assistant-browser"
+          }, plannerMeta)
+        };
       }
 
-      // AI router decides if multi-step reasoning is required
-      const isComplexBrowserTask = route.requires_automation === true;
+      if (delegateStep) {
+        const priorSteps = plan.steps.slice(0, delegateIndex).filter((step) => step.action !== "jarvis_delegate");
+        const remainingSteps = plan.steps.slice(delegateIndex + 1).filter((step) => step.action !== "jarvis_delegate");
+        const targetUrl =
+          buildExternalBrowserTarget(priorSteps[0] || {}) ||
+          buildDirectSiteUrl(delegateStep.site || delegateStep.target || "") ||
+          this.lastBrowserContext?.url ||
+          "";
+
+        return this.executeOpenClawDelegate(input, delegateStep, {
+          language,
+          plannerMeta,
+          remainingSteps,
+          route: {
+            ...route,
+            siteOrUrl: delegateStep.site || targetUrl,
+            appName: delegateStep.target || route.appName || ""
+          },
+          targetUrl
+        });
+      }
+
+      if (plan?.login?.required && plan.login.mode === "manual") {
+        return this.beginPendingBrowserContinuation(input, plan, plannerMeta);
+      }
 
       if (!isComplexBrowserTask && isSimpleExternalBrowserPlan(plan)) {
         const targetUrl = buildExternalBrowserTarget(plan.steps[0]);
@@ -5374,16 +5775,41 @@ class AssistantService {
           reply: fallback,
           actions: [this.makeAction("open_url", opened.url || targetUrl)],
           provider: opened.openMode,
-          details: {
+          details: this.attachBrowserPlannerDetails({
             title: opened.title || "",
             url: opened.url || targetUrl,
             openMode: opened.openMode
-          }
+          }, plannerMeta)
         };
       }
 
+      const supportsDeterministicPlan =
+        deterministicSteps.length > 0 &&
+        (typeof this.browser?.supportsPlanSteps === "function"
+          ? this.browser.supportsPlanSteps(deterministicSteps)
+          : typeof this.browser?.executePlan === "function");
+
+      if (!stayInCurrentBrowserContext && supportsDeterministicPlan) {
+        try {
+          const data = await this.browser.executePlan(deterministicSteps);
+          const finalUrl = data?.final?.url || buildExternalBrowserTarget(deterministicSteps[0] || {}) || "";
+          const finalLabel =
+            inferFriendlyBrowserLabel(data?.final?.title || data?.final?.url || finalUrl, language) ||
+            finalUrl;
+
+          this.rememberBrowserContext(finalUrl, finalLabel, {
+            language
+          });
+          return this.completeBrowserPlan(input, data, plannerMeta);
+        } catch (_error) {
+          // Fall through to the ReAct browser agent when the deterministic executor is unavailable.
+        }
+      }
+
       // Step 0: Navigate to initial URL
-      const initialUrl = this.resolveInitialBrowserUrl(input);
+      const initialUrl = stayInCurrentBrowserContext
+        ? this.lastBrowserContext?.url || this.resolveInitialBrowserUrl(input)
+        : this.resolveInitialBrowserUrl(input);
       try {
         state = await this.browser.navigate(initialUrl);
         this.rememberBrowserContext(state.url || initialUrl, state.title || "", {
@@ -5399,7 +5825,10 @@ class AssistantService {
             reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
             actions: [this.makeAction("open_url", initialUrl)],
             provider: "system-browser",
-            details: { url: initialUrl, openMode: "external-browser" }
+            details: this.attachBrowserPlannerDetails({
+              url: initialUrl,
+              openMode: "external-browser"
+            }, plannerMeta)
           };
         } catch {
           throw navError;
@@ -5415,7 +5844,10 @@ class AssistantService {
           reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
           actions,
           provider: "local",
-          details: { url: state.url, title: state.title }
+          details: this.attachBrowserPlannerDetails({
+            url: state.url,
+            title: state.title
+          }, plannerMeta)
         };
       }
     } else {
@@ -5447,8 +5879,8 @@ class AssistantService {
       try {
         aiResponse = await chat({
           systemPrompt: AssistantService.REACT_AGENT_SYSTEM_PROMPT,
-          tier: "fast",
-          model: FAST_PLANNER_MODEL,
+          tier: plannerTier,
+          ...buildPlannerModelOptions(plannerTier),
           history: [
             ...this.getRecentHistory(6),
             ...agentHistory.slice(-8)
@@ -5471,8 +5903,8 @@ class AssistantService {
       if (!parsed?.action) {
         const localResponse = await chat({
           systemPrompt: AssistantService.REACT_AGENT_SYSTEM_PROMPT,
-          tier: "fast",
-          model: FAST_PLANNER_MODEL,
+          tier: plannerTier,
+          ...buildPlannerModelOptions(plannerTier),
           history: agentHistory.slice(-8),
           userPrompt: [
             "The configured API response was not a valid browser action. Continue as a local fallback without losing context.",
@@ -5529,7 +5961,15 @@ class AssistantService {
             : "This looks like a sensitive final action, so I need confirmation before I perform it.",
           actions,
           provider: "react-agent",
-          details: {
+          details: route.route === "browser"
+            ? this.attachBrowserPlannerDetails({
+              url: state?.url || "",
+              title: state?.title || "",
+              stepsExecuted: actions.length,
+              stopReason: "needs_user_confirmation",
+              sensitiveConfirmation: confirmation
+            }, plannerMeta)
+            : {
             url: state?.url || "",
             title: state?.title || "",
             stepsExecuted: actions.length,
@@ -5601,14 +6041,23 @@ class AssistantService {
       reply,
       actions,
       provider: "react-agent",
-      details: {
-        url: finalState.url || "",
-        title: finalState.title || "",
-        stepsExecuted: actions.length,
-        anomalies: notices,
-        credentialPrompt,
-        verificationPrompt
-      }
+      details: route.route === "browser"
+        ? this.attachBrowserPlannerDetails({
+          url: finalState.url || "",
+          title: finalState.title || "",
+          stepsExecuted: actions.length,
+          anomalies: notices,
+          credentialPrompt,
+          verificationPrompt
+        }, plannerMeta)
+        : {
+          url: finalState.url || "",
+          title: finalState.title || "",
+          stepsExecuted: actions.length,
+          anomalies: notices,
+          credentialPrompt,
+          verificationPrompt
+        }
     };
   }
 
@@ -6446,6 +6895,14 @@ class AssistantService {
 
     let route = await this.routeInput(cleanInput);
 
+    if (route.route === "chat" && this.looksLikeBrowserContextFollowUp(cleanInput)) {
+      route = {
+        ...route,
+        route: "browser",
+        requires_automation: true
+      };
+    }
+
     if (
       route.route === "chat" &&
       looksLikeAppAction(cleanInput) &&
@@ -6483,6 +6940,7 @@ class AssistantService {
 
 module.exports = {
   AssistantService,
+  chooseAutomationReasoningTier,
   chooseChatModelTier,
   extractAppName,
   buildHeuristicBrowserPlan,

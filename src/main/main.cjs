@@ -42,6 +42,7 @@ const {
 } = require("./ollama-service.cjs");
 const { MemoryStore } = require("./memory-store.cjs");
 const { ObsService } = require("./obs-service.cjs");
+const { OpenClawService } = require("./openclaw-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
 const { createAutomationAdapter } = require("./platform-adapters.cjs");
 const { SettingsStore } = require("./settings-store.cjs");
@@ -138,6 +139,47 @@ function ensureReadyServices() {
   };
 }
 
+async function captureLivePreviewSnapshot() {
+  const { services: liveServices } = ensureReadyServices();
+
+  try {
+    const browserStatus = await liveServices.browser.peekStatus?.();
+
+    if (browserStatus?.pageActive && typeof liveServices.browser.screenshot === "function") {
+      const previewBytes = await liveServices.browser.screenshot();
+      const buffer = Buffer.isBuffer(previewBytes) ? previewBytes : Buffer.from(previewBytes || []);
+
+      if (buffer.length) {
+        return {
+          ok: true,
+          source: "assistant-browser",
+          imageDataUrl: `data:image/png;base64,${buffer.toString("base64")}`,
+          title: browserStatus.currentPage?.title || "",
+          url: browserStatus.currentPage?.url || ""
+        };
+      }
+    }
+  } catch (_error) {
+    // Fall through to desktop screenshot below.
+  }
+
+  try {
+    const { imagePath } = await liveServices.screen.captureScreen();
+    const bytes = await fs.readFile(imagePath);
+    return {
+      ok: true,
+      source: "desktop-screen",
+      imageDataUrl: `data:image/png;base64,${bytes.toString("base64")}`
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      source: "unavailable",
+      error: error.message
+    };
+  }
+}
+
 async function createServices() {
   const credentials = new CredentialStore({ app, safeStorage });
   const memory = new MemoryStore({ app });
@@ -159,6 +201,9 @@ async function createServices() {
   const browser = new BrowserService({
     userDataDir: app.getPath("userData"),
     credentialStore: credentials
+  });
+  const openClaw = new OpenClawService({
+    workspaceRoot: process.cwd()
   });
   const files = new FileService({
     workspaceRoot: process.cwd()
@@ -192,6 +237,7 @@ async function createServices() {
     games,
     memory,
     obs,
+    openClaw,
     screen: screenService,
     settings,
     stt,
@@ -208,6 +254,7 @@ async function createServices() {
     games,
     memory,
     obs,
+    openClaw,
     screen: screenService,
     tts,
     settings
@@ -229,6 +276,7 @@ async function createServices() {
         games,
         memory,
         obs,
+        openClaw,
         screen: screenService,
         tts,
         settings
@@ -1286,6 +1334,10 @@ ipcMain.handle("assistant:get-app-state", async () => {
     updater: updaterService ? updaterService.getStatus() : null,
     muted: assistantMuted
   };
+});
+
+ipcMain.handle("assistant:get-live-preview", async () => {
+  return captureLivePreviewSnapshot();
 });
 
 ipcMain.handle("assistant:check-for-updates", async () => {

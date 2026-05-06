@@ -89,6 +89,80 @@ const SEARCH_INPUT_SELECTORS = [
   'input[type="search"]'
 ];
 
+async function markBestMailboxItem(page) {
+  return page.evaluate(() => {
+    document.querySelectorAll("[data-jarvis-mail-target]").forEach((node) => {
+      node.removeAttribute("data-jarvis-mail-target");
+    });
+
+    const selectors = [
+      "[role='main'] [role='option']",
+      "[role='main'] [role='link']",
+      "[role='main'] tr",
+      "[role='main'] article",
+      "main [role='option']",
+      "main a",
+      "main tr",
+      "main article",
+      "main li"
+    ];
+    const ignorePattern = /(inbox|compose|drafts|sent|spam|trash|starred|archive|settings|메일함|받은편지함|보낸편지함|임시보관함|스팸|휴지통|설정)/i;
+    const nodes = Array.from(document.querySelectorAll(selectors.join(",")));
+    let bestNode = null;
+    let bestScore = -Infinity;
+
+    for (const node of nodes) {
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      const text = (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
+
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+        continue;
+      }
+
+      if (rect.width === 0 || rect.height === 0 || rect.bottom < 80 || rect.top > window.innerHeight) {
+        continue;
+      }
+
+      if (text.length < 8 || ignorePattern.test(text)) {
+        continue;
+      }
+
+      let score = 10000 - rect.top;
+
+      if (node.matches("[role='option'], tr, article")) {
+        score += 120;
+      }
+
+      if (node.matches("a[href]")) {
+        score += 80;
+      }
+
+      if (text.length >= 18 && text.length <= 220) {
+        score += 40;
+      }
+
+      if (/unread|읽지 않음|새 메일|new/i.test(text)) {
+        score += 60;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestNode = node;
+      }
+    }
+
+    if (!bestNode) {
+      return null;
+    }
+
+    bestNode.setAttribute("data-jarvis-mail-target", "latest");
+    return {
+      text: (bestNode.innerText || bestNode.textContent || "").replace(/\s+/g, " ").trim()
+    };
+  });
+}
+
 const DETERMINISTIC_BROWSER_PLAN_ACTIONS = new Set([
   "open_url",
   "search_google",
@@ -552,6 +626,28 @@ class BrowserService extends betaBrowser.BaseBrowserService {
     ]).catch(() => {});
 
     return this.observe();
+  }
+
+  async openLatestMailboxMessage() {
+    const page = await this.getPage();
+    const marked = await markBestMailboxItem(page);
+
+    if (!marked) {
+      throw new Error("Could not find a visible latest message item in the current mailbox.");
+    }
+
+    const locator = page.locator("[data-jarvis-mail-target='latest']").first();
+    await locator.scrollIntoViewIfNeeded().catch(() => {});
+    await locator.click({ timeout: 5000 });
+    await Promise.race([
+      page.waitForLoadState("networkidle", { timeout: 5000 }),
+      page.waitForLoadState("domcontentloaded", { timeout: 5000 })
+    ]).catch(() => {});
+
+    return {
+      ...(await this.observe()),
+      openedMailboxItem: marked.text
+    };
   }
 
   async executePlan(steps = []) {
