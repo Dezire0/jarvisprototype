@@ -257,7 +257,8 @@ async function createServices() {
     openClaw,
     screen: screenService,
     tts,
-    settings
+    settings,
+    threadId: "default-thread"
   });
 
   assistantTransportServer = createAssistantTransportServer({
@@ -265,7 +266,7 @@ async function createServices() {
     onAuthCallback(payload) {
       deliverAuthCallback(payload);
     },
-    createAssistantForThread() {
+    createAssistantForThread(threadId) {
       return new AssistantService({
         automation,
         browser,
@@ -279,7 +280,8 @@ async function createServices() {
         openClaw,
         screen: screenService,
         tts,
-        settings
+        settings,
+        threadId
       });
     }
   });

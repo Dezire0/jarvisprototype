@@ -36,6 +36,83 @@ function delay(ms) {
   });
 }
 
+function prefersKorean(text = "") {
+  return /[ㄱ-ㅎ가-힣]/.test(String(text || ""));
+}
+
+function buildRunningProgressSteps(text = "") {
+  const normalized = String(text || "").toLowerCase();
+  const isKo = prefersKorean(text);
+
+  if (/(로그인|login|sign in|log in)/i.test(normalized)) {
+    return isKo
+      ? [
+          "현재 사이트와 로그인 문맥을 확인하는 중",
+          "로그인 진입점을 찾는 중",
+          "아이디와 비밀번호 입력 칸을 찾는 중",
+          "입력 후 화면 상태를 다시 확인하는 중"
+        ]
+      : [
+          "Checking the current site and login context",
+          "Finding the login entry point",
+          "Locating the username and password fields",
+          "Re-checking the page after the form step"
+        ];
+  }
+
+  if (/(메일|이메일|gmail|outlook|email|mail|message)/i.test(normalized)) {
+    return isKo
+      ? [
+          "현재 메일함 문맥을 확인하는 중",
+          "가장 관련 있는 메시지를 찾는 중",
+          "열린 메일 화면을 다시 확인하는 중"
+        ]
+      : [
+          "Checking the current mailbox context",
+          "Finding the most relevant message",
+          "Re-checking the opened mail view"
+        ];
+  }
+
+  if (/(브라우저|browser|사이트|url|검색|search|amazon|github|google|youtube)/i.test(normalized)) {
+    return isKo
+      ? [
+          "현재 브라우저 문맥을 확인하는 중",
+          "다음 웹 동작을 계획하는 중",
+          "클릭하거나 입력할 요소를 찾는 중",
+          "실행 결과를 다시 확인하는 중"
+        ]
+      : [
+          "Checking the current browser context",
+          "Planning the next web action",
+          "Finding the element to click or type into",
+          "Re-checking the result after execution"
+        ];
+  }
+
+  return isKo
+    ? [
+        "현재 작업 문맥을 확인하는 중",
+        "다음 동작을 계획하는 중",
+        "실행 결과를 다시 확인하는 중"
+      ]
+    : [
+        "Checking the current task context",
+        "Planning the next action",
+        "Re-checking the result after execution"
+      ];
+}
+
+function buildRunningMessageDetails(text = "") {
+  const progressSteps = buildRunningProgressSteps(text);
+
+  return {
+    livePreview: true,
+    progressLabel: progressSteps[0] || "",
+    progressSteps
+  };
+}
+
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -99,6 +176,18 @@ function extractUserText(commands = []) {
   }
 
   return "";
+}
+
+function normalizeMemoryContext(rawContext = {}, threadId = "") {
+  const context = rawContext && typeof rawContext === "object" ? rawContext : {};
+
+  return {
+    threadId,
+    projectId: typeof context.projectId === "string" ? context.projectId.trim() : "",
+    projectName: typeof context.projectName === "string" ? context.projectName.trim() : "",
+    threadTitle: typeof context.threadTitle === "string" ? context.threadTitle.trim() : "",
+    memoryMode: context.memoryMode === "temporary" ? "temporary" : "persistent"
+  };
 }
 
 function writeChunk(res, type, value) {
@@ -222,6 +311,7 @@ function createAssistantTransportServer({
     const assistant = resolveAssistant(threadId);
     const state = normalizeState(payload?.state);
     const userText = extractUserText(payload?.commands);
+    const memoryContext = normalizeMemoryContext(payload?.memoryContext, threadId);
 
     if (!userText) {
       res.writeHead(200, STREAM_HEADERS);
@@ -239,7 +329,7 @@ function createAssistantTransportServer({
       status: "running",
       provider: "",
       actions: [],
-      details: null
+      details: buildRunningMessageDetails(userText)
     };
     const nextState = {
       messages: [
@@ -262,6 +352,13 @@ function createAssistantTransportServer({
     writeStateSet(res, nextState);
 
     try {
+      if (typeof assistant?.setSessionContext === "function") {
+        await assistant.setSessionContext({
+          ...memoryContext,
+          stateMessages: state.messages
+        });
+      }
+
       const result = await assistant.handleInput(userText);
       const reply = typeof result?.reply === "string" ? result.reply : "";
       const provider = typeof result?.provider === "string" ? result.provider : "local";

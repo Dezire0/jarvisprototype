@@ -254,6 +254,123 @@ test("buildHeuristicBrowserPlan strips correction lead-ins before planning", () 
   ]);
 });
 
+test("setSessionContext hydrates recent history from the current thread state", async () => {
+  let capturedContext = null;
+  const service = new AssistantService({
+    automation: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {},
+    memory: {
+      setThreadContext(payload) {
+        capturedContext = payload;
+      },
+      getRecentThreadTurns() {
+        return [
+          {
+            role: "user",
+            content: "예전 메일 내용도 기억해둬"
+          }
+        ];
+      }
+    }
+  });
+
+  await service.setSessionContext({
+    threadId: "thread-memory",
+    projectId: "project-jarvis",
+    projectName: "Jarvis",
+    threadTitle: "Mail follow-up",
+    stateMessages: [
+      {
+        role: "user",
+        text: "지메일 열어줘",
+        status: "complete"
+      },
+      {
+        role: "assistant",
+        text: "지메일을 열었어요.",
+        status: "complete"
+      }
+    ]
+  });
+
+  assert.deepEqual(service.getRecentHistory(2), [
+    { role: "user", content: "지메일 열어줘" },
+    { role: "assistant", content: "지메일을 열었어요." }
+  ]);
+  assert.equal(capturedContext.threadId, "thread-memory");
+  assert.equal(capturedContext.projectId, "project-jarvis");
+  assert.equal(capturedContext.projectName, "Jarvis");
+  assert.equal(capturedContext.title, "Mail follow-up");
+});
+
+test("buildAugmentedUserPrompt includes long-term, project, conversation, and document memory", async () => {
+  const service = new AssistantService({
+    automation: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {},
+    memory: {
+      formatForPrompt() {
+        return "Preferences\n- Language: Korean";
+      },
+      getProjectContext() {
+        return {
+          id: "project-jarvis",
+          name: "Jarvis",
+          threadCount: 1,
+          filePaths: ["/workspace/jarvis/spec.md"],
+          recentTopics: [
+            {
+              text: "OpenClaw browser follow-up memory",
+              updatedAt: new Date().toISOString()
+            }
+          ]
+        };
+      },
+      searchConversation() {
+        return [
+          {
+            scope: "thread",
+            role: "assistant",
+            content: "가장 최신 Google Pay 메일을 보고 있는 중이에요."
+          }
+        ];
+      },
+      searchDocuments() {
+        return [
+          {
+            scope: "project",
+            path: "/workspace/jarvis/spec.md",
+            excerpt: "The preview card should stay visible while the browser session is active."
+          }
+        ];
+      }
+    }
+  });
+
+  await service.setSessionContext({
+    threadId: "thread-memory",
+    projectId: "project-jarvis",
+    projectName: "Jarvis"
+  });
+
+  const prompt = service.buildAugmentedUserPrompt("누구한테 왔어?");
+
+  assert.match(prompt, /Known long-term user context/);
+  assert.match(prompt, /Active project: Jarvis/);
+  assert.match(prompt, /Relevant past conversation/);
+  assert.match(prompt, /Google Pay 메일/);
+  assert.match(prompt, /Relevant files and documents/);
+  assert.match(prompt, /preview card/i);
+  assert.match(prompt, /User request:\n누구한테 왔어\?/);
+});
+
 test("handleBrowser opens simple one-step navigation in the system browser", async () => {
   const calls = [];
   const service = new AssistantService({

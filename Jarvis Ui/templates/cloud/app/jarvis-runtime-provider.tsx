@@ -34,6 +34,8 @@ const INITIAL_STATE: TransportState = {
 const TRANSPORT_HEADERS = {};
 const PENDING_MESSAGE_CREATED_AT = new Date(0).toISOString();
 const CHAT_API_PATH = "/api/chat";
+const SIDEBAR_STORAGE_KEY = "jarvis-sidebar-layout-v3";
+const MEMORY_MODE_STORAGE_KEY = "jarvis-memory-mode-v1";
 
 const threadsStore = new Map<
   string,
@@ -45,6 +47,73 @@ const threadsStore = new Map<
 >();
 
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
+
+type SidebarProject = {
+  id: string;
+  name: string;
+  createdAt: number;
+};
+
+type StoredThreadMeta = {
+  createdAt: number;
+  updatedAt: number;
+  projectId: string | null;
+};
+
+type StoredSidebarState = {
+  projects: SidebarProject[];
+  threadMetaById: Record<string, StoredThreadMeta>;
+  selectedProjectId: string | null;
+};
+
+function readSidebarState(): StoredSidebarState {
+  if (typeof window === "undefined") {
+    return { projects: [], threadMetaById: {}, selectedProjectId: null };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+
+    if (!raw) {
+      return { projects: [], threadMetaById: {}, selectedProjectId: null };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<StoredSidebarState>;
+    return {
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      threadMetaById:
+        parsed.threadMetaById && typeof parsed.threadMetaById === "object"
+          ? parsed.threadMetaById
+          : {},
+      selectedProjectId:
+        typeof parsed.selectedProjectId === "string" ? parsed.selectedProjectId : null,
+    };
+  } catch (_error) {
+    return { projects: [], threadMetaById: {}, selectedProjectId: null };
+  }
+}
+
+function buildMemoryContext(threadId: string | null) {
+  const sidebarState = readSidebarState();
+  const threadMeta = threadId ? sidebarState.threadMetaById[threadId] : undefined;
+  const projectId = threadMeta?.projectId ?? sidebarState.selectedProjectId ?? null;
+  const projectName =
+    projectId
+      ? sidebarState.projects.find((project) => project.id === projectId)?.name || null
+      : null;
+  const memoryMode =
+    typeof window !== "undefined" && window.localStorage.getItem(MEMORY_MODE_STORAGE_KEY) === "temporary"
+      ? "temporary"
+      : "persistent";
+  const threadTitle = threadId ? threadsStore.get(threadId)?.title || "" : "";
+
+  return {
+    projectId,
+    projectName,
+    threadTitle,
+    memoryMode,
+  };
+}
 
 async function syncToCloud(threadId: string, title?: string, messages?: readonly any[]) {
   if (typeof window === "undefined") return;
@@ -365,6 +434,10 @@ function useJarvisTransportRuntime() {
     initialState: INITIAL_STATE,
     api: CHAT_API_PATH,
     headers,
+    prepareSendCommandsRequest: async (body) => ({
+      ...body,
+      memoryContext: buildMemoryContext(typeof body.threadId === "string" ? body.threadId : null),
+    }),
     converter: transportConverter,
     onCancel: ({ updateState }) => {
       updateState((state) => ({

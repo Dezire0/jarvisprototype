@@ -3126,7 +3126,7 @@ const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
 ]);
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings }) {
+  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings, threadId }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
@@ -3148,6 +3148,11 @@ class AssistantService {
     this.pendingBrowserContinuation = null;
     this.pendingSensitiveConfirmation = null;
     this.lastBrowserContext = null;
+    this.threadId = normalizeWhitespace(threadId || "");
+    this.projectId = "";
+    this.projectName = "";
+    this.threadTitle = "";
+    this.memoryMode = "persistent";
   }
 
   normalizeRequestedAppName(appName = "") {
@@ -3158,6 +3163,20 @@ class AssistantService {
     }
 
     return this.extensions?.resolveConnectorAppName?.(cleanName) || cleanName;
+  }
+
+  summarizeMemoryText(text, limit = 220) {
+    const clean = normalizeWhitespace(text);
+
+    if (!clean) {
+      return "";
+    }
+
+    if (clean.length <= limit) {
+      return clean;
+    }
+
+    return `${clean.slice(0, limit - 1).trim()}…`;
   }
 
   getExtensionPlanningHints(appName = "") {
@@ -3174,6 +3193,91 @@ class AssistantService {
       history: this.getRecentHistory(8),
       lastActiveApp: this.lastActiveApp
     });
+  }
+
+  extractHistoryFromStateMessages(messages = []) {
+    if (!Array.isArray(messages)) {
+      return [];
+    }
+
+    return messages
+      .filter((message) => message && typeof message === "object")
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .filter((message) => message.role !== "assistant" || message.status !== "running")
+      .map((message) => ({
+        role: message.role === "assistant" ? "assistant" : "user",
+        content: normalizeWhitespace(message.text || message.content || "")
+      }))
+      .filter((entry) => entry.content)
+      .slice(-40);
+  }
+
+  async setSessionContext(context = {}) {
+    const nextThreadId = normalizeWhitespace(context.threadId || this.threadId || "");
+    const nextProjectId =
+      Object.prototype.hasOwnProperty.call(context, "projectId")
+        ? normalizeWhitespace(context.projectId || "")
+        : this.projectId;
+    const nextProjectName =
+      Object.prototype.hasOwnProperty.call(context, "projectName")
+        ? normalizeWhitespace(context.projectName || "")
+        : this.projectName;
+    const nextThreadTitle =
+      Object.prototype.hasOwnProperty.call(context, "threadTitle")
+        ? normalizeWhitespace(context.threadTitle || "")
+        : this.threadTitle;
+    const nextMemoryMode = context.memoryMode === "temporary" ? "temporary" : "persistent";
+    const threadChanged = Boolean(nextThreadId) && nextThreadId !== this.threadId;
+    const hydratedStateHistory = this.extractHistoryFromStateMessages(context.stateMessages);
+
+    if (threadChanged) {
+      this.history = [];
+    }
+
+    if (nextThreadId) {
+      this.threadId = nextThreadId;
+    }
+
+    this.projectId = nextProjectId;
+    this.projectName = nextProjectName;
+    this.threadTitle = nextThreadTitle || this.threadTitle;
+    this.memoryMode = nextMemoryMode;
+
+    if (hydratedStateHistory.length && (threadChanged || hydratedStateHistory.length >= this.history.length)) {
+      this.history = hydratedStateHistory;
+    }
+
+    if (
+      !this.history.length &&
+      this.memoryMode !== "temporary" &&
+      this.threadId &&
+      this.memory &&
+      typeof this.memory.getRecentThreadTurns === "function"
+    ) {
+      const storedTurns = this.memory.getRecentThreadTurns(this.threadId, 24);
+
+      if (storedTurns.length) {
+        this.history = storedTurns.map((turn) => ({
+          role: turn.role === "assistant" ? "assistant" : "user",
+          content: normalizeWhitespace(turn.content || "")
+        }));
+      }
+    }
+
+    if (
+      this.memoryMode !== "temporary" &&
+      this.memory &&
+      typeof this.memory.setThreadContext === "function" &&
+      this.threadId
+    ) {
+      await this.memory.setThreadContext({
+        threadId: this.threadId,
+        projectId: this.projectId,
+        projectName: this.projectName,
+        title: this.threadTitle,
+        memoryMode: this.memoryMode
+      });
+    }
   }
 
   makeAction(type, target, status = "executed", extra = {}) {
@@ -4416,8 +4520,8 @@ class AssistantService {
       content: clean
     });
 
-    if (this.history.length > 12) {
-      this.history = this.history.slice(-12);
+    if (this.history.length > 40) {
+      this.history = this.history.slice(-40);
     }
   }
 
@@ -4446,15 +4550,156 @@ class AssistantService {
   }
 
   buildLongTermMemorySnippet() {
-    if (!this.memory || typeof this.memory.formatForPrompt !== "function") {
+    if (
+      this.memoryMode === "temporary" ||
+      !this.memory ||
+      typeof this.memory.formatForPrompt !== "function"
+    ) {
       return "";
     }
 
     return String(this.memory.formatForPrompt() || "").trim();
   }
 
+  buildProjectMemorySnippet() {
+    if (
+      this.memoryMode === "temporary" ||
+      !this.memory ||
+      typeof this.memory.getProjectContext !== "function" ||
+      !this.projectId
+    ) {
+      return "";
+    }
+
+    const project = this.memory.getProjectContext(this.projectId);
+
+    if (!project) {
+      return "";
+    }
+
+    const lines = [
+      `Active project: ${project.name || this.projectName || this.projectId}`
+    ];
+
+    if (project.recentTopics?.length) {
+      lines.push(
+        `Recent project topics: ${project.recentTopics
+          .slice(0, 5)
+          .map((topic) => this.summarizeMemoryText(topic.text, 100))
+          .join(" | ")}`
+      );
+    }
+
+    if (project.filePaths?.length) {
+      lines.push(`Project files: ${project.filePaths.slice(0, 5).join(", ")}`);
+    }
+
+    return lines.join("\n").trim();
+  }
+
+  buildConversationMemorySnippet(query, limit = 6) {
+    if (
+      this.memoryMode === "temporary" ||
+      !this.memory ||
+      typeof this.memory.searchConversation !== "function"
+    ) {
+      return "";
+    }
+
+    const matches = this.memory.searchConversation({
+      query,
+      threadId: this.threadId,
+      projectId: this.projectId,
+      limit
+    });
+
+    if (!matches.length) {
+      return "";
+    }
+
+    return matches
+      .map((match) => {
+        const prefix = match.scope === "thread" ? "Same thread" : match.scope === "project" ? "Same project" : "Other memory";
+        const speaker = match.role === "assistant" ? "Assistant" : "User";
+        return `- ${prefix} / ${speaker}: ${this.summarizeMemoryText(match.content, 220)}`;
+      })
+      .join("\n");
+  }
+
+  buildDocumentMemorySnippet(query, limit = 4) {
+    if (
+      this.memoryMode === "temporary" ||
+      !this.memory ||
+      typeof this.memory.searchDocuments !== "function"
+    ) {
+      return "";
+    }
+
+    const matches = this.memory.searchDocuments({
+      query,
+      threadId: this.threadId,
+      projectId: this.projectId,
+      limit
+    });
+
+    if (!matches.length) {
+      return "";
+    }
+
+    return matches
+      .map((match) => {
+        const prefix = match.scope === "thread" ? "Same thread file" : match.scope === "project" ? "Same project file" : "Other file";
+        return `- ${prefix} (${match.path}): ${this.summarizeMemoryText(match.excerpt, 220)}`;
+      })
+      .join("\n");
+  }
+
+  buildPromptContextBlocks(userPrompt, extraContext = "", options = {}) {
+    const blocks = [];
+    const memorySnippet = options.includeMemory === false ? "" : this.buildLongTermMemorySnippet();
+    const projectSnippet = options.includeProjectMemory === false ? "" : this.buildProjectMemorySnippet();
+    const conversationSnippet =
+      options.includeConversationMemory === false ? "" : this.buildConversationMemorySnippet(userPrompt);
+    const documentSnippet =
+      options.includeDocumentMemory === false ? "" : this.buildDocumentMemorySnippet(userPrompt);
+
+    if (memorySnippet) {
+      blocks.push(`Known long-term user context:\n${memorySnippet}`);
+    }
+
+    if (projectSnippet) {
+      blocks.push(projectSnippet);
+    }
+
+    if (conversationSnippet) {
+      blocks.push(`Relevant past conversation:\n${conversationSnippet}`);
+    }
+
+    if (documentSnippet) {
+      blocks.push(`Relevant files and documents:\n${documentSnippet}`);
+    }
+
+    if (extraContext) {
+      blocks.push(extraContext);
+    }
+
+    return blocks;
+  }
+
+  buildAugmentedUserPrompt(userPrompt, extraContext = "", options = {}) {
+    const contextBlocks = this.buildPromptContextBlocks(userPrompt, extraContext, options);
+
+    return contextBlocks.length
+      ? `${contextBlocks.join("\n\n")}\n\nUser request:\n${userPrompt}`
+      : userPrompt;
+  }
+
   async rememberLongTermMemory(userText = "", assistantText = "") {
-    if (!this.memory || typeof this.memory.merge !== "function") {
+    if (
+      this.memoryMode === "temporary" ||
+      !this.memory ||
+      typeof this.memory.merge !== "function"
+    ) {
       return;
     }
 
@@ -4496,6 +4741,75 @@ class AssistantService {
     } catch (_error) {
       // Ignore memory extraction failures so the main request is never blocked.
     }
+  }
+
+  async persistThreadConversation(userText = "", assistantText = "", metadata = {}) {
+    if (
+      this.memoryMode === "temporary" ||
+      !this.memory ||
+      typeof this.memory.appendThreadTurns !== "function" ||
+      !this.threadId
+    ) {
+      return;
+    }
+
+    const turns = [
+      {
+        role: "user",
+        content: userText,
+        route: metadata.route || ""
+      },
+      {
+        role: "assistant",
+        content: assistantText,
+        route: metadata.route || ""
+      }
+    ].filter((turn) => normalizeWhitespace(turn.content));
+
+    if (!turns.length) {
+      return;
+    }
+
+    await this.memory.appendThreadTurns({
+      threadId: this.threadId,
+      projectId: this.projectId,
+      projectName: this.projectName,
+      title: this.threadTitle,
+      memoryMode: this.memoryMode,
+      turns
+    });
+  }
+
+  async rememberDocumentInMemory(filePath = "", content = "", extra = {}) {
+    if (
+      this.memoryMode === "temporary" ||
+      !this.memory ||
+      typeof this.memory.rememberDocument !== "function"
+    ) {
+      return;
+    }
+
+    await this.memory.rememberDocument({
+      path: filePath,
+      content,
+      threadId: this.threadId,
+      projectId: this.projectId,
+      projectName: this.projectName,
+      title: extra.title || "",
+      memoryMode: this.memoryMode
+    });
+  }
+
+  async finalizeResponse(userText, result, metadata = {}) {
+    this.rememberTurn("user", userText);
+    this.rememberTurn("assistant", result.reply);
+
+    try {
+      await this.persistThreadConversation(userText, result.reply, metadata);
+    } catch (_error) {}
+
+    void this.rememberLongTermMemory(userText, result.reply);
+    return result;
   }
 
   buildWorkspacePrompt(language, pending = {}) {
@@ -5343,20 +5657,7 @@ class AssistantService {
 
   async replyWithModel(userPrompt, extraContext = "", options = {}) {
     const includeHistory = options.includeHistory !== false;
-    const memorySnippet = options.includeMemory === false ? "" : this.buildLongTermMemorySnippet();
-    const contextBlocks = [];
-
-    if (memorySnippet) {
-      contextBlocks.push(`Known long-term user context:\n${memorySnippet}`);
-    }
-
-    if (extraContext) {
-      contextBlocks.push(extraContext);
-    }
-
-    const finalUserPrompt = contextBlocks.length
-      ? `${contextBlocks.join("\n\n")}\n\nUser request:\n${userPrompt}`
-      : userPrompt;
+    const finalUserPrompt = this.buildAugmentedUserPrompt(userPrompt, extraContext, options);
 
     return chat({
       systemPrompt: options.systemPrompt || buildBasePrompt(),
@@ -6230,6 +6531,7 @@ class AssistantService {
       }
 
       const data = await this.files.writeFile(route.path, route.content || "");
+      await this.rememberDocumentInMemory(data.path, route.content || "");
       const fallback = detectReplyLanguage(input) === "ko"
         ? `${data.path}에 저장했어요.`
         : `I saved that to ${data.path}.`;
@@ -6255,11 +6557,13 @@ class AssistantService {
       }
 
       const data = await this.files.readFile(route.path);
+      await this.rememberDocumentInMemory(data.path, data.content);
       const reply = await this.replyWithModel(
         input,
         `The user asked about a file. Here is its content:\n\n${data.content.slice(0, 12000)}`,
         {
-          tier: "complex"
+          tier: "complex",
+          includeDocumentMemory: false
         }
       ).catch(() =>
         detectReplyLanguage(input) === "ko"
@@ -6659,12 +6963,14 @@ class AssistantService {
       }
     }
 
+    const augmentedInput = this.buildAugmentedUserPrompt(input);
+
     // Build conversation history for context
     const recentHistory = this.getRecentHistory().slice(-10).map(h => ({
       role: h.role || "user",
       content: h.content || h.text || ""
     }));
-    const messages = [...recentHistory, { role: "user", content: input }];
+    const messages = [...recentHistory, { role: "user", content: augmentedInput }];
 
     try {
 
@@ -6839,36 +7145,36 @@ class AssistantService {
         detectReplyLanguage(cleanInput),
         this.settings?.getConversationModelSettingsView?.() || {},
       );
-      this.rememberTurn("user", cleanInput);
-      this.rememberTurn("assistant", result.reply);
-      return result;
+      return this.finalizeResponse(cleanInput, result, {
+        route: "chat"
+      });
     }
 
     const pendingClarificationResult = await this.continuePendingClarification(cleanInput);
 
     if (pendingClarificationResult) {
       pendingClarificationResult.language = detectReplyLanguage(cleanInput);
-      this.rememberTurn("user", cleanInput);
-      this.rememberTurn("assistant", pendingClarificationResult.reply);
-      return pendingClarificationResult;
+      return this.finalizeResponse(cleanInput, pendingClarificationResult, {
+        route: "pending_clarification"
+      });
     }
 
     const pendingBrowserResult = await this.continuePendingBrowserContinuation(cleanInput);
 
     if (pendingBrowserResult) {
       pendingBrowserResult.language = detectReplyLanguage(cleanInput);
-      this.rememberTurn("user", cleanInput);
-      this.rememberTurn("assistant", pendingBrowserResult.reply);
-      return pendingBrowserResult;
+      return this.finalizeResponse(cleanInput, pendingBrowserResult, {
+        route: "browser"
+      });
     }
 
     const pendingSensitiveResult = await this.continuePendingSensitiveConfirmation(cleanInput);
 
     if (pendingSensitiveResult) {
       pendingSensitiveResult.language = detectReplyLanguage(cleanInput);
-      this.rememberTurn("user", cleanInput);
-      this.rememberTurn("assistant", pendingSensitiveResult.reply);
-      return pendingSensitiveResult;
+      return this.finalizeResponse(cleanInput, pendingSensitiveResult, {
+        route: "browser_sensitive_confirmation"
+      });
     }
 
     if (this.pendingWorkspaceMessage && looksLikeFreshWorkspaceCommand(cleanInput)) {
@@ -6879,18 +7185,18 @@ class AssistantService {
 
     if (pendingWorkspaceResult) {
       pendingWorkspaceResult.language = detectReplyLanguage(cleanInput);
-      this.rememberTurn("user", cleanInput);
-      this.rememberTurn("assistant", pendingWorkspaceResult.reply);
-      return pendingWorkspaceResult;
+      return this.finalizeResponse(cleanInput, pendingWorkspaceResult, {
+        route: "app_action"
+      });
     }
 
     const extensionWebhookResult = await this.maybeHandleExtensionWebhook(cleanInput);
 
     if (extensionWebhookResult) {
       extensionWebhookResult.language = detectReplyLanguage(cleanInput);
-      this.rememberTurn("user", cleanInput);
-      this.rememberTurn("assistant", extensionWebhookResult.reply);
-      return extensionWebhookResult;
+      return this.finalizeResponse(cleanInput, extensionWebhookResult, {
+        route: "extension_webhook"
+      });
     }
 
     let route = await this.routeInput(cleanInput);
@@ -6931,10 +7237,9 @@ class AssistantService {
     }
 
     result.language = route.language || detectReplyLanguage(cleanInput);
-    this.rememberTurn("user", cleanInput);
-    this.rememberTurn("assistant", result.reply);
-    void this.rememberLongTermMemory(cleanInput, result.reply);
-    return result;
+    return this.finalizeResponse(cleanInput, result, {
+      route: route.route || "chat"
+    });
   }
 }
 
