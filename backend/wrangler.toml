@@ -1,6 +1,7 @@
 name = "jarvis-auth-service"
 main = "src/index.ts"
 compatibility_date = "2024-04-05"
+alias = { "assistant-stream" = "../Jarvis Ui/packages/assistant-stream/dist/index.js" }
 
 # Secrets managed via wrangler secret put
 

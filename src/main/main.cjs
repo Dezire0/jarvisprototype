@@ -100,6 +100,33 @@ function toggleAssistantMuted(source = "system") {
   return setAssistantMuted(!assistantMuted, source);
 }
 
+function persistAuthSession(payload = {}) {
+  if (payload.token) {
+    piiManager.set("auth.token", String(payload.token));
+  }
+  if (payload.user) {
+    piiManager.set("auth.user", JSON.stringify(payload.user));
+  }
+}
+
+function deliverAuthCallback(payload) {
+  persistAuthSession(payload);
+  pendingAuthCallback = payload;
+
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send("auth:callback", payload);
+    pendingAuthCallback = null;
+    if (settingsWindow.isMinimized()) settingsWindow.restore();
+    settingsWindow.show();
+    settingsWindow.focus();
+    settingsWindow.moveTop();
+    app.focus({ steal: true });
+    return;
+  }
+
+  openSettingsWindow();
+}
+
 function ensureReadyServices() {
   if (!assistant || !services) {
     throw new Error("Assistant services are not ready yet.");
@@ -188,6 +215,9 @@ async function createServices() {
 
   assistantTransportServer = createAssistantTransportServer({
     port: Number(process.env.JARVIS_ASSISTANT_PORT || 8010),
+    onAuthCallback(payload) {
+      deliverAuthCallback(payload);
+    },
     createAssistantForThread() {
       return new AssistantService({
         automation,
@@ -209,6 +239,7 @@ async function createServices() {
   await assistantTransportServer.start();
   process.env.JARVIS_TRANSPORT_URL = assistantTransportServer.url;
   process.env.NEXT_PUBLIC_API_URL = assistantTransportServer.url;
+  process.env.NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL = assistantTransportServer.authCallbackUrl;
 }
 
 async function ensureDesktopUiServer() {
@@ -386,11 +417,7 @@ function handleDeepLink(url) {
       const token = parsedUrl.searchParams.get("token");
       const userRaw = parsedUrl.searchParams.get("user");
       if (token && userRaw) {
-        const payload = { token, user: JSON.parse(userRaw) };
-        pendingAuthCallback = payload;
-        settingsWindow?.webContents.send("auth:callback", payload);
-        if (settingsWindow?.isMinimized()) settingsWindow.restore();
-        settingsWindow?.focus();
+        deliverAuthCallback({ token, user: JSON.parse(userRaw) });
       }
     }
   } catch (e) {
@@ -996,12 +1023,7 @@ async function dispatchTool(tool, payload = {}) {
       };
     }
     case "auth:session-save": {
-      if (payload.token) {
-        piiManager.set("auth.token", String(payload.token));
-      }
-      if (payload.user) {
-        piiManager.set("auth.user", JSON.stringify(payload.user));
-      }
+      persistAuthSession(payload);
       return { ok: true, tool };
     }
     case "auth:session-restore": {

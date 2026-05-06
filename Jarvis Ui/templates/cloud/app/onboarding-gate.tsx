@@ -49,6 +49,24 @@ const {
 } = require("../lib/onboarding-flow.cjs");
 
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
+const DESKTOP_AUTH_CALLBACK_URL = process.env.NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL || "";
+
+function buildGoogleAuthUrl() {
+  if (typeof window === "undefined") {
+    return `${API_BASE}/api/auth/google`;
+  }
+
+  const authUrl = new URL(`${API_BASE}/api/auth/google`);
+  const currentUrl = new URL(window.location.href);
+
+  if ((window as any).assistantAPI) {
+    authUrl.searchParams.set("return_to", DESKTOP_AUTH_CALLBACK_URL || "jarvis-desktop://auth");
+  } else if (currentUrl.protocol === "http:" || currentUrl.protocol === "https:") {
+    authUrl.searchParams.set("return_to", `${currentUrl.origin}${currentUrl.pathname}`);
+  }
+
+  return authUrl.toString();
+}
 
 type OnboardingStep = "loading" | "auth" | "setup" | "ready";
 
@@ -135,13 +153,13 @@ export function OnboardingGate() {
       await clearAuthSession();
     }
 
-    // Open the Google OAuth URL from the backend.
-    window.location.href = `${API_BASE}/api/auth/google`;
+    window.location.href = buildGoogleAuthUrl();
   }
 
   const currentPlan = planCards[selectedPlan];
 
-  // Check session on mount + Auto-wipe on version change
+  // Check session on mount. Version tracking is intentionally non-destructive:
+  // users should not be logged out just because the desktop/web build updated.
   useEffect(() => {
     setRememberLogin(isAuthRemembered());
   }, []);
@@ -149,23 +167,10 @@ export function OnboardingGate() {
   useEffect(() => {
     void (async () => {
       try {
-        const CURRENT_VERSION = "1.8.4";
+        const CURRENT_VERSION = "1.8.9";
         const lastVersion = localStorage.getItem("jarvis_last_version");
 
-        // 버전이 바뀌었으면(업데이트됨) 로컬 + Electron 데이터 싹 밀기
         if (lastVersion !== CURRENT_VERSION) {
-          console.log("Version changed! Auto-wiping all session data...");
-          
-          // 1. 브라우저 캐시 삭제
-          localStorage.clear();
-          
-          // 2. Electron 저장소 삭제 (zombie session 방지)
-          try {
-            await clearAuthSession();
-          } catch (e) {
-            console.error("Failed to clear electron session:", e);
-          }
-
           localStorage.setItem("jarvis_last_version", CURRENT_VERSION);
         }
 
@@ -320,11 +325,7 @@ export function OnboardingGate() {
           if (planRes.status === 401 || fullErrorMsg.includes("Unauthorized")) {
             setSetupLoading(false);
             alert(t("세션이 만료되었습니다. 보안을 위해 다시 로그인해 주세요.", "Session expired. Please login again for security."));
-            
-            localStorage.removeItem("jarvis_auth_token");
-            localStorage.removeItem("jarvis_auth_user");
-            (window as any).electron?.ipcRenderer.send("auth:logout");
-            
+            await clearAuthSession();
             setStep("auth");
             return;
           }

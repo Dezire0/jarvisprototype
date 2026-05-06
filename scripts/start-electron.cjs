@@ -150,11 +150,15 @@ async function main() {
     process.env.JARVIS_TRANSPORT_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
     `http://127.0.0.1:${assistantPort}/assistant`;
+  const authCallbackUrl =
+    process.env.NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL ||
+    `http://127.0.0.1:${assistantPort}/auth/callback`;
   const sharedEnv = {
     ...process.env,
     JARVIS_ASSISTANT_PORT: String(assistantPort),
     JARVIS_TRANSPORT_URL: transportApiUrl,
     NEXT_PUBLIC_API_URL: transportApiUrl,
+    NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL: authCallbackUrl,
     JARVIS_DESKTOP_UI_MODE: desktopUiMode || "next",
     NEXT_PUBLIC_JARVIS_SITE_MODE: "app",
     NEXT_TELEMETRY_DISABLED: "1"
