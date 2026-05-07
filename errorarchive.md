@@ -1,41 +1,31 @@
-# 2026-05-06 Latest Fixes
-- OpenClaw 중심 구조 리팩터링의 1차 분리를 적용함.
-  - `src/main/config/*.json`으로 앱/웹/키맵/Finder/OpenClaw capability 메타데이터를 외부화
-  - `src/main/config-loader.cjs`에서 캐시/검증/`$HOME` 확장을 담당하도록 추가
-- 플랫폼 자동화 계층을 분리함.
-  - `src/main/platform/adapter-factory.cjs`
-  - `src/main/platform/app-registry.cjs`
-  - `src/main/platform/keymap.cjs`
-  - `src/main/platform/finder-paths.cjs`
-  - `src/main/platform/workspace-detection.cjs`
-  - `src/main/platform/applescript-utils.cjs`
-  - 기존 `src/main/platform-adapters.cjs`는 compatibility barrel로 유지
-- Assistant 보조 계층을 분리함.
-  - `src/main/assistant/errors.cjs`
-  - `src/main/assistant/replies.cjs`
-  - `src/main/assistant/targets.cjs`
-  - `src/main/assistant/parser.cjs`
-  - `src/main/assistant/router.cjs`
-  - `src/main/assistant/browser-context.cjs`
-  - `src/main/assistant/memory-context.cjs`
-  - `src/main/assistant/orchestrator.cjs`
-- `src/main/assistant-service.cjs`를 새 모듈과 연결함.
-  - 네트워크/모델 오류 응답은 `assistant/errors` / `assistant/replies`를 경유
-  - 라우팅은 `assistant/router`의 LLM-first 경로를 사용
-  - follow-up route 승격은 `assistant/browser-context`를 경유
-  - prompt context 조합은 `assistant/memory-context` helper를 사용
-  - 입력 오케스트레이션은 `assistant/orchestrator`로 분리
-  - 앱/웹 메타데이터는 더 이상 코드 내부 상수 배열이 아니라 외부 JSON을 사용
-- `src/main/openclaw-service.cjs`도 OpenClaw planner action 목록을 외부 capability config에서 읽도록 조정함.
-- 새 구조에 대한 테스트를 추가함.
-  - `tests/node/assistant-router.test.cjs`
-  - `tests/node/assistant-targets.test.cjs`
-  - `tests/node/platform-config.test.cjs`
-  - `tests/node/platform-adapter-factory.test.cjs`
-  - 기존 `assistant-service` 기대값도 OpenClaw provider 라벨에 맞게 갱신
-Verification:
+2026-05-07 automation cycle
 
-- `npm run check` 통과
-- `npm run test:node` 통과 (`119/119`)
-- `npm run dev` 부팅 성공
-- 로컬 UI 확인: `http://127.0.0.1:3310/`
+Resolved this cycle:
+- OpenClaw planner prompt now injects only the tool schemas that fit the current goal/state/runtime hints instead of always dumping the full desktop/browser set.
+- Browser agent retry ceilings were increased for multi-step UI work:
+  - `maxSteps: 24`
+  - `maxConsecutiveFailures: 6`
+  - `maxRepeatActions: 4`
+  - `maxNoProgressActions: 5`
+  - `maxPingPongActions: 6`
+- Browser/desktop failure feedback is now more specific:
+  - popup/dialog overlay guidance
+  - login/auth gate guidance
+  - desktop app mismatch guidance
+- Structured execution still goes through `SkillRegistry`, but now carries legacy-compatible alias fields so older orchestration/tests continue to work.
+- Skill schema text now includes alias metadata for backward compatibility.
+- `SkillRegistry.get()` now returns `undefined` for unknown actions again to preserve previous behavior.
+
+Validation:
+- `npm run check` ✅
+- `node --test tests/node/browser-agent-runtime.test.cjs` ✅ `12/12`
+- `npm run test:node` ✅ `141/141`
+- `npm run dev` ✅
+  - Next ready on `http://127.0.0.1:3310`
+  - Electron logs:
+    - `Creating Jarvis Desktop window...`
+    - `Jarvis Desktop window is ready to show.`
+    - `Jarvis Desktop window finished loading.`
+
+Deferred:
+- `notification-monitor.cjs` still emits `DARWIN_USER_DIR` warnings in the current test environment.

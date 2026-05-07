@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  BROWSER_AGENT_DEFAULTS,
   BrowserAgentRuntime,
   chooseBrowserAgentReasoningTier
 } = require("../../src/main/browser-agent-runtime.cjs");
@@ -111,7 +112,46 @@ test("browser agent system prompt includes dynamic skill schemas for allowed too
 
   assert.match(runtime.systemPrompt, /Use the following tool schemas exactly/);
   assert.match(runtime.systemPrompt, /"tool":"browser\.open"/);
-  assert.match(runtime.systemPrompt, /"tool":"desktop\.open_app"/);
+  assert.doesNotMatch(runtime.systemPrompt, /"tool":"desktop\.open_app"/);
+});
+
+test("browser agent narrows prompt tool schemas for browser-only login context", async () => {
+  const runtime = createRuntime();
+
+  const promptOptions = runtime.buildPlannerPromptOptions(
+    "gmail에서 최신 메일 확인해줘",
+    {
+      url: "https://mail.google.com",
+      title: "Gmail",
+      elements: [
+        {
+          id: "1",
+          role: "textbox",
+          text: "",
+          placeholder: "Search mail",
+          enabled: true,
+          visible: true
+        }
+      ],
+      visibleText: "Inbox Search mail"
+    },
+    ["openclaw-skill:gmail-inbox"]
+  );
+
+  assert.equal(promptOptions.toolSet.has("browser.open"), true);
+  assert.equal(promptOptions.toolSet.has("browser.type"), true);
+  assert.equal(promptOptions.toolSet.has("browser.keypress"), true);
+  assert.equal(promptOptions.toolSet.has("desktop.open_app"), false);
+  assert.doesNotMatch(promptOptions.systemPrompt, /"tool":"desktop\.open_app"/);
+  assert.match(promptOptions.systemPrompt, /"tool":"browser\.type"/);
+});
+
+test("browser agent exposes expanded retry defaults for multi-step recovery", async () => {
+  assert.equal(BROWSER_AGENT_DEFAULTS.maxSteps, 24);
+  assert.equal(BROWSER_AGENT_DEFAULTS.maxConsecutiveFailures, 6);
+  assert.equal(BROWSER_AGENT_DEFAULTS.maxRepeatActions, 4);
+  assert.equal(BROWSER_AGENT_DEFAULTS.maxNoProgressActions, 5);
+  assert.equal(BROWSER_AGENT_DEFAULTS.maxPingPongActions, 6);
 });
 
 test("browser agent rejects desktop.click while observed browser elements are available", async () => {
@@ -151,6 +191,13 @@ test("browser agent rejects desktop.click while observed browser elements are av
           {
             id: "1",
             text: "Continue",
+            enabled: true,
+            visible: true
+          },
+          {
+            id: "modal",
+            role: "dialog",
+            text: "Cookie consent",
             enabled: true,
             visible: true
           }
@@ -217,6 +264,13 @@ test("browser agent rejects browser.click when the target element is missing fro
             text: "Continue",
             enabled: true,
             visible: true
+          },
+          {
+            id: "modal",
+            role: "dialog",
+            text: "Cookie consent",
+            enabled: true,
+            visible: true
           }
         ]
       }
@@ -224,6 +278,7 @@ test("browser agent rejects browser.click when the target element is missing fro
   );
 
   assert.match(result.error, /not in the current observation/);
+  assert.match(result.error, /popup or dialog looks active/i);
 });
 
 test("browser agent delegates structured tool execution through the skill registry", async () => {
@@ -287,10 +342,12 @@ test("browser agent delegates structured tool execution through the skill regist
 
   assert.equal(navigated, false);
   assert.deepEqual(delegatedAction, {
+    action: "navigate",
     tool: "browser.open",
     input: {
       url: "https://example.com"
-    }
+    },
+    url: "https://example.com"
   });
   assert.equal(result.state.url, "https://delegated.example");
 });
@@ -351,6 +408,62 @@ test("browser agent verifies browser.type changed the observed element value", a
   );
 
   assert.match(result.error, /did not change the observed value/);
+});
+
+test("browser agent explains no-progress results with login-specific guidance", async () => {
+  const runtime = createRuntime({
+    skillRegistry: {
+      async execute() {
+        return {
+          state: {
+            url: "https://accounts.google.com/signin",
+            title: "Sign in",
+            elements: [
+              {
+                id: "email",
+                role: "textbox",
+                text: "",
+                enabled: true,
+                visible: true
+              }
+            ],
+            visibleText: "Sign in Email Password"
+          },
+          error: null
+        };
+      },
+      getSchemasForTools() {
+        return [];
+      }
+    }
+  });
+
+  const result = await runtime.executeStructuredAction(
+    {
+      tool: "browser.open",
+      input: {
+        url: "https://accounts.google.com/signin"
+      }
+    },
+    {
+      state: {
+        url: "https://accounts.google.com/signin",
+        title: "Sign in",
+        elements: [
+          {
+            id: "email",
+            role: "textbox",
+            text: "",
+            enabled: true,
+            visible: true
+          }
+        ],
+        visibleText: "Sign in Email Password"
+      }
+    }
+  );
+
+  assert.match(result.error, /waiting for login or verification/i);
 });
 
 test("browser agent injects runtime hints into the planner prompt", async () => {
@@ -486,6 +599,28 @@ test("browser agent stops when it ping-pongs between actions without progress", 
       finalMessage: null
     })
     ,
+    JSON.stringify({
+      thought: "Observe once more",
+      action: {
+        tool: "browser.observe",
+        input: {}
+      },
+      expectedOutcome: "The page should look different",
+      isFinal: false,
+      finalMessage: null
+    }),
+    JSON.stringify({
+      thought: "Click again",
+      action: {
+        tool: "browser.click",
+        input: {
+          elementId: "1"
+        }
+      },
+      expectedOutcome: "The page should change",
+      isFinal: false,
+      finalMessage: null
+    }),
     JSON.stringify({
       thought: "Observe once more",
       action: {

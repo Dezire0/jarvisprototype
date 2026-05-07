@@ -74,7 +74,8 @@ class SkillRegistry {
   }
 
   get(name) {
-    return this.resolve(name);
+    const resolved = this.resolve(name);
+    return resolved || undefined;
   }
 
   normalizeAction(action = {}, skill = this.resolve(action)) {
@@ -113,7 +114,10 @@ class SkillRegistry {
 
     return Array.from(this.skills.values())
       .filter((skill) => !allowed.size || allowed.has(skill.name))
-      .map((skill) => `  ${skill.schema} — ${skill.description}`);
+      .map((skill) => {
+        const aliasText = skill.aliases.length ? ` (aliases: ${skill.aliases.join(", ")})` : "";
+        return `  ${skill.schema} — ${skill.description}${aliasText}`;
+      });
   }
 
   getAllSchemas(options = {}) {
@@ -125,7 +129,10 @@ class SkillRegistry {
       return this.getSchemasForTools(toolSet, options);
     }
 
-    return Array.from(this.skills.values()).map((skill) => `  ${skill.schema} — ${skill.description}`);
+    return Array.from(this.skills.values()).map((skill) => {
+      const aliasText = skill.aliases.length ? ` (aliases: ${skill.aliases.join(", ")})` : "";
+      return `  ${skill.schema} — ${skill.description}${aliasText}`;
+    });
   }
 
   async execute(action, context = {}) {

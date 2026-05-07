@@ -37,8 +37,103 @@ function buildToolSet(profile = TOOL_PROFILE_FULL_ACCESS) {
   return new Set(tools);
 }
 
-function buildBrowserAgentSystemPrompt(profile = TOOL_PROFILE_FULL_ACCESS, registry = skillRegistry) {
-  const toolSet = buildToolSet(profile);
+function normalizePromptSignal(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function hasPromptSignal(signals = [], patterns = []) {
+  const combined = signals.map((signal) => normalizePromptSignal(signal)).filter(Boolean).join(" ");
+  return patterns.some((pattern) => pattern.test(combined));
+}
+
+function buildPromptToolSet(profile = TOOL_PROFILE_FULL_ACCESS, options = {}) {
+  const allowedToolSet = buildToolSet(profile);
+  if (normalizeProfile(profile) === TOOL_PROFILE_BROWSER_ONLY) {
+    return allowedToolSet;
+  }
+
+  const signals = [
+    options.goal,
+    ...(Array.isArray(options.runtimeHints) ? options.runtimeHints : []),
+    options.state?.url,
+    options.state?.title,
+    options.state?.visibleText,
+    options.state?.screenText,
+    options.state?.cmd_output,
+    ...(Array.isArray(options.state?.anomalies) ? options.state.anomalies : [])
+  ];
+
+  const selected = new Set([
+    "browser.observe",
+    "browser.open",
+    "browser.click"
+  ]);
+
+  const browserInputLikely = hasPromptSignal(signals, [
+    /(login|sign in|log in|search|type|fill|input|enter|otp|password|email|검색|입력|로그인|인증|비밀번호|이메일)/i
+  ]);
+  if (browserInputLikely) {
+    selected.add("browser.type");
+    selected.add("browser.keypress");
+  }
+
+  const browserMovementLikely = hasPromptSignal(signals, [
+    /(scroll|below|next|more|page|feed|timeline|목록|더 보기|스크롤|아래)/i
+  ]);
+  if (browserMovementLikely) {
+    selected.add("browser.scroll");
+  }
+
+  const browserWaitLikely = hasPromptSignal(signals, [
+    /(wait|loading|spinner|pending|timeout|redirect|전환|로딩|기다려)/i
+  ]);
+  if (browserWaitLikely) {
+    selected.add("browser.wait_for");
+  }
+
+  const desktopLikely = hasPromptSignal(signals, [
+    /(desktop|app|application|window|finder|discord|slack|notion|vscode|obs|terminal|앱|프로그램|창|파인더|디스코드|슬랙|노션|터미널)/i
+  ]);
+  if (desktopLikely) {
+    selected.add("desktop.open_app");
+  }
+
+  const desktopTypeLikely = hasPromptSignal(signals, [
+    /(desktop type|type into|paste|message|reply|send|write|입력|붙여넣기|메시지|답장|보내)/i
+  ]);
+  if (desktopTypeLikely) {
+    selected.add("desktop.type");
+  }
+
+  const desktopClickLikely = hasPromptSignal(signals, [
+    /(desktop click|coordinate|menu|button|popup|dialog|modal|좌표|메뉴|팝업|모달|버튼)/i
+  ]);
+  if (desktopClickLikely) {
+    selected.add("desktop.click");
+  }
+
+  const shellLikely = hasPromptSignal(signals, [
+    /(shell|command|terminal|cli|npm|pnpm|git|cargo|python|node|bash|zsh|명령어|터미널)/i
+  ]);
+  if (shellLikely) {
+    selected.add("shell.run");
+  }
+
+  const piiLikely = hasPromptSignal(signals, [
+    /(login|sign in|password|otp|verification|2fa|credential|secret|auth|로그인|비밀번호|인증|보안|계정)/i
+  ]);
+  if (piiLikely) {
+    selected.add("pii.get");
+  }
+
+  const filtered = new Set([...selected].filter((tool) => allowedToolSet.has(tool)));
+  return filtered.size ? filtered : allowedToolSet;
+}
+
+function buildBrowserAgentSystemPrompt(profile = TOOL_PROFILE_FULL_ACCESS, registry = skillRegistry, options = {}) {
+  const toolSet = options.toolSet instanceof Set
+    ? options.toolSet
+    : buildPromptToolSet(profile, options);
   const tools = Array.from(toolSet).join(", ");
   const schemas = registry?.getSchemasForTools
     ? registry.getSchemasForTools(toolSet)
@@ -50,6 +145,9 @@ function buildBrowserAgentSystemPrompt(profile = TOOL_PROFILE_FULL_ACCESS, regis
     `Allowed tools: ${tools}.`,
     "Use the following tool schemas exactly when you emit an action:",
     ...schemas,
+    "",
+    "=== Modular Skills & Extra Capabilities ===",
+    "Legacy aliases remain available for compatibility: navigate(browser.open), click(browser.click), type(browser.type), press_key(browser.keypress), scroll(browser.scroll), wait(browser.wait_for), observe(browser.observe), os_type(desktop.type), os_app(desktop.open_app), os_click(desktop.click), os_cmd(shell.run), ask_pii(pii.get).",
     "",
     "## Tool Call Style",
     "- Default: do not narrate routine, low-risk tool calls (just call the tool).",
@@ -85,6 +183,7 @@ module.exports = {
   TOOL_PROFILE_BROWSER_ONLY,
   TOOL_PROFILE_FULL_ACCESS,
   buildBrowserAgentSystemPrompt,
+  buildPromptToolSet,
   buildToolSet,
   normalizeProfile
 };

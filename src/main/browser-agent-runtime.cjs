@@ -7,17 +7,18 @@ const {
 const {
   TOOL_PROFILE_FULL_ACCESS,
   buildBrowserAgentSystemPrompt,
+  buildPromptToolSet,
   buildToolSet,
   normalizeProfile
 } = require("./agent-tool-registry.cjs");
-const skillRegistry = require("./skills/skill-registry.cjs");
+const defaultSkillRegistry = require("./skills/skill-registry.cjs");
 
 const BROWSER_AGENT_DEFAULTS = {
-  maxSteps: 18,
-  maxConsecutiveFailures: 4,
-  maxRepeatActions: 3,
-  maxNoProgressActions: 4,
-  maxPingPongActions: 4
+  maxSteps: 24,
+  maxConsecutiveFailures: 6,
+  maxRepeatActions: 4,
+  maxNoProgressActions: 5,
+  maxPingPongActions: 6
 };
 
 function chooseBrowserAgentReasoningTier() {
@@ -62,7 +63,7 @@ const STRUCTURED_BROWSER_AGENT_DECISION_SCHEMA = {
   required: ["thought", "action", "expectedOutcome", "isFinal", "finalMessage"]
 };
 
-const BROWSER_AGENT_SYSTEM_PROMPT = buildBrowserAgentSystemPrompt(TOOL_PROFILE_FULL_ACCESS, skillRegistry);
+const BROWSER_AGENT_SYSTEM_PROMPT = buildBrowserAgentSystemPrompt(TOOL_PROFILE_FULL_ACCESS, defaultSkillRegistry);
 
 function safeJsonParse(raw) {
   try {
@@ -651,21 +652,82 @@ function normalizeGoalGuardrails(goalGuardrails = {}) {
   };
 }
 
-// Maps structured tool names (browser.open) to SkillRegistry action names (navigate)
-const TOOL_TO_SKILL_NAME = {
-  "browser.open": "navigate",
-  "browser.click": "click",
-  "browser.type": "type",
-  "browser.keypress": "press_key",
-  "browser.scroll": "scroll",
-  "browser.wait_for": "wait",
-  "browser.observe": "observe",
-  "desktop.type": "os_type",
-  "desktop.open_app": "os_app",
-  "desktop.click": "os_click",
-  "shell.run": "os_cmd",
-  "pii.get": "ask_pii"
-};
+function detectBlockingOverlay(state = {}) {
+  return getObservedElements(state).find((element) => {
+    const role = normalizeComparableText(element?.role || "", 80);
+    const selector = normalizeComparableText(element?.selector || "", 160);
+    const label = getObservedElementLabel(element);
+    return (
+      /(dialog|alertdialog|modal|menu|tooltip|sheet|banner)/i.test(role) ||
+      /(modal|dialog|popup|drawer|sheet|overlay|cookie|consent)/i.test(selector) ||
+      /(continue in browser|stay signed in|allow cookies|accept cookies|consent|permission)/i.test(label)
+    );
+  }) || null;
+}
+
+function detectAuthSurface(state = {}) {
+  const combinedText = normalizeComparableText([
+    state?.title,
+    state?.visibleText,
+    ...(Array.isArray(state?.anomalies) ? state.anomalies : [])
+  ].filter(Boolean).join(" "), 1200);
+  return /(sign in|log in|login|password|otp|2fa|verification code|google account|이메일|비밀번호|로그인|인증|코드)/i
+    .test(combinedText);
+}
+
+function buildActionabilityHint(state = {}, fallback = "Re-observe before interacting.") {
+  const overlay = detectBlockingOverlay(state);
+  if (overlay) {
+    return `A popup or dialog looks active (${getObservedElementLabel(overlay) || overlay.role || overlay.selector || "modal"}). Dismiss or target that surface first.`;
+  }
+  if (detectAuthSurface(state)) {
+    return "This page looks like an authentication gate. Target the visible login fields or confirmation controls first.";
+  }
+  return fallback;
+}
+
+function buildNoProgressHint(beforeState = {}, action = {}) {
+  const overlay = detectBlockingOverlay(beforeState);
+  if (overlay) {
+    return `${action.tool} likely missed because a popup or dialog is covering the page (${getObservedElementLabel(overlay) || overlay.role || overlay.selector || "overlay"}).`;
+  }
+  if (detectAuthSurface(beforeState)) {
+    return `${action.tool} did not advance because the page still appears to be waiting for login or verification.`;
+  }
+  return `${action.tool} produced no observable browser state change. Re-observe or choose a more precise action.`;
+}
+
+function mapToolToLegacyActionName(tool = "") {
+  const normalizedTool = String(tool || "").trim();
+  switch (normalizedTool) {
+    case "browser.open":
+      return "navigate";
+    case "browser.click":
+      return "click";
+    case "browser.type":
+      return "type";
+    case "browser.keypress":
+      return "press_key";
+    case "browser.scroll":
+      return "scroll";
+    case "browser.wait_for":
+      return "wait";
+    case "browser.observe":
+      return "observe";
+    case "desktop.type":
+      return "os_type";
+    case "desktop.open_app":
+      return "os_app";
+    case "desktop.click":
+      return "os_click";
+    case "shell.run":
+      return "os_cmd";
+    case "pii.get":
+      return "ask_pii";
+    default:
+      return normalizedTool;
+  }
+}
 
 class BrowserAgentRuntime {
   constructor({
@@ -684,7 +746,7 @@ class BrowserAgentRuntime {
     this.automation = automation;
     this.browser = browser;
     this.screen = screen;
-    this.skillRegistry = runtimeSkillRegistry || skillRegistry;
+    this.skillRegistry = runtimeSkillRegistry || skillRegistry || defaultSkillRegistry;
     this.toolProfile = normalizeProfile(toolProfile);
     this.toolSet = buildToolSet(this.toolProfile);
     this.systemPrompt = buildBrowserAgentSystemPrompt(this.toolProfile, this.skillRegistry);
@@ -704,29 +766,21 @@ class BrowserAgentRuntime {
         });
   }
 
-  _buildBaseSystemPrompt() {
-    const basePrompt = buildBrowserAgentSystemPrompt(this.toolProfile);
-    if (!this.skillRegistry) {
-      return basePrompt;
-    }
-
-    const schemas = this.skillRegistry.getAllSchemas();
-    if (!schemas.length) {
-      return basePrompt;
-    }
-
-    return [
-      basePrompt,
-      "",
-      "=== Modular Skills & Extra Capabilities ===",
-      "You have access to additional modular skills. Use the exact JSON action format as specified in the schemas below:",
-      ...schemas,
-      "",
-      "Rules for Modular Skills:",
-      "1. Use the 'action' field to specify the skill name.",
-      "2. Include all required fields from the schema.",
-      "3. Always include a 'reason' field explaining why you chose this skill."
-    ].join("\n");
+  buildPlannerPromptOptions(goal, state, runtimeHints = []) {
+    const toolSet = buildPromptToolSet(this.toolProfile, {
+      goal,
+      state,
+      runtimeHints
+    });
+    return {
+      toolSet,
+      systemPrompt: buildBrowserAgentSystemPrompt(this.toolProfile, this.skillRegistry, {
+        goal,
+        state,
+        runtimeHints,
+        toolSet
+      })
+    };
   }
 
   async collectDesktopContext() {
@@ -837,8 +891,13 @@ class BrowserAgentRuntime {
     ].join("\n");
   }
 
-  async repairPlannerResponse(rawResponse, language = "en") {
+  async repairPlannerResponse(rawResponse, language = "en", options = {}) {
     const plannerTier = chooseBrowserAgentReasoningTier();
+    const promptOptions = this.buildPlannerPromptOptions(
+      options.goal || "",
+      options.state || null,
+      options.runtimeHints || []
+    );
     const repairPrompt = [
       "Convert the following browser-planner output into valid JSON only.",
       "Do not explain or add markdown.",
@@ -852,7 +911,7 @@ class BrowserAgentRuntime {
     ].join("\n");
 
     return this.chatClient({
-      systemPrompt: this.systemPrompt,
+      systemPrompt: promptOptions.systemPrompt,
       tier: plannerTier,
       ...buildPlannerModelOptions(plannerTier),
       jsonOnly: true,
@@ -897,19 +956,19 @@ class BrowserAgentRuntime {
         if (!observedElement) {
           return {
             ok: false,
-            error: `Element [${normalizeElementId(input.elementId) || "unknown"}] is not in the current observation. Re-observe before interacting.`
+            error: `Element [${normalizeElementId(input.elementId) || "unknown"}] is not in the current observation. ${buildActionabilityHint(safeState)}`
           };
         }
         if (observedElement.visible === false) {
           return {
             ok: false,
-            error: `Element [${normalizeElementId(input.elementId)}] is not currently visible. Re-observe and choose a visible target.`
+            error: `Element [${normalizeElementId(input.elementId)}] is not currently visible. ${buildActionabilityHint(safeState, "Re-observe and choose a visible target.")}`
           };
         }
         if (observedElement.enabled === false) {
           return {
             ok: false,
-            error: `Element [${normalizeElementId(input.elementId)}] is disabled right now. Choose another action.`
+            error: `Element [${normalizeElementId(input.elementId)}] is disabled right now. ${buildActionabilityHint(safeState, "Choose another action or wait for the control to become enabled.")}`
           };
         }
         if (tool === "browser.click" && !options.allowSensitive && isSensitiveFinalElement(observedElement)) {
@@ -981,7 +1040,7 @@ class BrowserAgentRuntime {
         if (!comparison.changed) {
           return {
             ok: false,
-            error: `${action.tool} produced no observable browser state change. Re-observe or choose a more precise action.`
+            error: buildNoProgressHint(safeBeforeState, action)
           };
         }
         return { ok: true };
@@ -993,7 +1052,7 @@ class BrowserAgentRuntime {
         if (requestedApp && activeApp && !activeApp.includes(requestedApp)) {
           return {
             ok: false,
-            error: `desktop.open_app expected ${action.input.name} to be active, but the frontmost app appears to be ${desktopContext.activeApp || "unknown"}.`
+            error: `desktop.open_app expected ${action.input.name} to be active, but the frontmost app appears to be ${desktopContext.activeApp || "unknown"}. Another window may have stayed on top, so re-check the desktop surface before trying again.`
           };
         }
         return { ok: true };
@@ -1033,7 +1092,13 @@ class BrowserAgentRuntime {
         safeAction.reason = options.thought;
       }
 
-      const result = await this.skillRegistry.execute(safeAction, context);
+      const compatAction = {
+        ...safeAction,
+        action: mapToolToLegacyActionName(safeAction.tool),
+        ...(safeAction.input && typeof safeAction.input === "object" ? safeAction.input : {})
+      };
+
+      const result = await this.skillRegistry.execute(compatAction, context);
 
       if (result?.error) {
         return result;
@@ -1105,6 +1170,7 @@ class BrowserAgentRuntime {
         runtimeHints
       );
       const observation = this.buildObservationPrompt(lastObservation);
+      const promptOptions = this.buildPlannerPromptOptions(input, lastObservation, runtimeHints);
       lastError = "";
       const userPrompt = step === 1
         ? `User's goal: ${input}\n\n${observation}\n\nDecide your first action to achieve the user's goal.`
@@ -1116,7 +1182,7 @@ class BrowserAgentRuntime {
       try {
         const sessionMemory = this.buildSessionMemorySnippet();
         aiResponse = await this.chatClient({
-          systemPrompt: this.systemPrompt,
+          systemPrompt: promptOptions.systemPrompt,
           tier: plannerTier,
           ...buildPlannerModelOptions(plannerTier),
           jsonOnly: true,
@@ -1144,7 +1210,11 @@ class BrowserAgentRuntime {
 
       let parsedDecision = parseStructuredBrowserAgentDecision(aiResponse);
       if (!parsedDecision) {
-        const repairedResponse = await this.repairPlannerResponse(aiResponse, language);
+        const repairedResponse = await this.repairPlannerResponse(aiResponse, language, {
+          goal: input,
+          state: lastObservation,
+          runtimeHints
+        });
         const repairedParsed = parseStructuredBrowserAgentDecision(repairedResponse);
 
         if (repairedParsed) {
@@ -1156,7 +1226,7 @@ class BrowserAgentRuntime {
       if (!parsedDecision) {
         const sessionMemory = this.buildSessionMemorySnippet();
         const localResponse = await this.chatClient({
-          systemPrompt: this.systemPrompt,
+          systemPrompt: promptOptions.systemPrompt,
           tier: plannerTier,
           ...buildPlannerModelOptions(plannerTier),
           jsonOnly: true,
@@ -1176,7 +1246,11 @@ class BrowserAgentRuntime {
         let localParsed = parseStructuredBrowserAgentDecision(localResponse);
 
         if (!localParsed) {
-          const repairedLocalResponse = await this.repairPlannerResponse(localResponse, language);
+          const repairedLocalResponse = await this.repairPlannerResponse(localResponse, language, {
+            goal: input,
+            state: lastObservation,
+            runtimeHints
+          });
           localParsed = parseStructuredBrowserAgentDecision(repairedLocalResponse);
           if (localParsed) {
             aiResponse = repairedLocalResponse;
@@ -1212,7 +1286,7 @@ class BrowserAgentRuntime {
 
       const validation = validateStructuredBrowserAgentDecision(parsedDecision, {
         toolProfile: this.toolProfile,
-        toolSet: this.toolSet
+        toolSet: promptOptions.toolSet
       });
       if (!validation.ok) {
         lastError = validation.error;
