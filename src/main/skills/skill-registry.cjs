@@ -154,11 +154,15 @@ const osSkills = require("./os.cjs");
 const fileSkills = require("./file.cjs");
 const securitySkills = require("./security.cjs");
 const coreSkills = require("./core.cjs");
+const mediaSkills = require("./media.cjs");
+const accountSkills = require("./account.cjs");
 
 registry.registerMany(browserSkills);
 registry.registerMany(osSkills);
 registry.registerMany(fileSkills);
 registry.registerMany(securitySkills);
 registry.registerMany(coreSkills);
+registry.registerMany(mediaSkills);
+registry.registerMany(accountSkills);
 
 module.exports = registry;

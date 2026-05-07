@@ -149,6 +149,26 @@ test("browser agent narrows prompt tool schemas for browser-only login context",
   assert.match(promptOptions.systemPrompt, /"tool":"browser\.type"/);
 });
 
+test("browser agent includes media and account schemas when the goal needs them", async () => {
+  const runtime = createRuntime();
+
+  const promptOptions = runtime.buildPlannerPromptOptions(
+    "유튜브 재생을 제어하고 계정 큐에 다음 작업을 넣어줘",
+    {
+      url: "https://www.youtube.com/watch?v=test",
+      title: "YouTube",
+      elements: [],
+      visibleText: "Play Pause Queue account switch"
+    },
+    ["youtube-media", "account-queue"]
+  );
+
+  assert.equal(promptOptions.toolSet.has("media_play"), true);
+  assert.equal(promptOptions.toolSet.has("account_queue_add"), true);
+  assert.match(promptOptions.systemPrompt, /"tool":"media_play"/);
+  assert.match(promptOptions.systemPrompt, /"tool":"account_queue_add"/);
+});
+
 test("browser agent exposes expanded retry defaults for multi-step recovery", async () => {
   assert.equal(BROWSER_AGENT_DEFAULTS.maxSteps, 24);
   assert.equal(BROWSER_AGENT_DEFAULTS.maxConsecutiveFailures, 6);
@@ -211,6 +231,47 @@ test("browser agent rejects desktop.click while observed browser elements are av
 
   assert.equal(desktopClicked, false);
   assert.match(result.error, /desktop\.click is unsafe/);
+});
+
+test("browser agent passes companion context into skill execution", async () => {
+  let sawCompanion = false;
+  const runtime = createRuntime({
+    skillRegistry: {
+      async execute(_action, context) {
+        sawCompanion = Boolean(context.companion?.mediaPlay);
+        return {
+          state: {
+            visibleText: "done"
+          },
+          error: null
+        };
+      }
+    }
+  });
+  runtime.companion = {
+    async mediaPlay() {
+      return { ok: true };
+    }
+  };
+
+  await runtime.executeStructuredAction(
+    {
+      tool: "media_play",
+      input: {
+        url: "https://www.youtube.com/watch?v=test"
+      }
+    },
+    {
+      state: {
+        url: "https://www.youtube.com/watch?v=test",
+        title: "YouTube",
+        elements: [],
+        visibleText: "Player"
+      }
+    }
+  );
+
+  assert.equal(sawCompanion, true);
 });
 
 test("browser agent uses the complex reasoning tier for structured automation", async () => {

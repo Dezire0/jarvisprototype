@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { LoginModal } from "@/components/jarvis/login-modal";
 import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
+import { AdminDashboardCard } from "@/components/jarvis/admin-dashboard-card";
 import {
   clearAuthSession,
   persistAuthSession,
@@ -1809,6 +1810,8 @@ export function ThreadListSidebar({
               </div>
             </div>
           )}
+
+          <AdminDashboardCard isKo={isKo} />
         </SidebarContent>
 
         <SidebarFooter className="border-none px-3 pt-2 pb-3">

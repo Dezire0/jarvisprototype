@@ -49,6 +49,7 @@ const { SettingsStore } = require("./settings-store.cjs");
 const { SttService } = require("./stt-service.cjs");
 const { TtsService } = require("./tts-service.cjs");
 const { UpdaterService } = require("./updater-service.cjs");
+const { createCompanionServices } = require("./v2-services-bridge.cjs");
 
 const piiManager = require("./pii-manager.cjs");
 const osAutomation = require("./os-automation.cjs");
@@ -226,11 +227,17 @@ async function createServices() {
   const stt = new SttService({
     settingsStore: settings
   });
+  const companion = await createCompanionServices({
+    storageDir: path.join(app.getPath("userData"), "companion-v2"),
+    browser,
+    language: settings.getPreferredLanguage?.() || "ko"
+  });
 
   services = {
     automation,
     browser,
     codeProjects,
+    companion,
     credentials,
     extensions,
     files,
@@ -248,6 +255,7 @@ async function createServices() {
     automation,
     browser,
     codeProjects,
+    companion,
     credentials,
     extensions,
     files,
@@ -271,6 +279,7 @@ async function createServices() {
         automation,
         browser,
         codeProjects,
+        companion,
         credentials,
         extensions,
         files,
@@ -1039,6 +1048,86 @@ async function dispatchTool(tool, payload = {}) {
         models
       };
     }
+    case "buddy:action": {
+      const data = await liveServices.companion.performBuddyAction(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "media:get-og-info": {
+      const data = await liveServices.companion.mediaGetOgInfo(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "media:play": {
+      const data = await liveServices.companion.mediaPlay(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "media:pause": {
+      const data = await liveServices.companion.mediaPause(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "media:seek": {
+      const data = await liveServices.companion.mediaSeek(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "media:get-lyrics": {
+      const data = await liveServices.companion.mediaGetLyrics(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "account:queue-add": {
+      const data = await liveServices.companion.accountQueueAdd(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "account:queue-list": {
+      const data = await liveServices.companion.accountQueueList();
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "account:queue-cancel": {
+      const data = await liveServices.companion.accountQueueCancel(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
+    case "account:switch": {
+      const data = await liveServices.companion.switchAccount(payload);
+      return {
+        ok: Boolean(data?.ok),
+        tool,
+        data
+      };
+    }
     case "auth:session-save": {
       persistAuthSession(payload);
       return { ok: true, tool };
@@ -1309,6 +1398,21 @@ ipcMain.handle("assistant:get-live-preview", async () => {
   return captureLivePreviewSnapshot();
 });
 
+ipcMain.handle("assistant:get-companion-state", async () => {
+  const { services: liveServices } = ensureReadyServices();
+  return liveServices.companion.getState();
+});
+
+ipcMain.handle("assistant:buddy-event", async (_event, payload = {}) => {
+  const { services: liveServices } = ensureReadyServices();
+  return liveServices.companion.ingestBuddyEvent(payload);
+});
+
+ipcMain.handle("assistant:get-dashboard-state", async () => {
+  const { services: liveServices } = ensureReadyServices();
+  return liveServices.companion.getDashboardState();
+});
+
 ipcMain.handle("assistant:check-for-updates", async () => {
   return updaterService ? updaterService.checkForUpdates("manual") : null;
 });
@@ -1344,7 +1448,12 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
       fileAutomation: "local-fs",
       gameLaunchers: "steam+epic",
       codeProjects: "generated-projects",
-      extensions: liveServices.extensions.getSummary()
+      extensions: liveServices.extensions.getSummary(),
+      companion: {
+        buddy: "local-triggered",
+        media: "youtube-first",
+        accountQueue: "single-worker"
+      }
     },
     providers: {
       llm: `${getTierProviderLabel("fast")} -> ${getTierProviderLabel("complex")}`,
@@ -1360,6 +1469,7 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
       popupMode: POPUP_ENABLED ? "floating-panel" : "disabled",
       updater: updaterService ? updaterService.getStatus() : null
     },
+    companion: await liveServices.companion.getState().catch(() => null),
     mute: {
       muted: assistantMuted,
       hotkey: "F4"

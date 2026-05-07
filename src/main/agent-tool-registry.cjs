@@ -23,6 +23,19 @@ const TOOL_GROUPS = {
   orchestration: [
     "sessions_spawn",
     "subagents"
+  ],
+  media: [
+    "media_get_og_info",
+    "media_play",
+    "media_pause",
+    "media_seek",
+    "media_get_lyrics"
+  ],
+  account: [
+    "account_queue_add",
+    "account_queue_list",
+    "account_queue_cancel",
+    "account_switch"
   ]
 };
 
@@ -37,6 +50,8 @@ function buildToolSet(profile = TOOL_PROFILE_FULL_ACCESS) {
   if (normalizedProfile === TOOL_PROFILE_FULL_ACCESS) {
     tools.push(...TOOL_GROUPS.desktop);
     tools.push(...TOOL_GROUPS.orchestration);
+    tools.push(...TOOL_GROUPS.media);
+    tools.push(...TOOL_GROUPS.account);
   }
 
   return new Set(tools);
@@ -139,6 +154,20 @@ function buildPromptToolSet(profile = TOOL_PROFILE_FULL_ACCESS, options = {}) {
     selected.add("subagents");
   }
 
+  const mediaLikely = hasPromptSignal(signals, [
+    /(youtube|video|music|song|track|lyrics|player|pause|play|seek|미디어|노래|가사|재생|일시정지|영상)/i
+  ]);
+  if (mediaLikely) {
+    TOOL_GROUPS.media.forEach((tool) => selected.add(tool));
+  }
+
+  const accountLikely = hasPromptSignal(signals, [
+    /(account|accounts|multi account|queue|switch account|credential rotation|메일함 순회|계정 전환|계정 큐|대기열)/i
+  ]);
+  if (accountLikely) {
+    TOOL_GROUPS.account.forEach((tool) => selected.add(tool));
+  }
+
   const filtered = new Set([...selected].filter((tool) => allowedToolSet.has(tool)));
   return filtered.size ? filtered : allowedToolSet;
 }
@@ -162,6 +191,7 @@ function buildBrowserAgentSystemPrompt(profile = TOOL_PROFILE_FULL_ACCESS, regis
     "",
     "=== Modular Skills & Extra Capabilities ===",
     "Legacy aliases remain available for compatibility: navigate(browser.open), click(browser.click), type(browser.type), press_key(browser.keypress), scroll(browser.scroll), wait(browser.wait_for), observe(browser.observe), os_type(desktop.type), os_app(desktop.open_app), os_click(desktop.click), os_cmd(shell.run), ask_pii(pii.get).",
+    "Companion v2 adds YouTube-first media control skills and a single-worker account queue through the same registry.",
     "",
     "## Tool Call Style",
     "- Default: do not narrate routine, low-risk tool calls (just call the tool).",

@@ -13,6 +13,9 @@ declare global {
         url?: string;
         error?: string;
       }>;
+      getCompanionState: () => Promise<unknown>;
+      reportBuddyEvent: (payload?: Record<string, unknown>) => Promise<unknown>;
+      getDashboardState: () => Promise<unknown>;
       checkForUpdates: () => Promise<unknown>;
       installUpdate: () => Promise<unknown>;
       transcribeAudio: (payload: {

@@ -792,6 +792,7 @@ class BrowserAgentRuntime {
     buildSessionMemorySnippet,
     makeAction,
     skillRegistry,
+    companion = null,
     subAgentManager = null,
     runtimeLabel = "agent",
     runtimeDepth = 0,
@@ -819,6 +820,7 @@ class BrowserAgentRuntime {
           status,
           ...extra
         });
+    this.companion = companion || null;
     this.runtimeLabel = String(runtimeLabel || "agent").trim() || "agent";
     this.runtimeDepth = Number.isFinite(Number(runtimeDepth)) ? Math.max(0, Math.floor(Number(runtimeDepth))) : 0;
     this.currentSessionId = String(currentSessionId || "").trim();
@@ -856,6 +858,7 @@ class BrowserAgentRuntime {
       buildHistorySnippet: () => "",
       buildSessionMemorySnippet: () => "",
       makeAction: this.makeAction,
+      companion: this.companion,
       subAgentManager: this.ensureSubAgentManager(),
       runtimeLabel: session?.agentId || "subagent",
       runtimeDepth: session?.depth || 0,
@@ -1186,6 +1189,7 @@ class BrowserAgentRuntime {
         browser: this.browser,
         automation: this.automation,
         screen: this.screen,
+        companion: this.companion,
         safeObserve: async () => this.browser.observe(),
         subAgentManager: this.ensureSubAgentManager(),
         currentSessionId: this.currentSessionId,

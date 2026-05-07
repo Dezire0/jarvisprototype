@@ -10,6 +10,15 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   getLivePreview() {
     return ipcRenderer.invoke("assistant:get-live-preview");
   },
+  getCompanionState() {
+    return ipcRenderer.invoke("assistant:get-companion-state");
+  },
+  reportBuddyEvent(payload = {}) {
+    return ipcRenderer.invoke("assistant:buddy-event", payload);
+  },
+  getDashboardState() {
+    return ipcRenderer.invoke("assistant:get-dashboard-state");
+  },
   submitCommand(input) {
     return ipcRenderer.invoke("assistant:submit-command", input);
   },

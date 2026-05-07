@@ -2851,10 +2851,11 @@ const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
 ]);
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings, threadId }) {
+  constructor({ automation, browser, codeProjects, companion, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings, threadId }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
+    this.companion = companion || null;
     this.credentials = credentials;
     this.extensions = extensions || null;
     this.files = files;
@@ -2882,6 +2883,7 @@ class AssistantService {
       automation: this.automation,
       browser: this.browser,
       screen: this.screen,
+      companion: this.companion,
       skillRegistry,
       chatClient: async (options = {}) =>
         chat({

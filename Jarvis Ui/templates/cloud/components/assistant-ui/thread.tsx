@@ -7,6 +7,7 @@ import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { CompanionBuddy } from "@/components/jarvis/companion-buddy";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -131,6 +132,8 @@ export const Thread: FC = () => {
         <ThreadPrimitive.Messages>
           {() => <ThreadMessage />}
         </ThreadPrimitive.Messages>
+
+        <CompanionBuddy />
 
         <ThreadPrimitive.ViewportFooter className="aui-thread-viewport-footer sticky bottom-0 mx-auto mt-auto flex w-full max-w-(--thread-max-width) flex-col gap-4 overflow-visible bg-background/96 pb-4 pt-6 backdrop-blur md:pb-6">
           <ThreadScrollToBottom />
