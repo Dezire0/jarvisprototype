@@ -1,13 +1,14 @@
 # 2026-05-06 Latest Errors
 - 재현 가능한 차단 오류 없음.
-- 이번 회차에서 확인한 이전 구조 문제:
-  - `src/main/main.cjs`의 IPC 툴 디스패치가 `app:open`, `app:action`, `browser:open`, `browser:search`, `browser:read`, `browser:login`에서 `AssistantService` / OpenClaw 공통 경로를 우회하고 있었음.
+- 이번 회차에서 확인한 구조 문제:
+  - `src/main/browser-agent-runtime.cjs`의 자율 실행 루프가 여전히 하드코딩된 `switch`로 도구를 실행하고 있었음.
+  - `src/main/agent-tool-registry.cjs` 시스템 프롬프트가 허용 툴 이름만 나열하고, 실제 스킬 스키마를 LLM에 노출하지 않고 있었음.
+  - `src/main/skills/skill-registry.cjs`는 새 OpenClaw 툴 이름(`browser.open`, `desktop.open_app`, `pii.get`)과 레거시 액션 이름(`navigate`, `os_app`, `ask_pii`)을 함께 해석하지 못했음.
 - 현재 검증 결과:
   - `npm run check` 통과
-  - `node --test tests/node/assistant-service.test.cjs` 통과 (`45/45`)
-  - `npm run test:node` 통과 (`122/122`)
+  - `node --test tests/node/browser-agent-runtime.test.cjs` 통과 (`9/9`)
+  - `npm run test:node` 통과 (`124/124`)
   - `npm run dev` 부팅 성공
-  - 브라우저 점검: `http://127.0.0.1:3310/`에서 로그인 화면과 `Jarvis 컴퓨터 작업 동의` 모달 표시 확인
-  - 브라우저 콘솔 차단 오류 없음 (`[HMR] connected` 수준 로그만 확인)
+  - `http://127.0.0.1:3310` 응답 확인
 - 참고:
-  - 전체 노드 테스트 중 `getconf DARWIN_USER_DIR` 기반 알림 조회 경고는 계속 출력되지만, 현재 수정분의 회귀로 이어지지는 않았음.
+  - 테스트 중 `getconf DARWIN_USER_DIR` 알림 조회 경고는 계속 출력되지만, 이번 스킬 레지스트리/에이전트 리팩터링 실패와는 직접 관련 없음.

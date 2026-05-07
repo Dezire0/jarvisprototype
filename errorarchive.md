@@ -1,30 +1,34 @@
 # 2026-05-06 Latest Fixes
-- OpenClaw 공통 직접 실행 진입점을 `AssistantService`에 추가함.
-  - `src/main/assistant-service.cjs`
-  - `handleToolInvocation(tool, payload)` 추가
-  - `buildToolInvocationInput(tool, payload)` 추가
-  - 앱/브라우저 직접 툴 요청도 자연어 세션 문맥과 동일하게 OpenClaw 응답 형식으로 정리되게 변경
-- OpenClaw runtime hint를 보강함.
-  - `route.appName`, `route.siteOrUrl`가 있으면 세션 힌트에 직접 주입해 desktop/browser 타깃 판단을 더 명확히 함
-- IPC 툴 디스패치를 OpenClaw-first 경로로 통일함.
-  - `src/main/main.cjs`
-  - `app:open`
-  - `app:action`
-  - `browser:open`
-  - `browser:search`
-  - `browser:read`
-  - `browser:login`
-  - 위 케이스들이 더 이상 `automation.execute` / `browser.open` / `browser.readPage` / `browser.loginWithStoredCredential`를 직접 호출하지 않고 `liveAssistant.handleToolInvocation(...)`을 경유함
-- 테스트를 추가 및 갱신함.
-  - `tests/node/assistant-service.test.cjs`
-  - `handleToolInvocation` 기반 `app:open`, `browser:open`, `browser:read` 회귀 테스트 추가
+- `BrowserAgentRuntime`의 자율 실행을 하드코딩 `switch`에서 스킬 레지스트리 위임 구조로 변경함.
+  - `src/main/browser-agent-runtime.cjs`
+  - `executeStructuredAction(...)`이 이제 `this.skillRegistry.execute(...)`를 사용
+  - `BrowserAgentRuntime` 생성자에 `skillRegistry` 주입 경로 추가
+- 자율 에이전트 시스템 프롬프트에 동적 스킬 스키마를 주입하도록 변경함.
+  - `src/main/agent-tool-registry.cjs`
+  - `buildBrowserAgentSystemPrompt(...)`가 `skillRegistry.getSchemasForTools(toolSet)` 결과를 포함
+- 스킬 레지스트리를 새 OpenClaw 툴 이름 중심으로 정렬하고 레거시 액션 별칭도 유지함.
+  - `src/main/skills/skill-registry.cjs`
+  - `resolve(...)`, `normalizeAction(...)`, `getSchemasForTools(...)` 추가
+  - `tool` 기반 액션과 `action` 기반 레거시 액션을 모두 수용
+- 모듈형 스킬 정의를 새 툴 네이밍에 맞게 정리함.
+  - `src/main/skills/browser.cjs`
+    - `browser.open`, `browser.click`, `browser.type`, `browser.keypress`, `browser.scroll`, `browser.wait_for`, `browser.observe`
+  - `src/main/skills/os.cjs`
+    - `desktop.type`, `desktop.open_app`, `desktop.click`, `shell.run`
+  - `src/main/skills/security.cjs`
+    - `pii.get`
+  - `src/main/skills/file.cjs`
+    - `file.read`, `file.write`
+  - 각 스킬에 레거시 별칭(`navigate`, `os_app`, `ask_pii` 등)을 남겨 기존 경로와 호환되게 유지
+- 관련 회귀 테스트를 추가함.
+  - `tests/node/browser-agent-runtime.test.cjs`
+  - 프롬프트 스키마 노출 검증 추가
+  - 스킬 레지스트리 위임 실행 검증 추가
 
 Verification:
 
 - `npm run check` 통과
-- `node --test tests/node/assistant-service.test.cjs` 통과 (`45/45`)
-- `npm run test:node` 통과 (`122/122`)
+- `node --test tests/node/browser-agent-runtime.test.cjs` 통과 (`9/9`)
+- `npm run test:node` 통과 (`124/124`)
 - `npm run dev` 부팅 성공
-- Browser Use로 `http://127.0.0.1:3310/` 확인
-  - 제목: `Jarvis Desktop`
-  - 로그인 화면과 `Jarvis 컴퓨터 작업 동의` 모달 노출 확인
+- `http://127.0.0.1:3310` 응답 확인
