@@ -1,0 +1,26 @@
+{
+  "aliases": {
+    "home": "$HOME",
+    "홈": "$HOME",
+    "desktop": "$HOME/Desktop",
+    "desktopfolder": "$HOME/Desktop",
+    "바탕화면": "$HOME/Desktop",
+    "바탕화면폴더": "$HOME/Desktop",
+    "documents": "$HOME/Documents",
+    "document": "$HOME/Documents",
+    "documentsfolder": "$HOME/Documents",
+    "문서": "$HOME/Documents",
+    "문서폴더": "$HOME/Documents",
+    "downloads": "$HOME/Downloads",
+    "download": "$HOME/Downloads",
+    "downloadsfolder": "$HOME/Downloads",
+    "내려받기": "$HOME/Downloads",
+    "다운로드": "$HOME/Downloads",
+    "다운로드폴더": "$HOME/Downloads",
+    "applications": "/Applications",
+    "application": "/Applications",
+    "apps": "/Applications",
+    "app": "/Applications",
+    "응용프로그램": "/Applications"
+  }
+}

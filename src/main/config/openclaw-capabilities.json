@@ -1,0 +1,40 @@
+{
+  "executorLabel": "OpenClaw Computer Use",
+  "modes": {
+    "browser": "playwright",
+    "desktop": "desktop"
+  },
+  "supportedPlannerActions": [
+    "open_url",
+    "search_google",
+    "search_youtube",
+    "click_text",
+    "click_search_result",
+    "site_search",
+    "read_page",
+    "jarvis_delegate"
+  ],
+  "delegateRoutes": [
+    "browser_login",
+    "app_open",
+    "app_action",
+    "file_read",
+    "file_write",
+    "file_list",
+    "screen_summary",
+    "screen_academic",
+    "system_briefing",
+    "obs_status",
+    "obs_connect",
+    "obs_start",
+    "obs_stop",
+    "obs_scene",
+    "code_project",
+    "game_install",
+    "game_update",
+    "game_list",
+    "stream_prep",
+    "app_list",
+    "spotify_play"
+  ]
+}

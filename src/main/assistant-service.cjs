@@ -15,6 +15,23 @@ const {
   mapStructuredBrowserToolToActionType,
   summarizeStructuredBrowserToolTarget
 } = require("./browser-agent-runtime.cjs");
+const { loadAssistantConfig } = require("./config-loader.cjs");
+const {
+  fetchWithRuntime: assistantFetchWithRuntime,
+  formatFetchError: assistantFormatFetchError
+} = require("./assistant/errors.cjs");
+const {
+  buildModelConnectionReply: buildModelConnectionReplyMessage,
+  buildModelFailureReply: buildModelFailureReplyMessage
+} = require("./assistant/replies.cjs");
+const {
+  getTargetConfig,
+  findOfficialAppFallback: findConfiguredOfficialAppFallback
+} = require("./assistant/targets.cjs");
+const { routeInputWithLlm } = require("./assistant/router.cjs");
+const { composePromptContextBlocks } = require("./assistant/memory-context.cjs");
+const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
+const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
 
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
@@ -25,116 +42,22 @@ const JARVIS_CLOUD_API_BASE =
   "https://jarvis-auth-service.dexproject.workers.dev";
 const ENABLE_CLOUD_AI_FALLBACK =
   String(process.env.JARVIS_ENABLE_CLOUD_AI_FALLBACK || "").trim() === "1";
-let electronNetFetch = null;
-
-try {
-  const electronModule = require("electron");
-  if (
-    electronModule &&
-    typeof electronModule === "object" &&
-    electronModule.net &&
-    typeof electronModule.net.fetch === "function"
-  ) {
-    electronNetFetch = electronModule.net.fetch.bind(electronModule.net);
-  }
-} catch (_error) {
-  electronNetFetch = null;
-}
+const TARGET_CONFIG = getTargetConfig();
 
 function formatFetchError(error, url = "") {
-  const cause = error?.cause;
-  const details = [
-    cause?.code,
-    cause?.errno,
-    cause?.syscall,
-    cause?.hostname,
-    cause?.message,
-    error?.message
-  ]
-    .filter(Boolean)
-    .map((value) => String(value).trim())
-    .filter(Boolean);
-
-  const unique = [...new Set(details)];
-  const host = (() => {
-    try {
-      return new URL(url).host;
-    } catch (_error) {
-      return "";
-    }
-  })();
-
-  return unique.length
-    ? `${host ? `${host} · ` : ""}${unique.join(" / ")}`
-    : host || "unknown network error";
+  return assistantFormatFetchError(error, url);
 }
 
 async function fetchWithRuntime(url, options = {}) {
-  if (electronNetFetch) {
-    try {
-      return await electronNetFetch(url, options);
-    } catch (electronError) {
-      try {
-        return await fetch(url, options);
-      } catch (fallbackError) {
-        fallbackError.message = formatFetchError(fallbackError, url);
-        throw fallbackError;
-      }
-    }
-  }
-
-  try {
-    return await fetch(url, options);
-  } catch (error) {
-    error.message = formatFetchError(error, url);
-    throw error;
-  }
+  return assistantFetchWithRuntime(url, options);
 }
 
 function buildModelConnectionReply(text = "") {
-  return detectLanguageCode(text) === "ko"
-    ? "대화 모델이 아직 연결되어 있지 않아요. 왼쪽 위의 AI 모델 관리에서 GPT/Gemini API 키를 저장하거나, GPT/Codex CLI 또는 Gemini CLI로 로그인하거나, Ollama 로컬 모델을 선택해 주세요."
-    : "No conversation model is connected yet. Open AI Model Management in the upper-left and save a GPT/Gemini API key, sign in with GPT/Codex CLI or Gemini CLI, or choose an Ollama local model.";
+  return buildModelConnectionReplyMessage(text, detectLanguageCode);
 }
 
 function buildModelFailureReply(text = "", error, config = {}) {
-  const message = String(error?.message || error || "").trim();
-  const isKo = detectLanguageCode(text) === "ko";
-  const providerLabel = config.provider === "gemini"
-    ? "Gemini"
-    : config.provider === "gemini-cli"
-      ? "Gemini CLI"
-    : config.provider === "groq"
-      ? "Groq"
-    : config.provider === "openai-cli"
-      ? "GPT/Codex CLI"
-      : config.provider === "openai-compatible"
-        ? "GPT/OpenAI"
-        : "로컬 모델";
-  const modelLabel = config.model ? ` ${config.model}` : "";
-
-  if (config.provider === "gemini" && /high demand|try again later|overloaded|temporar/i.test(message)) {
-    return isKo
-      ? `Gemini${modelLabel} 모델이 지금 요청이 많아서 일시적으로 응답하지 못하고 있어요. API 키나 저장 설정 문제는 아니고, Google 쪽 모델 수요/용량 문제에 가깝습니다. 잠시 뒤 다시 시도하거나 AI 모델 관리에서 Gemini 3 Flash Preview, Gemini 2.5 Pro, 또는 다른 연결 모델로 바꿔 주세요.`
-      : `Gemini${modelLabel} is temporarily unable to respond because the model is under high demand. This is not an API key or saved-settings issue. Please try again later or switch to Gemini 3 Flash Preview, Gemini 2.5 Pro, or another connected model in AI Model Management.`;
-  }
-
-  if (config.provider === "openai-cli" || config.provider === "gemini-cli") {
-    const label = config.provider === "openai-cli" ? "GPT/Codex CLI" : "Gemini CLI";
-    const loginHintKo = config.provider === "openai-cli"
-      ? "`codex login` 또는 Codex 확장/CLI 로그인"
-      : "`gemini` 실행 후 Google 로그인";
-    const loginHintEn = config.provider === "openai-cli"
-      ? "`codex login` or the Codex extension/CLI login"
-      : "Google login after running `gemini`";
-    return isKo
-      ? `${label}${modelLabel} 연결 중 문제가 있었어요. 이 경로는 API 키가 아니라 로컬 CLI의 로그인 상태를 사용합니다. CLI가 설치되어 있고 ${loginHintKo}이 완료되어 있는지 확인해 주세요.\n\n${message}`
-      : `${label}${modelLabel} ran into a connection problem. This path uses the local CLI login session instead of an API key. Check that the CLI is installed and signed in via ${loginHintEn}.\n\n${message}`;
-  }
-
-  return isKo
-    ? `${providerLabel}${modelLabel} 연결 중 문제가 있었어요. AI 모델 관리에서 API 키와 모델 선택을 확인해 주세요.\n\n${message}`
-    : `${providerLabel}${modelLabel} ran into a connection problem. Check the API key and selected model in AI Model Management.\n\n${message}`;
+  return buildModelFailureReplyMessage(text, error, config, detectLanguageCode);
 }
 
 const chat = async (options) => {
@@ -189,214 +112,10 @@ const LONG_TERM_MEMORY_SYSTEM_PROMPT = [
   "If nothing is worth saving, return {}."
 ].join(" ");
 
-const WEB_TARGET_ALIASES = new Set([
-  "amazon",
-  "아마존",
-  "google",
-  "구글",
-  "youtube",
-  "유튜브",
-  "github",
-  "깃허브",
-  "gmail",
-  "지메일",
-  "naver",
-  "네이버",
-  "daum",
-  "다음",
-  "instagram",
-  "인스타그램",
-  "facebook",
-  "페이스북",
-  "twitter",
-  "트위터",
-  "x",
-  "spotify",
-  "스포티파이"
-]);
-
-const DIRECT_WEB_TARGETS = [
-  {
-    label: "Amazon",
-    url: "https://www.amazon.com/",
-    tokens: ["amazon", "아마존"]
-  },
-  {
-    label: "Google",
-    url: "https://www.google.com/",
-    tokens: ["google", "구글"]
-  },
-  {
-    label: "YouTube",
-    url: "https://www.youtube.com/",
-    tokens: ["youtube", "유튜브"]
-  },
-  {
-    label: "GitHub",
-    url: "https://github.com/",
-    tokens: ["github", "깃허브"]
-  },
-  {
-    label: "Gmail",
-    url: "https://mail.google.com/",
-    tokens: ["gmail", "지메일"]
-  },
-  {
-    label: "Naver",
-    url: "https://www.naver.com/",
-    tokens: ["naver", "네이버"]
-  },
-  {
-    label: "Daum",
-    url: "https://www.daum.net/",
-    tokens: ["daum", "다음"]
-  },
-  {
-    label: "Instagram",
-    url: "https://www.instagram.com/",
-    tokens: ["instagram", "인스타그램"]
-  },
-  {
-    label: "Facebook",
-    url: "https://www.facebook.com/",
-    tokens: ["facebook", "페이스북"]
-  },
-  {
-    label: "X",
-    url: "https://x.com/",
-    tokens: ["x", "twitter", "트위터"]
-  },
-  {
-    label: "Spotify",
-    url: "https://open.spotify.com/",
-    tokens: ["spotify", "스포티파이"]
-  }
-];
-
-const DIRECT_APP_TARGETS = [
-  {
-    label: "Google Chrome",
-    tokens: ["google chrome", "chrome", "구글 크롬", "구글크롬", "크롬"]
-  },
-  {
-    label: "Safari",
-    tokens: ["safari", "사파리"]
-  },
-  {
-    label: "Arc",
-    tokens: ["arc", "아크"]
-  },
-  {
-    label: "Slack",
-    tokens: ["slack", "슬랙"]
-  },
-  {
-    label: "Discord",
-    tokens: ["discord", "디스코드"]
-  },
-  {
-    label: "Notion",
-    tokens: ["notion", "노션"]
-  },
-  {
-    label: "Spotify",
-    tokens: ["spotify", "스포티파이"]
-  },
-  {
-    label: "Steam",
-    tokens: ["steam", "스팀"]
-  },
-  {
-    label: "Epic Games Launcher",
-    tokens: ["epic games launcher", "epic games", "epic", "에픽게임즈런처", "에픽게임즈", "에픽"]
-  },
-  {
-    label: "Finder",
-    tokens: ["finder", "파인더"]
-  },
-  {
-    label: "Terminal",
-    tokens: ["terminal", "터미널"]
-  },
-  {
-    label: "Notes",
-    tokens: ["notes", "메모"]
-  },
-  {
-    label: "Visual Studio Code",
-    tokens: ["visual studio code", "vs code", "vscode", "code", "비주얼스튜디오코드", "브이에스코드"]
-  },
-  {
-    label: "Mail",
-    tokens: ["mail", "메일"]
-  }
-];
-
-const OFFICIAL_APP_FALLBACKS = [
-  {
-    label: "Discord",
-    aliases: ["discord", "디스코드"],
-    webUrl: "https://discord.com/app",
-    installUrl: "https://discord.com/download",
-    webRunnable: true
-  },
-  {
-    label: "Slack",
-    aliases: ["slack", "슬랙"],
-    webUrl: "https://app.slack.com/client",
-    installUrl: "https://slack.com/downloads",
-    webRunnable: true
-  },
-  {
-    label: "Notion",
-    aliases: ["notion", "노션"],
-    webUrl: "https://www.notion.so/login",
-    installUrl: "https://www.notion.com/desktop",
-    webRunnable: true
-  },
-  {
-    label: "Spotify",
-    aliases: ["spotify", "스포티파이"],
-    webUrl: "https://open.spotify.com/",
-    installUrl: "https://www.spotify.com/download/",
-    webRunnable: true
-  },
-  {
-    label: "Visual Studio Code",
-    aliases: ["visual studio code", "vs code", "vscode", "code", "브이에스코드", "비주얼스튜디오코드"],
-    webUrl: "https://vscode.dev/",
-    installUrl: "https://code.visualstudio.com/download",
-    webRunnable: true
-  },
-  {
-    label: "Figma",
-    aliases: ["figma", "피그마"],
-    webUrl: "https://www.figma.com/files/",
-    installUrl: "https://www.figma.com/downloads/",
-    webRunnable: true
-  },
-  {
-    label: "GitHub Desktop",
-    aliases: ["github desktop", "깃허브 데스크톱", "깃허브 데스크탑"],
-    webUrl: "https://github.com/",
-    installUrl: "https://desktop.github.com/download/",
-    webRunnable: true
-  },
-  {
-    label: "OpenClaw",
-    aliases: ["openclaw", "open claw", "오픈클로", "오픈 클로"],
-    webUrl: "https://openclaw.ai/",
-    installUrl: "https://openclawdoc.com/docs/getting-started/installation/",
-    webRunnable: false,
-    kind: "cli",
-    installCommands: [
-      "curl -fsSL https://openclaw.ai/install.sh | bash",
-      "npm install -g openclaw@latest && openclaw onboard --install-daemon",
-      "git clone https://github.com/openclaw/openclaw.git && cd openclaw && pnpm install && pnpm ui:build && pnpm build && pnpm link --global"
-    ],
-    runCommands: ["openclaw doctor", "openclaw status", "openclaw dashboard"]
-  }
-];
+const WEB_TARGET_ALIASES = TARGET_CONFIG.webAliases;
+const DIRECT_WEB_TARGETS = TARGET_CONFIG.directWebTargets;
+const DIRECT_APP_TARGETS = TARGET_CONFIG.directAppTargets;
+const OFFICIAL_APP_FALLBACKS = TARGET_CONFIG.officialAppFallbacks;
 
 function hasAny(text, keywords) {
   return keywords.some((keyword) => text.includes(keyword));
@@ -503,24 +222,7 @@ function stripKoreanParticleSuffix(value = "") {
 }
 
 function findOfficialAppFallback(appName = "") {
-  const normalized = normalizeEntityToken(appName);
-
-  if (!normalized) {
-    return null;
-  }
-
-  return (
-    OFFICIAL_APP_FALLBACKS.find((entry) =>
-      [entry.label, ...(entry.aliases || [])].some((alias) => normalizeEntityToken(alias) === normalized)
-    ) ||
-    OFFICIAL_APP_FALLBACKS.find((entry) =>
-      [entry.label, ...(entry.aliases || [])].some((alias) => {
-        const token = normalizeEntityToken(alias);
-        return token && (normalized.includes(token) || token.includes(normalized));
-      })
-    ) ||
-    null
-  );
+  return findConfiguredOfficialAppFallback(appName);
 }
 
 function textMentionsToken(text = "", token = "") {
@@ -5024,10 +4726,12 @@ class AssistantService {
   }
 
   buildAugmentedUserPrompt(userPrompt, extraContext = "", options = {}) {
-    const contextBlocks = this.buildPromptContextBlocks(userPrompt, extraContext, options);
+    const contextText = composePromptContextBlocks(
+      this.buildPromptContextBlocks(userPrompt, extraContext, options)
+    );
 
-    return contextBlocks.length
-      ? `${contextBlocks.join("\n\n")}\n\nUser request:\n${userPrompt}`
+    return contextText
+      ? `${contextText}\n\nUser request:\n${userPrompt}`
       : userPrompt;
   }
 
@@ -6011,89 +5715,11 @@ class AssistantService {
 
   async routeInput(input) {
     const fallback = buildRouteFallback(input);
-    if (shouldUseFallbackRouteDirectly(input, fallback)) {
-      return fallback;
-    }
-    const appCatalog = this.automation?.listInstalledApps
-      ? await this.automation.listInstalledApps({
-          limit: 80
-        }).catch(() => ({
-          apps: []
-        }))
-      : {
-          apps: []
-        };
-    const installedAppNames = Array.isArray(appCatalog?.apps)
-      ? appCatalog.apps.map((app) => app.name).filter(Boolean).slice(0, 80)
-      : [];
-    const routerPrompt = [
-      "You are the intent router for a bilingual desktop assistant.",
-      "Respond with valid JSON only.",
-      'Schema: {"route":"chat|browser|browser_login|screen_summary|screen_academic|system_briefing|obs_connect|obs_status|obs_start|obs_stop|obs_scene|file_read|file_write|file_list|stream_prep|app_open|app_action|app_list|open_targets|spotify_play|game_install|game_update|game_list|code_project","language":"ko|en","appName":"","siteOrUrl":"","path":"","content":"","sceneName":"","query":"","platform":"steam|epic|both","targets":{"apps":[],"web":[]},"reason":"","confidence":0,"missing":[],"requires_automation":false}',
-      "Use chat for general conversation, recommendations, ideas, opinions, follow-up discussion, or questions that do not clearly require a desktop action.",
-      "Use app_open for opening a local desktop app like Chrome, Finder, Terminal, Slack, Spotify, Notion, Steam, OBS, or VS Code.",
-      "For app_open, appName must contain only the app/product name. Never include request verbs, politeness endings, punctuation, or the full user sentence.",
-      "Use app_action when the user wants to do something inside a desktop app, such as typing, sending a message in Slack or Discord, pressing a key, running a shortcut, searching, opening a folder or tab, creating a new item, using a menu, or performing a multi-step workflow inside that app.",
-      "Use open_targets when the user asks to open multiple local apps or a local app plus one or more websites in the same request. Fill targets.apps with app names and targets.web with URLs or site names.",
-      "Use app_list when the user asks to list installed or available desktop apps.",
-      "Use spotify_play when the user wants Spotify to play, pause, resume, skip, search, or open a playlist, song, or music request inside Spotify.",
-      "Use game_install, game_update, and game_list for Steam or Epic game management requests.",
-      "Use code_project when the user asks you to create a coding project, generate an app, scaffold a prototype, or build something like a snake game or todo app.",
-      "Use browser for website navigation, URLs, searches, web logins, reading web pages, or multi-step site workflows like open site, log in, search, and show activity.",
-      "Use browser_login only for explicit login requests.",
-      "Set requires_automation to true when the request requires screen reading, login handling, button clicks, summarizing page content, checking who/what is on a page, opening the latest mail/message, or any multi-step website workflow. Set it to false only for simple page opens or simple searches.",
-      "When the user names a specific app or website, prioritize that named target over generic nouns like music, song, video, message, or search.",
-      "Do not route recommendation-style questions into desktop actions unless the user clearly asks you to play, open, search, or control something.",
-      "Use system_briefing when the user asks what is happening on this computer, the current machine status, frontmost app, browser state, or a direct system overview.",
-      "Use screen_summary for OCR or screen understanding.",
-      "Use screen_academic for tutoring, explanation, grammar correction, or study help about the current screen.",
-      "Use obs_* only for OBS connection, status, stream control, or scene switching.",
-      "Use file_* only for local file tasks.",
-      "If unsure, return chat.",
-      "language must be ko if the user is mainly speaking Korean, otherwise en.",
-      installedAppNames.length
-        ? `Installed app hints: ${installedAppNames.join(", ")}`
-        : "Installed app hints are unavailable; infer common app names when the user clearly names one."
-    ].join(" ");
-
-    try {
-      const routeTier = chooseAutomationReasoningTier(input, fallback);
-      const raw = await chat({
-        systemPrompt: routerPrompt,
-        tier: routeTier,
-        userPrompt: [
-          "Recent conversation:",
-          this.buildHistorySnippet(),
-          "",
-          "Weak local fallback route, for reference only. Prefer your own semantic judgment:",
-          JSON.stringify(fallback),
-          "",
-          "Current user input:",
-          input
-        ].join("\n")
-      });
-
-      const parsed = safeJsonParse(raw);
-
-      if (!parsed?.route) {
-        return fallback;
-      }
-
-      if (fallback.route !== "chat" && parsed.route === "chat") {
-        return fallback;
-      }
-
-      return {
-        ...fallback,
-        ...parsed,
-        targets: parsed.targets || fallback.targets,
-        appName: parsed.appName || fallback.appName || "",
-        language: parsed.language === "ko" ? "ko" : fallback.language,
-        requires_automation: parsed.requires_automation === true
-      };
-    } catch (_error) {
-      return fallback;
-    }
+    return routeInputWithLlm(this, input, fallback, {
+      chat,
+      chooseAutomationReasoningTier,
+      shouldUseFallbackRouteDirectly
+    });
   }
 
   // ─── v2 ReAct Loop Constants ──────────────────────────────────────────────
@@ -7302,120 +6928,13 @@ class AssistantService {
 
 
   async handleInput(input) {
-    const cleanInput = normalizeWhitespace(input);
-
-    if (!cleanInput) {
-      return {
-        reply:
-          detectReplyLanguage(input) === "ko"
-            ? "말씀해주시면 바로 도와드릴게요."
-            : "Tell me what you want, and I will help right away.",
-        actions: [],
-        provider: "local",
-        language: detectReplyLanguage(input)
-      };
-    }
-
-    if (looksLikeModelIdentityQuestion(cleanInput)) {
-      const result = buildConfiguredModelIdentityResult(
-        cleanInput,
-        detectReplyLanguage(cleanInput),
-        this.settings?.getConversationModelSettingsView?.() || {},
-      );
-      return this.finalizeResponse(cleanInput, result, {
-        route: "chat"
-      });
-    }
-
-    const pendingClarificationResult = await this.continuePendingClarification(cleanInput);
-
-    if (pendingClarificationResult) {
-      pendingClarificationResult.language = detectReplyLanguage(cleanInput);
-      return this.finalizeResponse(cleanInput, pendingClarificationResult, {
-        route: "pending_clarification"
-      });
-    }
-
-    const pendingBrowserResult = await this.continuePendingBrowserContinuation(cleanInput);
-
-    if (pendingBrowserResult) {
-      pendingBrowserResult.language = detectReplyLanguage(cleanInput);
-      return this.finalizeResponse(cleanInput, pendingBrowserResult, {
-        route: "browser"
-      });
-    }
-
-    const pendingSensitiveResult = await this.continuePendingSensitiveConfirmation(cleanInput);
-
-    if (pendingSensitiveResult) {
-      pendingSensitiveResult.language = detectReplyLanguage(cleanInput);
-      return this.finalizeResponse(cleanInput, pendingSensitiveResult, {
-        route: "browser_sensitive_confirmation"
-      });
-    }
-
-    if (this.pendingWorkspaceMessage && looksLikeFreshWorkspaceCommand(cleanInput)) {
-      this.pendingWorkspaceMessage = null;
-    }
-
-    const pendingWorkspaceResult = await this.continuePendingWorkspaceMessage(cleanInput);
-
-    if (pendingWorkspaceResult) {
-      pendingWorkspaceResult.language = detectReplyLanguage(cleanInput);
-      return this.finalizeResponse(cleanInput, pendingWorkspaceResult, {
-        route: "app_action"
-      });
-    }
-
-    const extensionWebhookResult = await this.maybeHandleExtensionWebhook(cleanInput);
-
-    if (extensionWebhookResult) {
-      extensionWebhookResult.language = detectReplyLanguage(cleanInput);
-      return this.finalizeResponse(cleanInput, extensionWebhookResult, {
-        route: "extension_webhook"
-      });
-    }
-
-    let route = await this.routeInput(cleanInput);
-
-    if (route.route === "chat" && this.looksLikeBrowserContextFollowUp(cleanInput)) {
-      route = {
-        ...route,
-        route: "browser",
-        requires_automation: true
-      };
-    }
-
-    if (
-      route.route === "chat" &&
-      looksLikeAppAction(cleanInput) &&
-      this.lastActiveApp
-    ) {
-      route = {
-        ...route,
-        route: "app_action",
-        appName: this.lastActiveApp
-      };
-    }
-
-    let result;
-
-    try {
-      result = await this.executeRoute(cleanInput, route);
-    } catch (error) {
-      result = {
-        reply:
-          detectReplyLanguage(cleanInput) === "ko"
-            ? `처리 중에 문제가 있었어요: ${error.message}`
-            : `I ran into a problem while handling that: ${error.message}`,
-        actions: [],
-        provider: "local-error"
-      };
-    }
-
-    result.language = route.language || detectReplyLanguage(cleanInput);
-    return this.finalizeResponse(cleanInput, result, {
-      route: route.route || "chat"
+    return runAssistantTurn(this, normalizeWhitespace(input), {
+      buildConfiguredModelIdentityResult,
+      detectReplyLanguage,
+      looksLikeAppAction,
+      looksLikeFreshWorkspaceCommand,
+      looksLikeModelIdentityQuestion,
+      promoteFollowUpRoute
     });
   }
 }

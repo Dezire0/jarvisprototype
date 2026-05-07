@@ -2,18 +2,12 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const { loadAssistantConfig } = require("./config-loader.cjs");
 
 const execFileAsync = promisify(execFile);
-const SUPPORTED_PLANNER_ACTIONS = new Set([
-  "open_url",
-  "search_google",
-  "search_youtube",
-  "click_text",
-  "click_search_result",
-  "site_search",
-  "read_page",
-  "jarvis_delegate"
-]);
+const SUPPORTED_PLANNER_ACTIONS = new Set(
+  loadAssistantConfig().openClawCapabilities.supportedPlannerActions || []
+);
 
 function normalizeWhitespace(text = "") {
   return String(text).replace(/\s+/g, " ").trim();
