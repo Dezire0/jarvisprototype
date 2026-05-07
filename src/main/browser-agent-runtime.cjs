@@ -2,6 +2,7 @@ const { FAST_PLANNER_MODEL } = require("./ollama-service.cjs");
 const notificationMonitor = require("./notification-monitor.cjs");
 const {
   MACOS_AUTOMATION_PERMISSION_MESSAGE,
+  MACOS_AUTOMATION_PERMISSION_DIALOG_DETAIL,
   normalizeAutomationFailureMessage
 } = require("./automation-error-utils.cjs");
 const {
@@ -12,6 +13,12 @@ const {
   normalizeProfile
 } = require("./agent-tool-registry.cjs");
 const defaultSkillRegistry = require("./skills/skill-registry.cjs");
+const {
+  DEFAULT_LOG_PATH,
+  MAX_AGENT_DEPTH,
+  SubAgentManager,
+  createPossibleFix
+} = require("./subagent-manager.cjs");
 
 const BROWSER_AGENT_DEFAULTS = {
   maxSteps: 24,
@@ -393,6 +400,44 @@ function validateStructuredBrowserAgentDecision(decision = {}, options = {}) {
       normalizedDecision.action.input = { field };
       break;
     }
+    case "sessions_spawn": {
+      const task = String(input.task || "").trim();
+      const agentId = String(input.agentId || "").trim();
+      const depth = Number(input.depth);
+      if (!task) {
+        return { ok: false, error: "sessions_spawn requires input.task." };
+      }
+      if (!agentId) {
+        return { ok: false, error: "sessions_spawn requires input.agentId." };
+      }
+      if (!Number.isFinite(depth) || depth < 0) {
+        return { ok: false, error: "sessions_spawn requires non-negative numeric input.depth." };
+      }
+      normalizedDecision.action.input = {
+        task,
+        agentId,
+        depth: Math.floor(depth)
+      };
+      break;
+    }
+    case "subagents": {
+      const actionName = String(input.action || "list").trim().toLowerCase();
+      if (!["list", "steer", "kill"].includes(actionName)) {
+        return { ok: false, error: "subagents input.action must be one of: list, steer, kill." };
+      }
+      normalizedDecision.action.input = {
+        action: actionName,
+        sessionId: String(input.sessionId || "").trim(),
+        message: String(input.message || "")
+      };
+      if (["steer", "kill"].includes(actionName) && !normalizedDecision.action.input.sessionId) {
+        return { ok: false, error: `subagents ${actionName} requires input.sessionId.` };
+      }
+      if (actionName === "steer" && !normalizedDecision.action.input.message.trim()) {
+        return { ok: false, error: "subagents steer requires input.message." };
+      }
+      break;
+    }
     default:
       return { ok: false, error: `Unsupported tool: ${tool}` };
   }
@@ -724,6 +769,10 @@ function mapToolToLegacyActionName(tool = "") {
       return "os_cmd";
     case "pii.get":
       return "ask_pii";
+    case "sessions_spawn":
+      return "sessions_spawn";
+    case "subagents":
+      return "subagents";
     default:
       return normalizedTool;
   }
@@ -741,7 +790,12 @@ class BrowserAgentRuntime {
     buildHistorySnippet,
     buildSessionMemorySnippet,
     makeAction,
-    skillRegistry
+    skillRegistry,
+    subAgentManager = null,
+    runtimeLabel = "agent",
+    runtimeDepth = 0,
+    currentSessionId = "",
+    subAgentLogPath = DEFAULT_LOG_PATH
   }) {
     this.automation = automation;
     this.browser = browser;
@@ -764,6 +818,49 @@ class BrowserAgentRuntime {
           status,
           ...extra
         });
+    this.runtimeLabel = String(runtimeLabel || "agent").trim() || "agent";
+    this.runtimeDepth = Number.isFinite(Number(runtimeDepth)) ? Math.max(0, Math.floor(Number(runtimeDepth))) : 0;
+    this.currentSessionId = String(currentSessionId || "").trim();
+    this.subAgentLogPath = subAgentLogPath || DEFAULT_LOG_PATH;
+    this.subAgentManager = subAgentManager || null;
+  }
+
+  ensureSubAgentManager() {
+    if (this.subAgentManager) {
+      return this.subAgentManager;
+    }
+
+    this.subAgentManager = new SubAgentManager({
+      createRuntime: ({ session, browser }) => this.createSubAgentRuntime({ session, browser }),
+      sharedBrowser: this.browser,
+      createIsolatedBrowserSession:
+        this.browser && typeof this.browser.createIsolatedSession === "function"
+          ? this.browser.createIsolatedSession.bind(this.browser)
+          : null,
+      maxDepth: MAX_AGENT_DEPTH,
+      logFilePath: this.subAgentLogPath
+    });
+    return this.subAgentManager;
+  }
+
+  createSubAgentRuntime({ session, browser }) {
+    return new BrowserAgentRuntime({
+      automation: this.automation,
+      browser: browser || this.browser,
+      screen: this.screen,
+      skillRegistry: this.skillRegistry,
+      toolProfile: this.toolProfile,
+      chatClient: this.chatClient,
+      getRecentHistory: () => [],
+      buildHistorySnippet: () => "",
+      buildSessionMemorySnippet: () => "",
+      makeAction: this.makeAction,
+      subAgentManager: this.ensureSubAgentManager(),
+      runtimeLabel: session?.agentId || "subagent",
+      runtimeDepth: session?.depth || 0,
+      currentSessionId: session?.sessionId || "",
+      subAgentLogPath: this.subAgentLogPath
+    });
   }
 
   buildPlannerPromptOptions(goal, state, runtimeHints = []) {
@@ -875,6 +972,10 @@ class BrowserAgentRuntime {
       screenText,
       sessionContext: sessionContext
         ? {
+            sessionId: sessionContext.sessionId || "",
+            agentId: sessionContext.agentId || "",
+            depth: Number.isFinite(Number(sessionContext.depth)) ? Number(sessionContext.depth) : 0,
+            subAgent: Boolean(sessionContext.subAgent),
             continuedSession: Boolean(sessionContext.continuedSession),
             previousInput: limitStructuredText(sessionContext.previousInput || "", 240),
             currentPage: sessionContext.currentPage || null
@@ -1071,6 +1172,7 @@ class BrowserAgentRuntime {
       return {
         state: stateBeforeAction,
         error: judgment.error,
+        possible_fix: createPossibleFix(judgment.error),
         requiresConfirmation: Boolean(judgment.requiresConfirmation),
         confirmation: judgment.confirmation || null,
         pendingAction: judgment.confirmation?.action || null
@@ -1083,7 +1185,11 @@ class BrowserAgentRuntime {
         browser: this.browser,
         automation: this.automation,
         screen: this.screen,
-        safeObserve: async () => this.browser.observe()
+        safeObserve: async () => this.browser.observe(),
+        subAgentManager: this.ensureSubAgentManager(),
+        currentSessionId: this.currentSessionId,
+        runtimeDepth: this.runtimeDepth,
+        language: options.language || "en"
       };
 
       // Bridge prompt disruption: If the skill schema requires 'reason' but it's not in the input,
@@ -1101,25 +1207,32 @@ class BrowserAgentRuntime {
       const result = await this.skillRegistry.execute(compatAction, context);
 
       if (result?.error) {
-        return result;
+        return {
+          ...result,
+          possible_fix: result?.possible_fix || createPossibleFix(result.error)
+        };
       }
 
       const verification = await this.verifyStructuredActionResult(safeAction, stateBeforeAction, result);
       if (!verification.ok) {
         return {
           state: result?.state || stateBeforeAction,
-          error: verification.error
+          error: verification.error,
+          possible_fix: createPossibleFix(verification.error)
         };
       }
 
       return result;
     } catch (error) {
       const normalizedError = normalizeAutomationFailureMessage(error?.message || error, error?.message || String(error || ""));
+      const possibleFix = normalizedError.includes(MACOS_AUTOMATION_PERMISSION_MESSAGE)
+        ? MACOS_AUTOMATION_PERMISSION_DIALOG_DETAIL
+        : createPossibleFix(normalizedError);
       try {
         const recoveryState = await this.browser.observe();
-        return { state: recoveryState, error: normalizedError };
+        return { state: recoveryState, error: normalizedError, possible_fix: possibleFix };
       } catch {
-        return { state: null, error: normalizedError };
+        return { state: null, error: normalizedError, possible_fix: possibleFix };
       }
     }
   }
@@ -1131,7 +1244,9 @@ class BrowserAgentRuntime {
     initialActions = [],
     sessionContext = null,
     goalGuardrails = {},
-    runtimeHints = []
+    runtimeHints = [],
+    abortSignal = null,
+    consumeExternalNotes = null
   }) {
     const actions = [...initialActions];
     const maxSteps = BROWSER_AGENT_DEFAULTS.maxSteps;
@@ -1154,6 +1269,15 @@ class BrowserAgentRuntime {
     const plannerTier = chooseBrowserAgentReasoningTier(input, goalGuardrails, sessionContext);
 
     for (let step = 1; step <= maxSteps; step++) {
+      if (abortSignal?.aborted) {
+        stopReason = "killed";
+        finalSummary = language === "ko"
+          ? "하위 에이전트 세션이 중단 요청을 받아 안전하게 멈췄어요."
+          : "The sub-agent session stopped after receiving a kill request.";
+        finished = true;
+        break;
+      }
+
       const recentActions = actions.map((action) => ({
         tool: action.tool || action.type,
         target: action.target,
@@ -1171,6 +1295,9 @@ class BrowserAgentRuntime {
       );
       const observation = this.buildObservationPrompt(lastObservation);
       const promptOptions = this.buildPlannerPromptOptions(input, lastObservation, runtimeHints);
+      const steeringNotes = typeof consumeExternalNotes === "function"
+        ? normalizeHintList(consumeExternalNotes(), 6)
+        : [];
       lastError = "";
       const userPrompt = step === 1
         ? `User's goal: ${input}\n\n${observation}\n\nDecide your first action to achieve the user's goal.`
@@ -1195,6 +1322,7 @@ class BrowserAgentRuntime {
             "Keep the user's broader conversation context intact while controlling the browser.",
             "If a local fallback is needed later, it will receive this same context; do not assume a fresh session.",
             ...normalizeHintList(runtimeHints).map((hint) => `Relevant skill hint: ${hint}`),
+            ...steeringNotes.map((note) => `New supervisor instruction: ${note}`),
             sessionMemory ? `Session memory:\n${sessionMemory}` : "",
             userPrompt
           ].filter(Boolean).join("\n\n")
@@ -1235,6 +1363,7 @@ class BrowserAgentRuntime {
           userPrompt: [
             "The configured API response was not a valid browser action. Continue as a local fallback without losing context.",
             ...normalizeHintList(runtimeHints).map((hint) => `Relevant skill hint: ${hint}`),
+            ...steeringNotes.map((note) => `New supervisor instruction: ${note}`),
             sessionMemory ? `Session memory:\n${sessionMemory}` : "",
             "Recent user conversation:",
             this.buildHistorySnippet(),
@@ -1346,7 +1475,8 @@ class BrowserAgentRuntime {
       const result = await this.executeStructuredAction(decision.action, {
         state,
         thought: decision.thought,
-        allowSensitive: false
+        allowSensitive: false,
+        language
       });
 
       if (result.requiresConfirmation) {
@@ -1394,6 +1524,15 @@ class BrowserAgentRuntime {
         consecutiveFailures += 1;
       } else {
         consecutiveFailures = 0;
+      }
+
+      if (abortSignal?.aborted) {
+        stopReason = "killed";
+        finalSummary = language === "ko"
+          ? "하위 에이전트 세션이 중단 요청을 받아 안전하게 멈췄어요."
+          : "The sub-agent session stopped after receiving a kill request.";
+        finished = true;
+        break;
       }
 
       if (result.state) {

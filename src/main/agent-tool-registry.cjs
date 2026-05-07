@@ -19,6 +19,10 @@ const TOOL_GROUPS = {
     "desktop.click",
     "shell.run",
     "pii.get"
+  ],
+  orchestration: [
+    "sessions_spawn",
+    "subagents"
   ]
 };
 
@@ -32,6 +36,7 @@ function buildToolSet(profile = TOOL_PROFILE_FULL_ACCESS) {
 
   if (normalizedProfile === TOOL_PROFILE_FULL_ACCESS) {
     tools.push(...TOOL_GROUPS.desktop);
+    tools.push(...TOOL_GROUPS.orchestration);
   }
 
   return new Set(tools);
@@ -126,6 +131,14 @@ function buildPromptToolSet(profile = TOOL_PROFILE_FULL_ACCESS, options = {}) {
     selected.add("pii.get");
   }
 
+  const orchestrationLikely = hasPromptSignal(signals, [
+    /(delegate|parallel|subagent|multi-agent|multi agent|research in parallel|spawn|orchestrate|break down|분담|병렬|하위 에이전트|멀티 에이전트|세션 생성|위임)/i
+  ]);
+  if (orchestrationLikely) {
+    selected.add("sessions_spawn");
+    selected.add("subagents");
+  }
+
   const filtered = new Set([...selected].filter((tool) => allowedToolSet.has(tool)));
   return filtered.size ? filtered : allowedToolSet;
 }
@@ -142,6 +155,7 @@ function buildBrowserAgentSystemPrompt(profile = TOOL_PROFILE_FULL_ACCESS, regis
   return [
     "You are the OpenClaw computer-use session planner inside Jarvis Desktop.",
     "Return only a JSON object with thought, action, expectedOutcome, isFinal, and finalMessage.",
+    "SYSTEM_PROMPT_CACHE_BOUNDARY",
     `Allowed tools: ${tools}.`,
     "Use the following tool schemas exactly when you emit an action:",
     ...schemas,

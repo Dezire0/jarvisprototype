@@ -366,10 +366,105 @@ class BaseBrowserService {
   async getPage() {
     const context = await this.ensureContext();
     if (this.page && !this.page.isClosed()) return this.page;
-    for (const p of context.pages()) await p.close().catch(() => {});
     this.page = await context.newPage();
     this.attachPageObservers(this.page);
     return this.page;
+  }
+
+  buildPageBoundBrowser(page) {
+    const observeCurrentPage = async () =>
+      observeState(page, {
+        consoleErrors: this.getRecentConsoleErrors()
+      });
+
+    return {
+      navigate: async (target) => {
+        await page.goto(normalizeUrl(target), { waitUntil: "domcontentloaded", timeout: 15000 });
+        await page.waitForTimeout(500);
+        return observeCurrentPage();
+      },
+      open: async (target) => {
+        await page.goto(normalizeUrl(target), { waitUntil: "domcontentloaded", timeout: 15000 });
+        await page.waitForTimeout(500);
+        return observeCurrentPage();
+      },
+      search: async (query) => {
+        await page.goto(normalizeUrl(query), { waitUntil: "domcontentloaded", timeout: 15000 });
+        await page.waitForTimeout(500);
+        return observeCurrentPage();
+      },
+      clickElement: async (elementId) => {
+        let locator = page.locator(`[data-jarvis-id="${elementId}"]`);
+        let count = await locator.count();
+
+        if (count === 0) {
+          await tagInteractiveElements(page).catch(() => null);
+          locator = page.locator(`[data-jarvis-id="${elementId}"]`);
+          count = await locator.count();
+        }
+
+        if (count === 0) {
+          throw new Error(`Element [${elementId}] not found on page.`);
+        }
+
+        const target = locator.first();
+        await target.scrollIntoViewIfNeeded().catch(() => {});
+        await target.waitFor({ state: "visible", timeout: 2500 }).catch(() => {});
+
+        try {
+          await target.click({ timeout: 5000 });
+        } catch (error) {
+          const box = await target.boundingBox().catch(() => null);
+          if (!box) {
+            throw error;
+          }
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        }
+
+        await page.waitForTimeout(800);
+        return observeCurrentPage();
+      },
+      typeText: async (elementId, text) => {
+        const locator = page.locator(`[data-jarvis-id="${elementId}"]`);
+        const count = await locator.count();
+        if (count === 0) {
+          throw new Error(`Element [${elementId}] not found on page.`);
+        }
+        await locator.first().click({ delay: 50 });
+        await locator.first().fill("");
+        await locator.first().fill(text);
+        return observeCurrentPage();
+      },
+      pressKey: async (key) => {
+        await page.keyboard.press(key);
+        await page.waitForTimeout(600);
+        return observeCurrentPage();
+      },
+      scrollPage: async (direction = "down") => {
+        const delta = direction === "up" ? -600 : 600;
+        await page.mouse.wheel(0, delta);
+        await page.waitForTimeout(400);
+        return observeCurrentPage();
+      },
+      waitAndObserve: async (ms = 2000) => {
+        await page.waitForTimeout(ms);
+        return observeCurrentPage();
+      },
+      observe: async () => observeCurrentPage(),
+      screenshot: async () => page.screenshot({ type: "png", fullPage: false }),
+      close: async () => {
+        if (!page.isClosed()) {
+          await page.close().catch(() => {});
+        }
+      }
+    };
+  }
+
+  async createIsolatedSession() {
+    const context = await this.ensureContext();
+    const page = await context.newPage();
+    this.attachPageObservers(page);
+    return this.buildPageBoundBrowser(page);
   }
 
   rememberConsoleError(message = "") {

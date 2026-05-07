@@ -1,14 +1,13 @@
-2026-05-07 automation cycle
+2026-05-07 multi-agent orchestration cycle
 
-Latest remaining error:
+Latest remaining warning:
 - `getconf: confstr: DARWIN_USER_DIR: Input/output error`
-- Source: `notification-monitor.cjs` reads macOS notification data during node tests in the current non-GUI/sandboxed environment.
+- Source: `notification-monitor.cjs` during node tests in the current headless/sandboxed environment.
 - Reproduced in:
-  - `node --test tests/node/browser-agent-runtime.test.cjs`
+  - `node --test tests/node/browser-agent-runtime.test.cjs tests/node/skill-registry.test.cjs tests/node/subagent-manager.test.cjs`
   - `npm run test:node`
 - Impact:
-  - Does not fail validation anymore.
-  - Adds repeated stderr noise during test runs.
+  - No failing tests.
+  - Repeated stderr noise only.
 - Current judgment:
-  - Environmental runtime warning, not an OpenClaw planner regression.
-  - Safe to defer unless we want to silence notification reads in headless test mode.
+  - Environmental warning, not a regression from the new multi-agent orchestration code.

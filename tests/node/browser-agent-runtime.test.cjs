@@ -94,6 +94,9 @@ function createRuntime(overrides = {}) {
     },
     screen: {},
     skillRegistry: overrides.skillRegistry,
+    subAgentManager: overrides.subAgentManager,
+    runtimeDepth: overrides.runtimeDepth,
+    currentSessionId: overrides.currentSessionId,
     chatClient: overrides.chatClient || (async () => "{}"),
     getRecentHistory: () => [],
     buildHistorySnippet: () => "",
@@ -464,6 +467,90 @@ test("browser agent explains no-progress results with login-specific guidance", 
   );
 
   assert.match(result.error, /waiting for login or verification/i);
+});
+
+test("browser agent delegates sessions_spawn through the sub-agent manager", async () => {
+  let spawnPayload = null;
+  const runtime = createRuntime({
+    currentSessionId: "root-session",
+    runtimeDepth: 0,
+    subAgentManager: {
+      async spawn(payload) {
+        spawnPayload = payload;
+        return {
+          state: {
+            session: {
+              sessionId: "subagent-1234",
+              status: "running"
+            }
+          },
+          error: null
+        };
+      }
+    }
+  });
+
+  const result = await runtime.executeStructuredAction(
+    {
+      tool: "sessions_spawn",
+      input: {
+        task: "Investigate the current page",
+        agentId: "researcher",
+        depth: 1
+      }
+    },
+    {
+      state: {
+        url: "https://example.com",
+        title: "Example",
+        elements: [],
+        visibleText: "Example"
+      },
+      language: "en"
+    }
+  );
+
+  assert.deepEqual(spawnPayload, {
+    task: "Investigate the current page",
+    agentId: "researcher",
+    depth: 1,
+    parentSessionId: "root-session",
+    language: "en"
+  });
+  assert.equal(result.state.session.sessionId, "subagent-1234");
+});
+
+test("browser agent returns possible_fix when automation permission is missing", async () => {
+  const runtime = createRuntime({
+    skillRegistry: {
+      async execute() {
+        throw new Error("Accessibility permission not authorized for keyboard input");
+      },
+      getSchemasForTools() {
+        return [];
+      }
+    }
+  });
+
+  const result = await runtime.executeStructuredAction(
+    {
+      tool: "desktop.type",
+      input: {
+        text: "hello"
+      }
+    },
+    {
+      state: {
+        url: "",
+        title: "",
+        elements: []
+      },
+      language: "en"
+    }
+  );
+
+  assert.match(result.error, /Accessibility permission/i);
+  assert.match(result.possible_fix, /System Settings/i);
 });
 
 test("browser agent injects runtime hints into the planner prompt", async () => {
