@@ -1,13 +1,17 @@
-2026-05-07 multi-agent orchestration cycle
+2026-05-07 i18n extraction cycle
 
-Latest remaining warning:
+Latest remaining warnings:
 - `getconf: confstr: DARWIN_USER_DIR: Input/output error`
-- Source: `notification-monitor.cjs` during node tests in the current headless/sandboxed environment.
-- Reproduced in:
-  - `node --test tests/node/browser-agent-runtime.test.cjs tests/node/skill-registry.test.cjs tests/node/subagent-manager.test.cjs`
-  - `npm run test:node`
-- Impact:
-  - No failing tests.
-  - Repeated stderr noise only.
-- Current judgment:
-  - Environmental warning, not a regression from the new multi-agent orchestration code.
+- `Electron[...] error messaging the mach port for IMKCFRunLoopWakeUpReliable`
+
+Observed in:
+- `npm run test:node`
+- `npm run dev`
+
+Impact:
+- No failing tests.
+- App still boots and serves normally.
+- Warning noise only in the current macOS/headless environment.
+
+Current judgment:
+- Environmental warnings, not regressions from the new message catalog / i18n extraction.

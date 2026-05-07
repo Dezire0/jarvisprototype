@@ -13,6 +13,7 @@ const {
   normalizeProfile
 } = require("./agent-tool-registry.cjs");
 const defaultSkillRegistry = require("./skills/skill-registry.cjs");
+const { message } = require("./i18n/messages.cjs");
 const {
   DEFAULT_LOG_PATH,
   MAX_AGENT_DEPTH,
@@ -1271,9 +1272,7 @@ class BrowserAgentRuntime {
     for (let step = 1; step <= maxSteps; step++) {
       if (abortSignal?.aborted) {
         stopReason = "killed";
-        finalSummary = language === "ko"
-          ? "하위 에이전트 세션이 중단 요청을 받아 안전하게 멈췄어요."
-          : "The sub-agent session stopped after receiving a kill request.";
+        finalSummary = message(language, "runtime.stoppedKilled");
         finished = true;
         break;
       }
@@ -1329,9 +1328,7 @@ class BrowserAgentRuntime {
         });
       } catch {
         stopReason = "repeated_failure";
-        finalSummary = language === "ko"
-          ? "브라우저 작업 중 AI 응답에 문제가 있었어요."
-          : "There was a problem with the AI response during the browser task.";
+        finalSummary = message(language, "runtime.aiResponseError");
         finished = true;
         break;
       }
@@ -1404,9 +1401,7 @@ class BrowserAgentRuntime {
             error: lastError,
             state
           });
-          finalSummary = language === "ko"
-            ? `브라우저 에이전트가 유효한 JSON 계획을 계속 만들지 못해서 중단했어요. ${lastError}`
-            : `I stopped because the browser agent kept failing to return a valid JSON plan. ${lastError}`;
+          finalSummary = message(language, "runtime.invalidJsonStop", { error: lastError });
           finished = true;
           break;
         }
@@ -1425,9 +1420,7 @@ class BrowserAgentRuntime {
             error: validation.error,
             state
           });
-          finalSummary = language === "ko"
-            ? `브라우저 에이전트 계획을 검증하는 중 문제가 반복되어 중단했어요. ${validation.error}`
-            : `I stopped because the browser agent kept producing invalid tool plans. ${validation.error}`;
+          finalSummary = message(language, "runtime.invalidPlanStop", { error: validation.error });
           finished = true;
           break;
         }
@@ -1465,9 +1458,7 @@ class BrowserAgentRuntime {
           state,
           error: `Repeated tool action: ${decision.action.tool}`
         });
-        finalSummary = language === "ko"
-          ? "같은 도구 행동이 반복되어 더 진행하지 않고 멈췄어요."
-          : "I stopped because the same tool action kept repeating without progress.";
+        finalSummary = message(language, "runtime.repeatedActionStop");
         finished = true;
         break;
       }
@@ -1486,9 +1477,7 @@ class BrowserAgentRuntime {
           state
         };
         stopReason = "needs_user_confirmation";
-        finalSummary = language === "ko"
-          ? "이 동작은 결제, 구매, 구독처럼 민감한 최종 행동으로 보여서 실행 직전에 확인이 필요해요."
-          : "This looks like a sensitive final action, so I need confirmation before I perform it.";
+        finalSummary = message(language, "runtime.sensitiveConfirmation");
         actions.push(this.makeAction(
           mapStructuredBrowserToolToActionType(decision.action.tool),
           summarizeStructuredBrowserToolTarget(decision.action),
@@ -1528,9 +1517,7 @@ class BrowserAgentRuntime {
 
       if (abortSignal?.aborted) {
         stopReason = "killed";
-        finalSummary = language === "ko"
-          ? "하위 에이전트 세션이 중단 요청을 받아 안전하게 멈췄어요."
-          : "The sub-agent session stopped after receiving a kill request.";
+        finalSummary = message(language, "runtime.stoppedKilled");
         finished = true;
         break;
       }
@@ -1545,13 +1532,9 @@ class BrowserAgentRuntime {
       });
       if (progressLoop) {
         stopReason = "repeated_failure";
-        finalSummary = language === "ko"
-          ? progressLoop.kind === "ping_pong"
-            ? "두 가지 행동 사이를 오가며 같은 결과만 반복해서 여기서 멈췄어요."
-            : "같은 행동이 같은 결과만 반복되어 진행이 없어서 여기서 멈췄어요."
-          : progressLoop.kind === "ping_pong"
-            ? "I stopped because the agent was bouncing between the same actions without making progress."
-            : "I stopped because the same action kept producing the same outcome without progress.";
+        finalSummary = progressLoop.kind === "ping_pong"
+          ? message(language, "runtime.pingPongStop")
+          : message(language, "runtime.noProgressStop");
         finished = true;
         break;
       }
@@ -1561,9 +1544,7 @@ class BrowserAgentRuntime {
           error: result.error,
           state
         });
-        finalSummary = language === "ko"
-          ? `브라우저 작업을 계속 진행하기 어려워서 멈췄어요. ${result.error}`
-          : `I stopped because the browser task kept failing. ${result.error}`;
+        finalSummary = message(language, "runtime.taskFailureStop", { error: result.error });
         finished = true;
         break;
       }
@@ -1574,9 +1555,7 @@ class BrowserAgentRuntime {
         state,
         maxStepsReached: true
       });
-      finalSummary = language === "ko"
-        ? "브라우저 작업 단계 한도에 도달해서 여기서 멈췄어요."
-        : "I stopped because the browser task hit its step limit.";
+      finalSummary = message(language, "runtime.stepLimitStop");
     }
 
     return {

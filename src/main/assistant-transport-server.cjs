@@ -1,4 +1,5 @@
 const http = require("node:http");
+const { message } = require("./i18n/messages.cjs");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.JARVIS_ASSISTANT_PORT || 8010);
@@ -43,64 +44,21 @@ function prefersKorean(text = "") {
 function buildRunningProgressSteps(text = "") {
   const normalized = String(text || "").toLowerCase();
   const isKo = prefersKorean(text);
+  const language = isKo ? "ko" : "en";
 
   if (/(로그인|login|sign in|log in)/i.test(normalized)) {
-    return isKo
-      ? [
-          "OpenClaw 세션이 현재 사이트와 로그인 문맥을 확인하는 중",
-          "Playwright로 로그인 진입점을 찾는 중",
-          "아이디와 비밀번호 입력 칸을 찾는 중",
-          "입력 후 화면 상태를 다시 확인하는 중"
-        ]
-      : [
-          "OpenClaw is checking the current site and login context",
-          "Using Playwright to find the login entry point",
-          "Locating the username and password fields",
-          "Re-checking the page after the form step"
-        ];
+    return message(language, "progress.login");
   }
 
   if (/(메일|이메일|gmail|outlook|email|mail|message)/i.test(normalized)) {
-    return isKo
-      ? [
-          "OpenClaw 세션이 현재 메일함 문맥을 확인하는 중",
-          "가장 관련 있는 메시지를 찾는 중",
-          "열린 메일 화면을 다시 확인하는 중"
-        ]
-      : [
-          "OpenClaw is checking the current mailbox context",
-          "Finding the most relevant message",
-          "Re-checking the opened mail view"
-        ];
+    return message(language, "progress.mailbox");
   }
 
   if (/(브라우저|browser|사이트|url|검색|search|amazon|github|google|youtube)/i.test(normalized)) {
-    return isKo
-      ? [
-          "OpenClaw 세션이 현재 브라우저 문맥을 확인하는 중",
-          "다음 웹 동작을 계획하는 중",
-          "Playwright로 클릭하거나 입력할 요소를 찾는 중",
-          "실행 결과를 다시 확인하는 중"
-        ]
-      : [
-          "OpenClaw is checking the current browser context",
-          "Planning the next web action",
-          "Using Playwright to find the element to click or type into",
-          "Re-checking the result after execution"
-        ];
+    return message(language, "progress.browser");
   }
 
-  return isKo
-    ? [
-        "OpenClaw 세션이 현재 작업 문맥을 확인하는 중",
-        "다음 동작을 계획하는 중",
-        "실행 결과를 다시 확인하는 중"
-      ]
-    : [
-        "OpenClaw is checking the current task context",
-        "Planning the next action",
-        "Re-checking the result after execution"
-      ];
+  return message(language, "progress.generic");
 }
 
 function buildRunningMessageDetails(text = "") {
@@ -108,7 +66,7 @@ function buildRunningMessageDetails(text = "") {
 
   return {
     livePreview: true,
-    executorLabel: "OpenClaw Computer Use",
+    executorLabel: message("en", "transport.executorLabel"),
     executorMode: /(브라우저|browser|사이트|gmail|google|amazon|github|youtube|메일|email|mail)/i.test(
       String(text || "").toLowerCase()
     )
@@ -254,7 +212,7 @@ function writeAuthCallbackPage(res) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Jarvis Login Complete</title>
+    <title>${message("en", "transport.authTitle")}</title>
     <style>
       body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #080808; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       main { width: min(420px, calc(100vw - 32px)); padding: 28px; border: 1px solid rgba(255,255,255,.12); border-radius: 18px; background: rgba(255,255,255,.04); }
@@ -264,8 +222,8 @@ function writeAuthCallbackPage(res) {
   </head>
   <body>
     <main>
-      <h1>Jarvis 로그인 완료</h1>
-      <p>세션을 Jarvis Desktop으로 전달했습니다. 이 창은 닫아도 됩니다.</p>
+      <h1>${message("ko", "transport.authHeading")}</h1>
+      <p>${message("ko", "transport.authBody")}</p>
     </main>
     <script>setTimeout(() => window.close(), 900);</script>
   </body>
