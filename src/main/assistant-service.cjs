@@ -2882,6 +2882,7 @@ class AssistantService {
       automation: this.automation,
       browser: this.browser,
       screen: this.screen,
+      skillRegistry,
       chatClient: async (options = {}) =>
         chat({
           systemPrompt: options.systemPrompt,

@@ -1,4 +1,11 @@
-const { safeStorage } = require("electron");
+// Electron is only available when running inside the Electron main process.
+// In plain Node.js environments (tests, CI) we fall back to no-op encryption.
+let safeStorage = null;
+try {
+  safeStorage = require("electron").safeStorage;
+} catch {
+  // Not running inside Electron — encryption unavailable, plain-text fallback applies.
+}
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -41,7 +48,7 @@ class PIIManager {
    * @param {string} value 
    */
   set(key, value) {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
       console.warn("SafeStorage is not available. Storing in plain text (UNSAFE).");
       this.store[key] = value;
     } else {
@@ -60,7 +67,7 @@ class PIIManager {
     const encryptedBase64 = this.store[key];
     if (!encryptedBase64) return null;
 
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
       return encryptedBase64; // Fallback plain text
     }
 

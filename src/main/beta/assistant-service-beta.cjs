@@ -6,6 +6,7 @@ const {
   FAST_PLANNER_MODEL,
   getTierProviderLabel
 } = require("./ollama-service.cjs");
+const skillRegistry = require("../skills/skill-registry.cjs");
 
 const LONG_TERM_MEMORY_SYSTEM_PROMPT = [
   "You extract durable long-term user memory for a desktop assistant.",
@@ -4079,29 +4080,34 @@ class AssistantService {
 
   static REACT_MAX_STEPS = 15;
 
-  static REACT_AGENT_SYSTEM_PROMPT = [
-    "You are Jarvis, an autonomous browser agent. You control a web browser by issuing ONE action at a time.",
-    "After each action, you will receive the new page state including interactive elements tagged with [id] numbers.",
-    "",
-    "AVAILABLE ACTIONS (respond with valid JSON only):",
-    '  {"action":"navigate","url":"https://..."} — Go to a URL',
-    '  {"action":"click","element_id":3,"reason":"..."} — Click element by its tag number',
-    '  {"action":"type","element_id":5,"text":"...","reason":"..."} — Type into an input/textarea',
-    '  {"action":"press_key","key":"Enter","reason":"..."} — Press a keyboard key (Enter, Escape, Tab, etc.)',
-    '  {"action":"scroll","direction":"down","reason":"..."} — Scroll the page (up/down)',
-    '  {"action":"wait","reason":"..."} — Wait for page to load',
-    '  {"action":"done","summary":"..."} — Task is complete, provide a summary of what was accomplished',
-    "",
-    "RULES:",
-    "1. Issue exactly ONE action per response. No multi-step plans.",
-    "2. Always include a 'reason' field explaining why you chose this action.",
-    "3. Look at the element list carefully. Click buttons and links by their [id] number, not by guessing.",
-    "4. If you see a cookie consent popup or unexpected dialog, dismiss it first before continuing.",
-    "5. If an element was not found, look at the current elements and pick the correct one.",
-    "6. When typing into a search box, usually follow up with pressing Enter or clicking a search button.",
-    "7. When your goal is achieved (page loaded, search results visible, content found), use 'done'.",
-    "8. Respond with JSON only. No markdown, no explanation outside the JSON."
-  ].join("\n");
+  static get REACT_AGENT_SYSTEM_PROMPT() {
+    return [
+      "You are Jarvis, an autonomous browser agent. You control a web browser by issuing ONE action at a time.",
+      "After each action, you will receive the new page state including interactive elements tagged with [id] numbers.",
+      "",
+      "AVAILABLE ACTIONS (respond with valid JSON only):",
+      '  {"action":"navigate","url":"https://..."} — Go to a URL',
+      '  {"action":"click","element_id":3,"reason":"..."} — Click element by its tag number',
+      '  {"action":"type","element_id":5,"text":"...","reason":"..."} — Type into an input/textarea',
+      '  {"action":"press_key","key":"Enter","reason":"..."} — Press a keyboard key (Enter, Escape, Tab, etc.)',
+      '  {"action":"scroll","direction":"down","reason":"..."} — Scroll the page (up/down)',
+      '  {"action":"wait","reason":"..."} — Wait for page to load',
+      '  {"action":"done","summary":"..."} — Task is complete, provide a summary of what was accomplished',
+      "",
+      "=== Modular Skills & Extra Capabilities ===",
+      ...skillRegistry.getAllSchemas(),
+      "",
+      "RULES:",
+      "1. Issue exactly ONE action per response. No multi-step plans.",
+      "2. Always include a 'reason' field explaining why you chose this action.",
+      "3. Look at the element list carefully. Click buttons and links by their [id] number, not by guessing.",
+      "4. If you see a cookie consent popup or unexpected dialog, dismiss it first before continuing.",
+      "5. If an element was not found, look at the current elements and pick the correct one.",
+      "6. When typing into a search box, usually follow up with pressing Enter or clicking a search button.",
+      "7. When your goal is achieved (page loaded, search results visible, content found), use 'done'.",
+      "8. Respond with JSON only. No markdown, no explanation outside the JSON."
+    ].join("\n");
+  }
 
   /**
    * v2: Resolve the initial URL to navigate to based on user intent (heuristic).
@@ -4191,6 +4197,33 @@ class AssistantService {
    */
   async executeReActAction(action) {
     try {
+      // safeObserve: OS 전용 작업 시 브라우저가 비활성 상태일 수 있으므로
+      // 오류 발생 시 크래시 대신 빈 상태 객체를 반환합니다.
+      const safeObserve = async () => {
+        try {
+          return await this.browser.observe();
+        } catch {
+          return { url: "", title: "", elements: [], elementCount: 0 };
+        }
+      };
+
+      const context = {
+        browser: this.browser,
+        automation: this.automation,
+        safeObserve
+      };
+
+      // 레지스트리가 해당 액션을 알고 있으면 항상 스킬 결과를 반환합니다.
+      // state 의 truthy 여부로 판단하지 않으므로 done(state:null) 등도 정상 처리됩니다.
+      if (typeof skillRegistry?.get === "function" && skillRegistry.get(action.action)) {
+        const skillResult = await skillRegistry.execute(action, context);
+        return {
+          state: skillResult.state ?? null,
+          error: skillResult.error || null
+        };
+      }
+
+      // 레지스트리에 없는 액션은 브라우저 전용 하드코딩 스위치로 처리합니다.
       switch (action.action) {
         case "navigate":
           return { state: await this.browser.navigate(action.url), error: null };
@@ -4207,10 +4240,10 @@ class AssistantService {
         case "done":
           return { state: null, error: null };
         default:
-          return { state: await this.browser.observe(), error: `Unknown action: ${action.action}` };
+          return { state: await safeObserve(), error: `Unknown action: ${action.action}` };
       }
     } catch (err) {
-      // Self-correcting: return the error to AI so it can adapt
+      // 자기수정(self-correcting): 오류를 AI에게 반환하여 다음 스텝에서 적응하도록 합니다.
       try {
         const recoveryState = await this.browser.observe();
         return { state: recoveryState, error: err.message };

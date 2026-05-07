@@ -651,6 +651,22 @@ function normalizeGoalGuardrails(goalGuardrails = {}) {
   };
 }
 
+// Maps structured tool names (browser.open) to SkillRegistry action names (navigate)
+const TOOL_TO_SKILL_NAME = {
+  "browser.open": "navigate",
+  "browser.click": "click",
+  "browser.type": "type",
+  "browser.keypress": "press_key",
+  "browser.scroll": "scroll",
+  "browser.wait_for": "wait",
+  "browser.observe": "observe",
+  "desktop.type": "os_type",
+  "desktop.open_app": "os_app",
+  "desktop.click": "os_click",
+  "shell.run": "os_cmd",
+  "pii.get": "ask_pii"
+};
+
 class BrowserAgentRuntime {
   constructor({
     automation,
@@ -661,14 +677,16 @@ class BrowserAgentRuntime {
     getRecentHistory,
     buildHistorySnippet,
     buildSessionMemorySnippet,
-    makeAction
+    makeAction,
+    skillRegistry
   }) {
     this.automation = automation;
     this.browser = browser;
     this.screen = screen;
+    this.skillRegistry = skillRegistry;
     this.toolProfile = normalizeProfile(toolProfile);
     this.toolSet = buildToolSet(this.toolProfile);
-    this.systemPrompt = buildBrowserAgentSystemPrompt(this.toolProfile);
+    this.systemPrompt = this._buildBaseSystemPrompt();
     this.chatClient = chatClient;
     this.getRecentHistory = typeof getRecentHistory === "function" ? getRecentHistory : () => [];
     this.buildHistorySnippet = typeof buildHistorySnippet === "function" ? buildHistorySnippet : () => "";
@@ -683,6 +701,31 @@ class BrowserAgentRuntime {
           status,
           ...extra
         });
+  }
+
+  _buildBaseSystemPrompt() {
+    const basePrompt = buildBrowserAgentSystemPrompt(this.toolProfile);
+    if (!this.skillRegistry) {
+      return basePrompt;
+    }
+
+    const schemas = this.skillRegistry.getAllSchemas();
+    if (!schemas.length) {
+      return basePrompt;
+    }
+
+    return [
+      basePrompt,
+      "",
+      "=== Modular Skills & Extra Capabilities ===",
+      "You have access to additional modular skills. Use the exact JSON action format as specified in the schemas below:",
+      ...schemas,
+      "",
+      "Rules for Modular Skills:",
+      "1. Use the 'action' field to specify the skill name.",
+      "2. Include all required fields from the schema.",
+      "3. Always include a 'reason' field explaining why you chose this skill."
+    ].join("\n");
   }
 
   async collectDesktopContext() {
@@ -976,6 +1019,40 @@ class BrowserAgentRuntime {
 
     const safeAction = judgment.action;
     try {
+      const context = {
+        browser: this.browser,
+        automation: this.automation,
+        screen: this.screen,
+        safeObserve: async () => await this.browser.observe()
+      };
+
+      // Use SkillRegistry for modular execution if available
+      if (this.skillRegistry) {
+        const skillName = TOOL_TO_SKILL_NAME[safeAction.tool];
+        if (skillName) {
+          const skillInput = {
+            action: skillName,
+            ...safeAction.input
+          };
+
+          // Bridge prompt disruption: If the skill schema requires 'reason' but it's not in the input,
+          // use the decision 'thought' as the reason.
+          if (!skillInput.reason && options.thought) {
+            skillInput.reason = options.thought;
+          }
+
+          const skillResult = await this.skillRegistry.execute(skillInput, context);
+
+          if (skillResult && !skillResult.error && skillResult.state) {
+            return { state: skillResult.state, error: null };
+          }
+          if (skillResult && skillResult.error) {
+            return { state: skillResult.state || await this.browser.observe(), error: skillResult.error };
+          }
+        }
+      }
+
+      // Fallback for core tools if registry didn't handle it
       let result;
       switch (safeAction.tool) {
         case "browser.open":
@@ -1268,7 +1345,9 @@ class BrowserAgentRuntime {
       }
 
       const result = await this.executeStructuredAction(decision.action, {
-        state
+        state,
+        thought: decision.thought,
+        allowSensitive: false
       });
 
       if (result.requiresConfirmation) {
