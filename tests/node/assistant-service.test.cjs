@@ -448,6 +448,125 @@ test("handleBrowser labels Gmail direct opens as Gmail", async () => {
   assert.equal(result.reply, "지메일 열었어요.");
 });
 
+test("handleToolInvocation routes app opens through the OpenClaw desktop tool path", async () => {
+  const calls = [];
+  const service = new AssistantService({
+    automation: {
+      async listInstalledApps() {
+        return {
+          apps: [],
+          totalCount: 0
+        };
+      },
+      async resolveAppTarget(target) {
+        return {
+          resolvedTarget: target
+        };
+      },
+      async execute(action) {
+        calls.push(action);
+        return {
+          resolvedTarget: action.target
+        };
+      }
+    },
+    browser: {
+      async observe() {
+        return {
+          url: "",
+          title: "",
+          elements: [],
+          elementCount: 0,
+          visibleText: ""
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleToolInvocation("app:open", {
+    appName: "Discord"
+  });
+
+  assert.equal(result.provider, "openclaw-computer-use");
+  assert.equal(result.actions[0].tool, "desktop.open_app");
+  assert.equal(result.details.executorMode, "desktop");
+  assert.deepEqual(calls, [
+    {
+      type: "open_app",
+      target: "Discord"
+    }
+  ]);
+});
+
+test("handleToolInvocation routes browser opens through the OpenClaw Playwright path", async () => {
+  const service = new AssistantService({
+    automation: {},
+    browser: {
+      async navigate(target) {
+        return {
+          url: target,
+          title: "Google"
+        };
+      },
+      async observe() {
+        return {
+          url: "about:blank",
+          title: "",
+          elements: [],
+          elementCount: 0,
+          visibleText: ""
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleToolInvocation("browser:open", {
+    target: "https://www.google.com/"
+  });
+
+  assert.equal(result.provider, "openclaw-computer-use");
+  assert.equal(result.actions[0].tool, "browser.open");
+  assert.equal(result.details.executorMode, "playwright");
+  assert.equal(result.details.url, "https://www.google.com/");
+});
+
+test("handleToolInvocation reads the current page through an OpenClaw-style browser result", async () => {
+  const service = new AssistantService({
+    automation: {},
+    browser: {
+      async readPage() {
+        return {
+          url: "https://mail.google.com/",
+          title: "Inbox - Gmail",
+          text: "Latest unread mail preview"
+        };
+      }
+    },
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+
+  const result = await service.handleToolInvocation("browser:read");
+
+  assert.equal(result.provider, "openclaw-computer-use");
+  assert.equal(result.actions[0].tool, "browser.observe");
+  assert.equal(result.details.executorMode, "playwright");
+  assert.match(result.reply, /현재 페이지를 읽어왔어요/);
+});
+
 test("handleBrowser opens YouTube playback results through the OpenClaw Playwright path", async () => {
   const service = new AssistantService({
     automation: {},

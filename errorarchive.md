@@ -1,41 +1,30 @@
 # 2026-05-06 Latest Fixes
-- OpenClaw 중심 구조 리팩터링의 1차 분리를 적용함.
-  - `src/main/config/*.json`으로 앱/웹/키맵/Finder/OpenClaw capability 메타데이터를 외부화
-  - `src/main/config-loader.cjs`에서 캐시/검증/`$HOME` 확장을 담당하도록 추가
-- 플랫폼 자동화 계층을 분리함.
-  - `src/main/platform/adapter-factory.cjs`
-  - `src/main/platform/app-registry.cjs`
-  - `src/main/platform/keymap.cjs`
-  - `src/main/platform/finder-paths.cjs`
-  - `src/main/platform/workspace-detection.cjs`
-  - `src/main/platform/applescript-utils.cjs`
-  - 기존 `src/main/platform-adapters.cjs`는 compatibility barrel로 유지
-- Assistant 보조 계층을 분리함.
-  - `src/main/assistant/errors.cjs`
-  - `src/main/assistant/replies.cjs`
-  - `src/main/assistant/targets.cjs`
-  - `src/main/assistant/parser.cjs`
-  - `src/main/assistant/router.cjs`
-  - `src/main/assistant/browser-context.cjs`
-  - `src/main/assistant/memory-context.cjs`
-  - `src/main/assistant/orchestrator.cjs`
-- `src/main/assistant-service.cjs`를 새 모듈과 연결함.
-  - 네트워크/모델 오류 응답은 `assistant/errors` / `assistant/replies`를 경유
-  - 라우팅은 `assistant/router`의 LLM-first 경로를 사용
-  - follow-up route 승격은 `assistant/browser-context`를 경유
-  - prompt context 조합은 `assistant/memory-context` helper를 사용
-  - 입력 오케스트레이션은 `assistant/orchestrator`로 분리
-  - 앱/웹 메타데이터는 더 이상 코드 내부 상수 배열이 아니라 외부 JSON을 사용
-- `src/main/openclaw-service.cjs`도 OpenClaw planner action 목록을 외부 capability config에서 읽도록 조정함.
-- 새 구조에 대한 테스트를 추가함.
-  - `tests/node/assistant-router.test.cjs`
-  - `tests/node/assistant-targets.test.cjs`
-  - `tests/node/platform-config.test.cjs`
-  - `tests/node/platform-adapter-factory.test.cjs`
-  - 기존 `assistant-service` 기대값도 OpenClaw provider 라벨에 맞게 갱신
+- OpenClaw 공통 직접 실행 진입점을 `AssistantService`에 추가함.
+  - `src/main/assistant-service.cjs`
+  - `handleToolInvocation(tool, payload)` 추가
+  - `buildToolInvocationInput(tool, payload)` 추가
+  - 앱/브라우저 직접 툴 요청도 자연어 세션 문맥과 동일하게 OpenClaw 응답 형식으로 정리되게 변경
+- OpenClaw runtime hint를 보강함.
+  - `route.appName`, `route.siteOrUrl`가 있으면 세션 힌트에 직접 주입해 desktop/browser 타깃 판단을 더 명확히 함
+- IPC 툴 디스패치를 OpenClaw-first 경로로 통일함.
+  - `src/main/main.cjs`
+  - `app:open`
+  - `app:action`
+  - `browser:open`
+  - `browser:search`
+  - `browser:read`
+  - `browser:login`
+  - 위 케이스들이 더 이상 `automation.execute` / `browser.open` / `browser.readPage` / `browser.loginWithStoredCredential`를 직접 호출하지 않고 `liveAssistant.handleToolInvocation(...)`을 경유함
+- 테스트를 추가 및 갱신함.
+  - `tests/node/assistant-service.test.cjs`
+  - `handleToolInvocation` 기반 `app:open`, `browser:open`, `browser:read` 회귀 테스트 추가
+
 Verification:
 
 - `npm run check` 통과
-- `npm run test:node` 통과 (`119/119`)
+- `node --test tests/node/assistant-service.test.cjs` 통과 (`45/45`)
+- `npm run test:node` 통과 (`122/122`)
 - `npm run dev` 부팅 성공
-- 로컬 UI 확인: `http://127.0.0.1:3310/`
+- Browser Use로 `http://127.0.0.1:3310/` 확인
+  - 제목: `Jarvis Desktop`
+  - 로그인 화면과 `Jarvis 컴퓨터 작업 동의` 모달 노출 확인
