@@ -716,7 +716,7 @@ function extractYouTubePlaybackQuery(text = "") {
   const normalized = normalizePlanText(text);
   const quoted = extractQuotedText(normalized);
 
-  if (quoted && /(play|watch|listen|music|song|playlist|재생|틀어|들려|음악|노래|플레이리스트)/i.test(normalized)) {
+  if (quoted && /(play|watch|listen|search|find|music|song|playlist|재생|틀어|들려|검색|찾아|음악|노래|플레이리스트)/i.test(normalized)) {
     const cleanedQuoted = cleanupMediaQuery(quoted);
 
     if (cleanedQuoted && !isGenericMediaQuery(cleanedQuoted)) {
@@ -725,6 +725,8 @@ function extractYouTubePlaybackQuery(text = "") {
   }
 
   const patterns = [
+    /(?:search|find)\s+(.+?)\s+(?:on|in)\s+(?:youtube|유튜브)/i,
+    /(?:youtube|유튜브)(?:에서|에서만)?\s+(.+?)\s*(?:검색(?:해줘|해|하고)?|search|find)/i,
     /(?:play|watch|listen to)\s+(.+?)\s+(?:on|in)\s+(?:youtube|유튜브)/i,
     /(?:go to|open|visit)\s+(?:youtube|유튜브)\s+(?:and|then)?\s*(?:play|watch|listen to)\s+(.+)$/i,
     /(?:youtube|유튜브)(?:에서|에서만)?\s+(.+?)\s*(?:틀어줘|틀어|재생해줘|재생해|재생|play|watch|listen)/i,
@@ -831,6 +833,32 @@ function buildHeuristicBrowserPlan(input, options = {}) {
     plan.reply = currentBrowserLabel || currentBrowserUrl;
     return plan;
   }
+  const wantsYouTube = /(유튜브|youtube)/i.test(normalized);
+  const youtubePlaybackQuery = extractYouTubePlaybackQuery(normalized);
+  const explicitYouTubeAction =
+    wantsYouTube &&
+    !looksLikeRecommendationStyleMediaQuestion(normalized) &&
+    (
+      /(검색|search|find|찾아)/i.test(normalized) ||
+      looksLikeYouTubePlaybackRequest(normalized)
+    );
+
+  if (explicitYouTubeAction) {
+    if (youtubePlaybackQuery) {
+      plan.steps.push({
+        action: "search_youtube",
+        query: youtubePlaybackQuery
+      });
+    } else {
+      plan.steps.push({
+        action: "open_url",
+        target: "https://www.youtube.com/"
+      });
+    }
+
+    return plan;
+  }
+
   const complexSiteIntent = extractComplexBrowserIntent(normalized);
 
   if (complexSiteIntent) {
@@ -877,24 +905,6 @@ function buildHeuristicBrowserPlan(input, options = {}) {
       action: "open_url",
       target: explicitUrl
     });
-    return plan;
-  }
-
-  if (looksLikeYouTubePlaybackRequest(normalized)) {
-    const query = extractYouTubePlaybackQuery(normalized);
-
-    if (query) {
-      plan.steps.push({
-        action: "search_youtube",
-        query
-      });
-    } else {
-      plan.steps.push({
-        action: "open_url",
-        target: "https://www.youtube.com/"
-      });
-    }
-
     return plan;
   }
 
@@ -3597,6 +3607,23 @@ class AssistantService {
   async planBrowserWorkflow(input = "", route = {}) {
     const planningContext = this.buildBrowserPlanningContext(input, route);
     const fallbackPlan = buildHeuristicBrowserPlan(input, planningContext);
+    const preferDirectHeuristicPlan =
+      Boolean(fallbackPlan.forceCurrentBrowserContext) ||
+      (
+        Array.isArray(fallbackPlan.steps) &&
+        fallbackPlan.steps.length === 1 &&
+        fallbackPlan.steps[0]?.action === "search_youtube"
+      );
+
+    if (preferDirectHeuristicPlan) {
+      return {
+        plan: fallbackPlan,
+        planner: "jarvis-heuristic",
+        plannerReason: fallbackPlan.forceCurrentBrowserContext
+          ? "context-follow-up-fallback"
+          : "heuristic-direct-youtube"
+      };
+    }
 
     if (!this.openClaw?.planBrowserTask) {
       return {

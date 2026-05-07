@@ -419,12 +419,18 @@ const AssistantRunStatus: FC = () => {
   const details = useAuiState((state) =>
     ((state.message.metadata as any)?.custom?.details || null) as AssistantResultDetails | null,
   );
+  const toolCallCount = useAuiState((state) => {
+    const content = Array.isArray((state.message as any)?.content) ? (state.message as any).content : [];
+    return content.filter((part: any) => part?.type === "tool-call").length;
+  });
   const [stepIndex, setStepIndex] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [preview, setPreview] = useState<LivePreviewSnapshot | null>(null);
   const isKo = prefersKorean();
   const steps = Array.isArray(details?.progressSteps)
     ? details.progressSteps.filter((step): step is string => typeof step === "string" && step.trim().length > 0)
     : [];
+  const hasExecutedAction = toolCallCount > 0;
 
   useEffect(() => {
     setStepIndex(0);
@@ -443,11 +449,28 @@ const AssistantRunStatus: FC = () => {
   }, [isRunning, steps]);
 
   useEffect(() => {
+    setElapsedSeconds(0);
+
+    if (!isRunning) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((current) => current + 1);
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [isRunning]);
+
+  useEffect(() => {
     let active = true;
 
     if (
       !isRunning ||
       !details?.livePreview ||
+      !hasExecutedAction ||
       typeof window === "undefined" ||
       !window.assistantAPI?.getLivePreview
     ) {
@@ -483,19 +506,29 @@ const AssistantRunStatus: FC = () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [details?.livePreview, isRunning]);
+  }, [details?.livePreview, hasExecutedAction, isRunning]);
 
   if (!isRunning) {
     return null;
   }
 
   const activeStep = steps[stepIndex] || details?.progressLabel || (isKo ? "작업을 준비하는 중" : "Preparing the task");
+  const completedSteps = steps.slice(0, Math.min(stepIndex, steps.length));
   const executorLabel = details?.executorLabel || (isKo ? "OpenClaw Computer Use" : "OpenClaw Computer Use");
   const modeLabel = details?.executorMode === "playwright"
     ? "Playwright"
     : details?.executorMode === "desktop"
       ? (isKo ? "Desktop Control" : "Desktop Control")
       : "";
+  const timelineTitle = details?.executorMode === "playwright"
+    ? (isKo ? "웹 작업 흐름" : "Web task flow")
+    : (isKo ? "컴퓨터 작업 흐름" : "Computer task flow");
+  const thoughtLabel = isKo
+    ? `${Math.max(1, elapsedSeconds)}초 동안 판단 중`
+    : `Thought for ${Math.max(1, elapsedSeconds)}s`;
+  const generatingLabel = hasExecutedAction
+    ? (isKo ? "실행 결과를 정리하는 중" : "Generating the next update")
+    : (isKo ? "다음 동작을 고르는 중" : "Generating the next action");
 
   return (
     <div className="mt-4 flex flex-col gap-3">
@@ -505,27 +538,37 @@ const AssistantRunStatus: FC = () => {
           {executorLabel}
           {modeLabel ? <span className="text-[10px] tracking-[0.18em] text-emerald-100/60">· {modeLabel}</span> : null}
         </div>
-        <p className="mt-3 text-sm leading-6 text-foreground">{activeStep}</p>
-        {steps.length ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {steps.map((step, index) => (
-              <span
-                key={`${step}-${index}`}
-                className={cn(
-                  "rounded-full border px-3 py-1.5 text-[11px] transition-colors",
-                  index === stepIndex
-                    ? "border-white/20 bg-white/[0.12] text-foreground"
-                    : "border-white/10 bg-white/5 text-muted-foreground",
-                )}
-              >
-                {step}
-              </span>
-            ))}
+        <div className="mt-3 rounded-[20px] border border-white/8 bg-black/20 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-base font-semibold text-foreground">{timelineTitle}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              {hasExecutedAction ? (isKo ? "실행 중" : "Executing") : (isKo ? "탐색 중" : "Exploring")}
+            </p>
           </div>
-        ) : null}
+          <div className="mt-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-foreground/90">
+              <ChevronRightIcon className="size-4 text-emerald-300" />
+              <span>{thoughtLabel}</span>
+            </div>
+            {completedSteps.map((step, index) => (
+              <div key={`${step}-${index}`} className="flex items-center gap-2 text-muted-foreground">
+                <CheckIcon className="size-4 text-emerald-300/80" />
+                <span>{isKo ? `분석 완료 · ${step}` : `Analyzed · ${step}`}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 text-foreground">
+              <span className="inline-flex size-2 rounded-full bg-emerald-300 animate-pulse" />
+              <span>{activeStep}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <ChevronRightIcon className="size-4 text-muted-foreground" />
+              <span>{generatingLabel}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {preview?.imageDataUrl ? (
+      {hasExecutedAction && preview?.imageDataUrl ? (
         <div className="w-full max-w-[320px] rounded-[22px] border border-white/10 bg-black/30 p-2 shadow-[0_18px_70px_rgba(0,0,0,0.18)]">
           <img
             src={preview.imageDataUrl}

@@ -1398,7 +1398,7 @@ class BrowserAgentRuntime {
       agentHistory.push({ role: "assistant", content: aiResponse });
 
       if (!parsedDecision) {
-        lastError = "Invalid AI response (not valid JSON matching the planner schema). Try again.";
+        lastError = "The browser planner did not return a usable structured action. Try again with a single valid tool step.";
         consecutiveFailures += 1;
         if (consecutiveFailures >= maxConsecutiveFailures) {
           stopReason = deriveBrowserAgentStopReason({

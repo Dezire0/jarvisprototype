@@ -243,6 +243,17 @@ test("buildHeuristicBrowserPlan turns YouTube music requests into YouTube search
   ]);
 });
 
+test("buildHeuristicBrowserPlan keeps the requested YouTube search query intact", () => {
+  const plan = buildHeuristicBrowserPlan("can you search travis scott music in youtube?");
+
+  assert.deepEqual(plan.steps, [
+    {
+      action: "search_youtube",
+      query: "travis scott music"
+    }
+  ]);
+});
+
 test("buildHeuristicBrowserPlan strips correction lead-ins before planning", () => {
   const plan = buildHeuristicBrowserPlan("i said go to youtube and play some music");
 
@@ -263,6 +274,35 @@ test("buildHeuristicBrowserPlan forces current browser context for pronoun follo
   assert.equal(plan.forceCurrentBrowserContext, true);
   assert.deepEqual(plan.steps, []);
   assert.equal(plan.reply, "YouTube");
+});
+
+test("planBrowserWorkflow bypasses the OpenClaw planner for simple YouTube searches", async () => {
+  const service = new AssistantService({
+    automation: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {},
+    openClaw: {
+      async planBrowserTask() {
+        throw new Error("OpenClaw planner should not run for direct YouTube searches");
+      }
+    }
+  });
+
+  const result = await service.planBrowserWorkflow("can you search travis scott music in youtube?", {
+    route: "browser"
+  });
+
+  assert.equal(result.planner, "jarvis-heuristic");
+  assert.equal(result.plannerReason, "heuristic-direct-youtube");
+  assert.deepEqual(result.plan.steps, [
+    {
+      action: "search_youtube",
+      query: "travis scott music"
+    }
+  ]);
 });
 
 test("setSessionContext hydrates recent history from the current thread state", async () => {
