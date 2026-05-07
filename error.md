@@ -1,9 +1,12 @@
 # 2026-05-06 Latest Errors
-- 재현 가능한 차단 오류 없음.
-- 이번 회차에서 확인한 구조 문제:
+- 이번 회차에서 고친 구조 문제:
   - `src/main/browser-agent-runtime.cjs`의 자율 실행 루프가 여전히 하드코딩된 `switch`로 도구를 실행하고 있었음.
   - `src/main/agent-tool-registry.cjs` 시스템 프롬프트가 허용 툴 이름만 나열하고, 실제 스킬 스키마를 LLM에 노출하지 않고 있었음.
   - `src/main/skills/skill-registry.cjs`는 새 OpenClaw 툴 이름(`browser.open`, `desktop.open_app`, `pii.get`)과 레거시 액션 이름(`navigate`, `os_app`, `ask_pii`)을 함께 해석하지 못했음.
+- 현재 dev 런타임에서 남아 있는 오류:
+  - `OpenClaw browser planner failed: spawn cargo ENOENT`
+  - `Conversation model failed: Gemini request failed: models/qwen3:14b is not found for API version v1beta`
+  - `Conversation model failed: Ollama request failed for gemma4:e2b: status 405`
 - 현재 검증 결과:
   - `npm run check` 통과
   - `node --test tests/node/browser-agent-runtime.test.cjs` 통과 (`9/9`)

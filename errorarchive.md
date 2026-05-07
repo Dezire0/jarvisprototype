@@ -32,3 +32,8 @@ Verification:
 - `npm run test:node` 통과 (`124/124`)
 - `npm run dev` 부팅 성공
 - `http://127.0.0.1:3310` 응답 확인
+
+Residual runtime issues observed after boot:
+
+- OpenClaw planner process still expects `cargo` in the local environment
+- conversation model settings currently reference unsupported Gemini/Ollama model ids
