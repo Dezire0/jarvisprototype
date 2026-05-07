@@ -1,3 +1,5 @@
+const skillRegistry = require("./skills/skill-registry.cjs");
+
 const TOOL_PROFILE_BROWSER_ONLY = "browser";
 const TOOL_PROFILE_FULL_ACCESS = "full_access";
 
@@ -35,13 +37,19 @@ function buildToolSet(profile = TOOL_PROFILE_FULL_ACCESS) {
   return new Set(tools);
 }
 
-function buildBrowserAgentSystemPrompt(profile = TOOL_PROFILE_FULL_ACCESS) {
-  const tools = Array.from(buildToolSet(profile)).join(", ");
+function buildBrowserAgentSystemPrompt(profile = TOOL_PROFILE_FULL_ACCESS, registry = skillRegistry) {
+  const toolSet = buildToolSet(profile);
+  const tools = Array.from(toolSet).join(", ");
+  const schemas = registry?.getSchemasForTools
+    ? registry.getSchemasForTools(toolSet)
+    : [];
 
   return [
     "You are the OpenClaw computer-use session planner inside Jarvis Desktop.",
     "Return only a JSON object with thought, action, expectedOutcome, isFinal, and finalMessage.",
     `Allowed tools: ${tools}.`,
+    "Use the following tool schemas exactly when you emit an action:",
+    ...schemas,
     "Prefer Playwright-style browser control first: observe the current page, use visible element ids, then click, type, press keys, or scroll.",
     "Use desktop tools when a local app, desktop coordinate, or shell step is truly needed.",
     "Ask for secrets through pii.get instead of guessing or fabricating credentials.",

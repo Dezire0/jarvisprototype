@@ -3071,6 +3071,14 @@ class AssistantService {
       hints.push("Use desktop.open_app, desktop.click, and desktop.type before falling back to vague prose.");
     }
 
+    if (route.appName) {
+      hints.push(`The requested desktop target app is "${route.appName}".`);
+    }
+
+    if (route.siteOrUrl) {
+      hints.push(`The requested browser target is "${route.siteOrUrl}".`);
+    }
+
     if (plannerMeta?.planner === "openclaw-session") {
       hints.push("OpenClaw has already provided session planning context for this task.");
     }
@@ -5742,7 +5750,7 @@ class AssistantService {
       "1. 한 번에 딱 하나의 JSON 행동만 응답하세요.",
       "2. 항상 'reason' 필드를 포함하여 이유를 설명하세요.",
       "3. 가능하면 실제 화면 조작보다 백그라운드/Headless 동작을 우선시하세요.",
-      "4. 절대 비밀번호를 추측하지 마세요. ask_pii를 사용하여 보안 저장소에서 정보를 가져오도록 요청하세요.",
+      "4. 절대 비밀번호를 추측하지 마세요. pii.get을 사용하여 보안 저장소에서 정보를 가져오도록 요청하세요.",
       "5. 목표가 달성되면 'done'을 사용하세요."
     ].join("\n");
   }
@@ -6924,6 +6932,143 @@ class AssistantService {
       actions: [],
       provider
     };
+  }
+
+  buildToolInvocationInput(tool, payload = {}) {
+    const target = normalizeWhitespace(payload.target || payload.appName || "");
+    const query = normalizeWhitespace(payload.query || payload.target || "");
+    const siteOrUrl = normalizeWhitespace(payload.siteOrUrl || payload.site || payload.target || "");
+    const key = normalizeWhitespace(payload.key || "");
+    const text = normalizeWhitespace(payload.text || "");
+    const modifiers = Array.isArray(payload.modifiers) ? payload.modifiers.filter(Boolean) : [];
+    const menuPath = Array.isArray(payload.menuPath) ? payload.menuPath.filter(Boolean) : [];
+
+    switch (tool) {
+      case "app:open":
+        return target ? `${target} 열어줘` : "앱 열어줘";
+      case "app:action":
+        switch (payload.type) {
+          case "focus_app":
+            return target ? `${target} 앞으로 가져와줘` : "앱 앞으로 가져와줘";
+          case "app_type":
+            return target && text ? `${target}에서 ${text} 입력해줘` : "앱에 텍스트 입력해줘";
+          case "app_key":
+            return target && key ? `${target}에서 ${key} 눌러줘` : "앱에서 키 눌러줘";
+          case "app_shortcut":
+            return target && key
+              ? `${target}에서 ${[...modifiers, key].join("+")} 단축키 눌러줘`
+              : "앱에서 단축키 눌러줘";
+          case "app_menu_click":
+            return target && menuPath.length
+              ? `${target}에서 ${menuPath.join(" > ")} 메뉴 눌러줘`
+              : "앱 메뉴 눌러줘";
+          default:
+            return target ? `${target}에서 요청한 작업 해줘` : "앱에서 작업해줘";
+        }
+      case "browser:open":
+        return query ? `${query} 열어줘` : "브라우저 열어줘";
+      case "browser:search":
+        return query ? `${query} 검색해줘` : "브라우저에서 검색해줘";
+      case "browser:read":
+        return "현재 페이지 읽어줘";
+      case "browser:login":
+        return siteOrUrl ? `${siteOrUrl} 로그인해줘` : "현재 사이트 로그인해줘";
+      default:
+        return "";
+    }
+  }
+
+  async handleToolInvocation(tool, payload = {}) {
+    const input = this.buildToolInvocationInput(tool, payload);
+
+    switch (tool) {
+      case "app:open": {
+        const result = await this.handleAppOpen(input, {
+          route: "app_open",
+          appName: payload.appName || payload.target || ""
+        });
+        return this.finalizeResponse(input, result, {
+          route: "app_open",
+          source: "direct_tool",
+          tool
+        });
+      }
+      case "app:action": {
+        const result = await this.handleAutonomousTask(input, {
+          route: "app_action",
+          appName: payload.target || payload.appName || "",
+          requires_automation: true
+        });
+        return this.finalizeResponse(input, result, {
+          route: "app_action",
+          source: "direct_tool",
+          tool
+        });
+      }
+      case "browser:open": {
+        const result = await this.handleAutonomousTask(input, {
+          route: "browser",
+          siteOrUrl: payload.target || "",
+          requires_automation: false
+        });
+        return this.finalizeResponse(input, result, {
+          route: "browser",
+          source: "direct_tool",
+          tool
+        });
+      }
+      case "browser:search": {
+        const result = await this.handleAutonomousTask(input, {
+          route: "browser",
+          requires_automation: true
+        });
+        return this.finalizeResponse(input, result, {
+          route: "browser",
+          source: "direct_tool",
+          tool
+        });
+      }
+      case "browser:read": {
+        const data = await this.browser.readPage();
+        this.rememberBrowserContext(data.url || this.lastBrowserContext?.url || "", data.title || "", {
+          language: detectReplyLanguage(input)
+        });
+        const result = {
+          reply: detectReplyLanguage(input) === "ko"
+            ? "현재 페이지를 읽어왔어요."
+            : "I read the current page.",
+          actions: [this.makeAction("browser_read_page", data.url || data.title || "current-page", "executed", { tool: "browser.observe" })],
+          provider: "openclaw-computer-use",
+          details: this.buildOpenClawExecutorDetails({
+            ...data,
+            openClawPrimary: true
+          }, {
+            planner: "openclaw-session",
+            plannerReason: "browser-read"
+          }, {
+            executorMode: "playwright"
+          })
+        };
+        return this.finalizeResponse(input, result, {
+          route: "browser",
+          source: "direct_tool",
+          tool
+        });
+      }
+      case "browser:login": {
+        const result = await this.handleBrowserLogin(input, {
+          route: "browser_login",
+          siteOrUrl: payload.siteOrUrl || payload.site || payload.target || ""
+        });
+        return this.finalizeResponse(input, result, {
+          route: "browser_login",
+          source: "direct_tool",
+          tool
+        });
+      }
+      default:
+        throw new Error(`Unsupported assistant tool invocation: ${tool}`);
+    }
   }
 
 

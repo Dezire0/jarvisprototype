@@ -818,23 +818,10 @@ async function dispatchTool(tool, payload = {}) {
       };
     }
     case "app:open": {
-      const data = await liveServices.automation.execute({
-        type: "open_app",
-        target: payload.appName || payload.target
-      });
-      return {
-        ok: true,
-        tool,
-        data
-      };
+      return liveAssistant.handleToolInvocation(tool, payload);
     }
     case "app:action": {
-      const data = await liveServices.automation.execute(payload);
-      return {
-        ok: true,
-        tool,
-        data
-      };
+      return liveAssistant.handleToolInvocation(tool, payload);
     }
     case "screen:ocr": {
       const data = await liveServices.screen.captureAndOcr();
@@ -849,36 +836,16 @@ async function dispatchTool(tool, payload = {}) {
         payload.prompt || "Explain what is on my screen and help me study it."
       );
     case "browser:open": {
-      const data = await liveServices.browser.open(payload.target);
-      return {
-        ok: true,
-        tool,
-        data
-      };
+      return liveAssistant.handleToolInvocation(tool, payload);
     }
     case "browser:search": {
-      const data = await liveServices.browser.search(payload.query);
-      return {
-        ok: true,
-        tool,
-        data
-      };
+      return liveAssistant.handleToolInvocation(tool, payload);
     }
     case "browser:read": {
-      const data = await liveServices.browser.readPage();
-      return {
-        ok: true,
-        tool,
-        data
-      };
+      return liveAssistant.handleToolInvocation(tool, payload);
     }
     case "browser:login": {
-      const data = await liveServices.browser.loginWithStoredCredential(payload.siteOrUrl);
-      return {
-        ok: true,
-        tool,
-        data
-      };
+      return liveAssistant.handleToolInvocation(tool, payload);
     }
     case "browser:login-form": {
       const data = await liveServices.browser.fillCurrentLoginForm({
