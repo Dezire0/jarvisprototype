@@ -67,3 +67,6 @@ ScreenRecording_*.mov
 # Logs
 *.log
 site/install-web/.wrangler/
+
+# Agent internal metadata
+.agents/
