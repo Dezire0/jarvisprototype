@@ -1,0 +1,25 @@
+{
+  "keyCodes": {
+    "enter": 36,
+    "return": 36,
+    "tab": 48,
+    "space": 49,
+    "escape": 53,
+    "esc": 53,
+    "delete": 51,
+    "backspace": 51,
+    "down": 125,
+    "up": 126,
+    "left": 123,
+    "right": 124
+  },
+  "modifiers": {
+    "command": "command down",
+    "cmd": "command down",
+    "shift": "shift down",
+    "option": "option down",
+    "alt": "option down",
+    "control": "control down",
+    "ctrl": "control down"
+  }
+}

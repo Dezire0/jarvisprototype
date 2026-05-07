@@ -702,7 +702,7 @@ test("handleBrowser uses an OpenClaw Jarvis delegate for login continuations", a
     requires_automation: true
   });
 
-  assert.equal(pending.provider, "assistant-browser");
+  assert.equal(pending.provider, "openclaw-computer-use");
   assert.equal(pending.details.pendingBrowserContinuation, true);
   assert.equal(pending.details.planner, "openclaw-session");
   assert.match(pending.reply, /로그인 화면/);
@@ -847,7 +847,7 @@ test("handleAppOpen offers official web fallback for missing web-runnable apps",
 
   const resumed = await service.continuePendingClarification("웹으로 열어줘");
 
-  assert.equal(resumed.provider, "assistant-browser");
+  assert.equal(resumed.provider, "openclaw-computer-use");
   assert.equal(resumed.details.recovery, "web");
   assert.equal(resumed.details.officialWebUrl, "https://discord.com/app");
 });
@@ -989,7 +989,7 @@ test("handleBrowser opens the latest mailbox message inside the current browser 
     requires_automation: true
   });
 
-  assert.equal(result.provider, "assistant-browser");
+  assert.equal(result.provider, "openclaw-computer-use");
   assert.equal(result.actions[0].type, "browser_open_latest_mailbox_message");
   assert.match(result.reply, /최신 메일/);
 });
@@ -1173,7 +1173,7 @@ test("handleBrowserLogin can reuse the last opened browser target for follow-up 
   });
 
   assert.deepEqual(calls, []);
-  assert.equal(result.provider, "assistant-browser");
+  assert.equal(result.provider, "openclaw-computer-use");
   assert.equal(result.details.credentialPrompt.siteOrUrl, "https://www.amazon.com/");
   assert.equal(result.details.site, "아마존");
 });

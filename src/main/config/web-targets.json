@@ -1,0 +1,84 @@
+{
+  "aliases": [
+    "amazon",
+    "아마존",
+    "google",
+    "구글",
+    "youtube",
+    "유튜브",
+    "github",
+    "깃허브",
+    "gmail",
+    "지메일",
+    "naver",
+    "네이버",
+    "daum",
+    "다음",
+    "instagram",
+    "인스타그램",
+    "facebook",
+    "페이스북",
+    "twitter",
+    "트위터",
+    "x",
+    "spotify",
+    "스포티파이"
+  ],
+  "directTargets": [
+    {
+      "label": "Amazon",
+      "url": "https://www.amazon.com/",
+      "tokens": ["amazon", "아마존"]
+    },
+    {
+      "label": "Google",
+      "url": "https://www.google.com/",
+      "tokens": ["google", "구글"]
+    },
+    {
+      "label": "YouTube",
+      "url": "https://www.youtube.com/",
+      "tokens": ["youtube", "유튜브"]
+    },
+    {
+      "label": "GitHub",
+      "url": "https://github.com/",
+      "tokens": ["github", "깃허브"]
+    },
+    {
+      "label": "Gmail",
+      "url": "https://mail.google.com/",
+      "tokens": ["gmail", "지메일"]
+    },
+    {
+      "label": "Naver",
+      "url": "https://www.naver.com/",
+      "tokens": ["naver", "네이버"]
+    },
+    {
+      "label": "Daum",
+      "url": "https://www.daum.net/",
+      "tokens": ["daum", "다음"]
+    },
+    {
+      "label": "Instagram",
+      "url": "https://www.instagram.com/",
+      "tokens": ["instagram", "인스타그램"]
+    },
+    {
+      "label": "Facebook",
+      "url": "https://www.facebook.com/",
+      "tokens": ["facebook", "페이스북"]
+    },
+    {
+      "label": "X",
+      "url": "https://x.com/",
+      "tokens": ["x", "twitter", "트위터"]
+    },
+    {
+      "label": "Spotify",
+      "url": "https://open.spotify.com/",
+      "tokens": ["spotify", "스포티파이"]
+    }
+  ]
+}

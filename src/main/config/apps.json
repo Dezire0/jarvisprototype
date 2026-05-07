@@ -1,0 +1,202 @@
+{
+  "searchDirs": [
+    "/Applications",
+    "/System/Applications",
+    "/System/Applications/Utilities",
+    "$HOME/Applications"
+  ],
+  "aliases": {
+    "chrome": "Google Chrome",
+    "googlechrome": "Google Chrome",
+    "googlechromecanary": "Google Chrome Canary",
+    "크롬": "Google Chrome",
+    "구글크롬": "Google Chrome",
+    "아크": "Arc",
+    "arc": "Arc",
+    "safari": "Safari",
+    "사파리": "Safari",
+    "firefox": "Firefox",
+    "파이어폭스": "Firefox",
+    "brave": "Brave Browser",
+    "bravebrowser": "Brave Browser",
+    "브레이브": "Brave Browser",
+    "slack": "Slack",
+    "슬랙": "Slack",
+    "discord": "Discord",
+    "디스코드": "Discord",
+    "notion": "Notion",
+    "노션": "Notion",
+    "spotify": "Spotify",
+    "스포티파이": "Spotify",
+    "steam": "Steam",
+    "스팀": "Steam",
+    "epic": "Epic Games Launcher",
+    "epicgames": "Epic Games Launcher",
+    "epicgameslauncher": "Epic Games Launcher",
+    "에픽": "Epic Games Launcher",
+    "에픽게임즈": "Epic Games Launcher",
+    "에픽게임즈런처": "Epic Games Launcher",
+    "obs": "OBS",
+    "obsstudio": "OBS",
+    "vscode": "Visual Studio Code",
+    "visualstudiocode": "Visual Studio Code",
+    "code": "Visual Studio Code",
+    "브이에스코드": "Visual Studio Code",
+    "비주얼스튜디오코드": "Visual Studio Code",
+    "파인더": "Finder",
+    "finder": "Finder",
+    "terminal": "Terminal",
+    "터미널": "Terminal",
+    "iterm": "iTerm",
+    "iterm2": "iTerm",
+    "아이텀": "iTerm",
+    "messages": "Messages",
+    "메시지": "Messages",
+    "notes": "Notes",
+    "메모": "Notes",
+    "calendar": "Calendar",
+    "캘린더": "Calendar",
+    "달력": "Calendar",
+    "mail": "Mail",
+    "메일": "Mail",
+    "preview": "Preview",
+    "미리보기": "Preview",
+    "photos": "Photos",
+    "사진": "Photos",
+    "music": "Music",
+    "음악": "Music",
+    "appstore": "App Store",
+    "앱스토어": "App Store",
+    "systemsettings": "System Settings",
+    "시스템설정": "System Settings",
+    "settings": "System Settings",
+    "설정": "System Settings",
+    "xcode": "Xcode",
+    "엑스코드": "Xcode",
+    "chatgpt": "ChatGPT",
+    "챗지피티": "ChatGPT"
+  },
+  "directTargets": [
+    {
+      "label": "Google Chrome",
+      "tokens": ["google chrome", "chrome", "구글 크롬", "구글크롬", "크롬"]
+    },
+    {
+      "label": "Safari",
+      "tokens": ["safari", "사파리"]
+    },
+    {
+      "label": "Arc",
+      "tokens": ["arc", "아크"]
+    },
+    {
+      "label": "Slack",
+      "tokens": ["slack", "슬랙"]
+    },
+    {
+      "label": "Discord",
+      "tokens": ["discord", "디스코드"]
+    },
+    {
+      "label": "Notion",
+      "tokens": ["notion", "노션"]
+    },
+    {
+      "label": "Spotify",
+      "tokens": ["spotify", "스포티파이"]
+    },
+    {
+      "label": "Steam",
+      "tokens": ["steam", "스팀"]
+    },
+    {
+      "label": "Epic Games Launcher",
+      "tokens": ["epic games launcher", "epic games", "epic", "에픽게임즈런처", "에픽게임즈", "에픽"]
+    },
+    {
+      "label": "Finder",
+      "tokens": ["finder", "파인더"]
+    },
+    {
+      "label": "Terminal",
+      "tokens": ["terminal", "터미널"]
+    },
+    {
+      "label": "Notes",
+      "tokens": ["notes", "메모"]
+    },
+    {
+      "label": "Visual Studio Code",
+      "tokens": ["visual studio code", "vs code", "vscode", "code", "비주얼스튜디오코드", "브이에스코드"]
+    },
+    {
+      "label": "Mail",
+      "tokens": ["mail", "메일"]
+    }
+  ],
+  "officialFallbacks": [
+    {
+      "label": "Discord",
+      "aliases": ["discord", "디스코드"],
+      "webUrl": "https://discord.com/app",
+      "installUrl": "https://discord.com/download",
+      "webRunnable": true
+    },
+    {
+      "label": "Slack",
+      "aliases": ["slack", "슬랙"],
+      "webUrl": "https://app.slack.com/client",
+      "installUrl": "https://slack.com/downloads",
+      "webRunnable": true
+    },
+    {
+      "label": "Notion",
+      "aliases": ["notion", "노션"],
+      "webUrl": "https://www.notion.so/login",
+      "installUrl": "https://www.notion.com/desktop",
+      "webRunnable": true
+    },
+    {
+      "label": "Spotify",
+      "aliases": ["spotify", "스포티파이"],
+      "webUrl": "https://open.spotify.com/",
+      "installUrl": "https://www.spotify.com/download/",
+      "webRunnable": true
+    },
+    {
+      "label": "Visual Studio Code",
+      "aliases": ["visual studio code", "vs code", "vscode", "code", "브이에스코드", "비주얼스튜디오코드"],
+      "webUrl": "https://vscode.dev/",
+      "installUrl": "https://code.visualstudio.com/download",
+      "webRunnable": true
+    },
+    {
+      "label": "Figma",
+      "aliases": ["figma", "피그마"],
+      "webUrl": "https://www.figma.com/files/",
+      "installUrl": "https://www.figma.com/downloads/",
+      "webRunnable": true
+    },
+    {
+      "label": "GitHub Desktop",
+      "aliases": ["github desktop", "깃허브 데스크톱", "깃허브 데스크탑"],
+      "webUrl": "https://github.com/",
+      "installUrl": "https://desktop.github.com/download/",
+      "webRunnable": true
+    },
+    {
+      "label": "OpenClaw",
+      "aliases": ["openclaw", "open claw", "오픈클로", "오픈 클로"],
+      "webUrl": "https://openclaw.ai/",
+      "installUrl": "https://openclawdoc.com/docs/getting-started/installation/",
+      "webRunnable": false,
+      "kind": "cli",
+      "installCommands": [
+        "curl -fsSL https://openclaw.ai/install.sh | bash",
+        "npm install -g openclaw@latest && openclaw onboard --install-daemon",
+        "git clone https://github.com/openclaw/openclaw.git && cd openclaw && pnpm install && pnpm ui:build && pnpm build && pnpm link --global"
+      ],
+      "runCommands": ["openclaw doctor", "openclaw status", "openclaw dashboard"]
+    }
+  ]
+}
