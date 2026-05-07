@@ -1,13 +1,9 @@
 # 2026-05-06 Latest Errors
 - 재현 가능한 차단 오류 없음.
-- 이번 회차에서 확인한 이전 구조 문제:
-  - `src/main/main.cjs`의 IPC 툴 디스패치가 `app:open`, `app:action`, `browser:open`, `browser:search`, `browser:read`, `browser:login`에서 `AssistantService` / OpenClaw 공통 경로를 우회하고 있었음.
-- 현재 검증 결과:
+- 검증 기준:
   - `npm run check` 통과
-  - `node --test tests/node/assistant-service.test.cjs` 통과 (`45/45`)
-  - `npm run test:node` 통과 (`122/122`)
+  - `npm run test:node` 통과 (`119/119`)
   - `npm run dev` 부팅 성공
-  - 브라우저 점검: `http://127.0.0.1:3310/`에서 로그인 화면과 `Jarvis 컴퓨터 작업 동의` 모달 표시 확인
-  - 브라우저 콘솔 차단 오류 없음 (`[HMR] connected` 수준 로그만 확인)
+  - 로컬 UI 진입 확인: `http://127.0.0.1:3310/`
 - 참고:
-  - 전체 노드 테스트 중 `getconf DARWIN_USER_DIR` 기반 알림 조회 경고는 계속 출력되지만, 현재 수정분의 회귀로 이어지지는 않았음.
+  - 전체 노드 테스트 중 `getconf DARWIN_USER_DIR` 기반 알림 조회 경고가 반복 출력되지만, 현재 테스트 환경 노이즈이며 이번 OpenClaw 중심 리팩터링 실패로 이어지지는 않았음.

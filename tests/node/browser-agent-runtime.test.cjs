@@ -92,6 +92,7 @@ function createRuntime(overrides = {}) {
       }
     },
     screen: {},
+    skillRegistry: overrides.skillRegistry,
     chatClient: overrides.chatClient || (async () => "{}"),
     getRecentHistory: () => [],
     buildHistorySnippet: () => "",
@@ -104,6 +105,14 @@ function createRuntime(overrides = {}) {
     })
   });
 }
+
+test("browser agent system prompt includes dynamic skill schemas for allowed tools", async () => {
+  const runtime = createRuntime();
+
+  assert.match(runtime.systemPrompt, /Use the following tool schemas exactly/);
+  assert.match(runtime.systemPrompt, /"tool":"browser\.open"/);
+  assert.match(runtime.systemPrompt, /"tool":"desktop\.open_app"/);
+});
 
 test("browser agent rejects desktop.click while observed browser elements are available", async () => {
   let desktopClicked = false;
@@ -215,6 +224,75 @@ test("browser agent rejects browser.click when the target element is missing fro
   );
 
   assert.match(result.error, /not in the current observation/);
+});
+
+test("browser agent delegates structured tool execution through the skill registry", async () => {
+  let delegatedAction = null;
+  let navigated = false;
+  const runtime = createRuntime({
+    browser: {
+      async navigate() {
+        navigated = true;
+        return {
+          url: "https://unexpected.example",
+          title: "Unexpected",
+          elements: [],
+          visibleText: "Unexpected"
+        };
+      },
+      async observe() {
+        return {
+          url: "https://example.com",
+          title: "Observed",
+          elements: [],
+          visibleText: "Observed"
+        };
+      }
+    },
+    skillRegistry: {
+      async execute(action) {
+        delegatedAction = action;
+        return {
+          state: {
+            url: "https://delegated.example",
+            title: "Delegated",
+            elements: [],
+            visibleText: "Delegated result"
+          },
+          error: null
+        };
+      },
+      getSchemasForTools() {
+        return [];
+      }
+    }
+  });
+
+  const result = await runtime.executeStructuredAction(
+    {
+      tool: "browser.open",
+      input: {
+        url: "https://example.com"
+      }
+    },
+    {
+      state: {
+        url: "about:blank",
+        title: "Blank",
+        elements: [],
+        visibleText: ""
+      }
+    }
+  );
+
+  assert.equal(navigated, false);
+  assert.deepEqual(delegatedAction, {
+    tool: "browser.open",
+    input: {
+      url: "https://example.com"
+    }
+  });
+  assert.equal(result.state.url, "https://delegated.example");
 });
 
 test("browser agent verifies browser.type changed the observed element value", async () => {

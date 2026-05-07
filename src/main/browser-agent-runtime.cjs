@@ -1,6 +1,5 @@
 const { FAST_PLANNER_MODEL } = require("./ollama-service.cjs");
 const notificationMonitor = require("./notification-monitor.cjs");
-const piiManager = require("./pii-manager.cjs");
 const {
   MACOS_AUTOMATION_PERMISSION_MESSAGE,
   normalizeAutomationFailureMessage
@@ -11,6 +10,7 @@ const {
   buildToolSet,
   normalizeProfile
 } = require("./agent-tool-registry.cjs");
+const skillRegistry = require("./skills/skill-registry.cjs");
 
 const BROWSER_AGENT_DEFAULTS = {
   maxSteps: 18,
@@ -62,7 +62,7 @@ const STRUCTURED_BROWSER_AGENT_DECISION_SCHEMA = {
   required: ["thought", "action", "expectedOutcome", "isFinal", "finalMessage"]
 };
 
-const BROWSER_AGENT_SYSTEM_PROMPT = buildBrowserAgentSystemPrompt(TOOL_PROFILE_FULL_ACCESS);
+const BROWSER_AGENT_SYSTEM_PROMPT = buildBrowserAgentSystemPrompt(TOOL_PROFILE_FULL_ACCESS, skillRegistry);
 
 function safeJsonParse(raw) {
   try {
@@ -672,6 +672,7 @@ class BrowserAgentRuntime {
     automation,
     browser,
     screen,
+    skillRegistry: runtimeSkillRegistry,
     toolProfile = TOOL_PROFILE_FULL_ACCESS,
     chatClient,
     getRecentHistory,
@@ -683,10 +684,10 @@ class BrowserAgentRuntime {
     this.automation = automation;
     this.browser = browser;
     this.screen = screen;
-    this.skillRegistry = skillRegistry;
+    this.skillRegistry = runtimeSkillRegistry || skillRegistry;
     this.toolProfile = normalizeProfile(toolProfile);
     this.toolSet = buildToolSet(this.toolProfile);
-    this.systemPrompt = this._buildBaseSystemPrompt();
+    this.systemPrompt = buildBrowserAgentSystemPrompt(this.toolProfile, this.skillRegistry);
     this.chatClient = chatClient;
     this.getRecentHistory = typeof getRecentHistory === "function" ? getRecentHistory : () => [];
     this.buildHistorySnippet = typeof buildHistorySnippet === "function" ? buildHistorySnippet : () => "";
@@ -1023,92 +1024,16 @@ class BrowserAgentRuntime {
         browser: this.browser,
         automation: this.automation,
         screen: this.screen,
-        safeObserve: async () => await this.browser.observe()
+        safeObserve: async () => this.browser.observe()
       };
 
-      // Use SkillRegistry for modular execution if available
-      if (this.skillRegistry) {
-        const skillName = TOOL_TO_SKILL_NAME[safeAction.tool];
-        if (skillName) {
-          const skillInput = {
-            action: skillName,
-            ...safeAction.input
-          };
-
-          // Bridge prompt disruption: If the skill schema requires 'reason' but it's not in the input,
-          // use the decision 'thought' as the reason.
-          if (!skillInput.reason && options.thought) {
-            skillInput.reason = options.thought;
-          }
-
-          const skillResult = await this.skillRegistry.execute(skillInput, context);
-
-          if (skillResult && !skillResult.error && skillResult.state) {
-            return { state: skillResult.state, error: null };
-          }
-          if (skillResult && skillResult.error) {
-            return { state: skillResult.state || await this.browser.observe(), error: skillResult.error };
-          }
-        }
+      // Bridge prompt disruption: If the skill schema requires 'reason' but it's not in the input,
+      // use the decision 'thought' as the reason.
+      if (safeAction && !safeAction.reason && options.thought) {
+        safeAction.reason = options.thought;
       }
 
-      // Fallback for core tools if registry didn't handle it
-      let result;
-      switch (safeAction.tool) {
-        case "browser.open":
-          result = { state: await this.browser.navigate(safeAction.input.url), error: null };
-          break;
-        case "browser.click":
-          result = { state: await this.browser.clickElement(safeAction.input.elementId), error: null };
-          break;
-        case "browser.type":
-          result = { state: await this.browser.typeText(safeAction.input.elementId, safeAction.input.text), error: null };
-          break;
-        case "browser.keypress":
-          result = { state: await this.browser.pressKey(safeAction.input.key || "Enter"), error: null };
-          break;
-        case "browser.scroll":
-          result = { state: await this.browser.scrollPage(safeAction.input.direction || "down"), error: null };
-          break;
-        case "browser.wait_for":
-          result = { state: await this.browser.waitAndObserve(clampWaitMs(safeAction.input.ms, 2000)), error: null };
-          break;
-        case "browser.observe":
-          result = { state: await this.browser.observe(), error: null };
-          break;
-        case "pii.get": {
-          const storedPii = piiManager.get(safeAction.input.field);
-          if (storedPii) {
-            result = { state: { ...await this.browser.observe(), pii_retrieved: storedPii }, error: null };
-            break;
-          }
-          result = {
-            state: await this.browser.observe(),
-            error: `Missing PII for ${safeAction.input.field}. Ask the user to provide or save it first.`
-          };
-          break;
-        }
-        case "desktop.type":
-          await this.automation.typeText(safeAction.input.text);
-          result = { state: await this.browser.observe(), error: null };
-          break;
-        case "desktop.open_app":
-          await this.automation.execute({ type: "open_app", target: safeAction.input.name });
-          result = { state: await this.browser.observe(), error: null };
-          break;
-        case "desktop.click":
-          await this.automation.clickCoordinate(safeAction.input.x, safeAction.input.y);
-          result = { state: await this.browser.observe(), error: null };
-          break;
-        case "shell.run": {
-          const output = await this.automation.runShellCommand(safeAction.input.command);
-          result = { state: { ...await this.browser.observe(), cmd_output: output }, error: null };
-          break;
-        }
-        default:
-          result = { state: await this.browser.observe(), error: `Unknown tool: ${safeAction.tool}` };
-          break;
-      }
+      const result = await this.skillRegistry.execute(safeAction, context);
 
       if (result?.error) {
         return result;

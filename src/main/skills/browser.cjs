@@ -1,58 +1,81 @@
 module.exports = [
   {
-    name: "navigate",
-    schema: '{"action":"navigate","url":"https://..."}',
-    description: "특정 URL로 이동 (Headless)",
+    name: "browser.open",
+    aliases: ["navigate"],
+    inputKeys: ["url"],
+    schema: '{"action":{"tool":"browser.open","input":{"url":"https://..."}},"expectedOutcome":"...","isFinal":false}',
+    description: "Playwright 브라우저를 특정 URL로 엽니다.",
     execute: async (action, { browser }) => {
-      return { state: await browser.navigate(action.url), error: null };
+      return { state: await browser.navigate(action.input.url), error: null };
     }
   },
   {
-    name: "click",
-    schema: '{"action":"click","element_id":3,"reason":"..."}',
-    description: "ID를 기반으로 웹 요소 클릭",
+    name: "browser.click",
+    aliases: ["click"],
+    inputKeys: ["elementId", "element_id"],
+    schema: '{"action":{"tool":"browser.click","input":{"elementId":"3"}},"expectedOutcome":"...","isFinal":false}',
+    description: "관찰된 elementId를 기준으로 웹 요소를 클릭합니다.",
     execute: async (action, { browser }) => {
-      return { state: await browser.clickElement(action.element_id), error: null };
+      return { state: await browser.clickElement(action.input.elementId), error: null };
     }
   },
   {
-    name: "type",
-    schema: '{"action":"type","element_id":5,"text":"...","reason":"..."}',
-    description: "웹 요소에 텍스트 입력",
+    name: "browser.type",
+    aliases: ["type"],
+    inputKeys: ["elementId", "element_id", "text"],
+    schema: '{"action":{"tool":"browser.type","input":{"elementId":"5","text":"..."}},"expectedOutcome":"...","isFinal":false}',
+    description: "관찰된 웹 요소에 텍스트를 입력합니다.",
     execute: async (action, { browser }) => {
-      return { state: await browser.typeText(action.element_id, action.text), error: null };
+      return { state: await browser.typeText(action.input.elementId, action.input.text), error: null };
     }
   },
   {
-    name: "press_key",
-    schema: '{"action":"press_key","key":"Enter","reason":"..."}',
-    description: "키보드 키 입력",
+    name: "browser.keypress",
+    aliases: ["press_key"],
+    inputKeys: ["key"],
+    schema: '{"action":{"tool":"browser.keypress","input":{"key":"Enter"}},"expectedOutcome":"...","isFinal":false}',
+    description: "현재 브라우저 포커스에 키 입력을 보냅니다.",
     execute: async (action, { browser }) => {
-      return { state: await browser.pressKey(action.key || "Enter"), error: null };
+      return { state: await browser.pressKey(action.input.key || "Enter"), error: null };
     }
   },
   {
-    name: "scroll",
-    schema: '{"action":"scroll","direction":"down","reason":"..."}',
-    description: "페이지 스크롤",
+    name: "browser.scroll",
+    aliases: ["scroll"],
+    inputKeys: ["direction"],
+    schema: '{"action":{"tool":"browser.scroll","input":{"direction":"down"}},"expectedOutcome":"...","isFinal":false}',
+    description: "현재 페이지를 위나 아래로 스크롤합니다.",
     execute: async (action, { browser }) => {
-      return { state: await browser.scrollPage(action.direction || "down"), error: null };
+      return { state: await browser.scrollPage(action.input.direction || "down"), error: null };
     }
   },
   {
-    name: "wait",
-    schema: '{"action":"wait","reason":"..."}',
-    description: "페이지 로딩 대기",
+    name: "browser.wait_for",
+    aliases: ["wait"],
+    inputKeys: ["ms"],
+    schema: '{"action":{"tool":"browser.wait_for","input":{"ms":2000}},"expectedOutcome":"...","isFinal":false}',
+    description: "짧게 대기한 뒤 현재 페이지를 다시 관찰합니다.",
     execute: async (action, { browser }) => {
-      return { state: await browser.waitAndObserve(2000), error: null };
+      const waitMs = Number.isFinite(Number(action.input.ms)) ? Number(action.input.ms) : 2000;
+      return { state: await browser.waitAndObserve(waitMs), error: null };
     }
   },
   {
-    name: "browser_extract",
-    schema: '{"action":"browser_extract","target":"...","reason":"..."}',
-    description: "[신규] 화면 내의 특정 정보를 표나 요약 형태로 추출",
-    execute: async (action, { browser }) => {
-      // For now, it just returns the state so the LLM can see the text.
+    name: "browser.observe",
+    inputKeys: [],
+    schema: '{"action":{"tool":"browser.observe","input":{}},"expectedOutcome":"...","isFinal":false}',
+    description: "현재 브라우저 상태를 다시 관찰합니다.",
+    execute: async (_action, { browser }) => {
+      return { state: await browser.observe(), error: null };
+    }
+  },
+  {
+    name: "browser.extract",
+    aliases: ["browser_extract"],
+    inputKeys: ["target"],
+    schema: '{"action":{"tool":"browser.extract","input":{"target":"..."}},"expectedOutcome":"...","isFinal":false}',
+    description: "현재 화면의 관련 텍스트를 다시 관찰해 추출에 활용합니다.",
+    execute: async (_action, { browser }) => {
       return { state: await browser.observe(), error: null, extracted: true };
     }
   }
