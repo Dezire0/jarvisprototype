@@ -254,6 +254,17 @@ test("buildHeuristicBrowserPlan strips correction lead-ins before planning", () 
   ]);
 });
 
+test("buildHeuristicBrowserPlan forces current browser context for pronoun follow-ups", () => {
+  const plan = buildHeuristicBrowserPlan("거기서 아무거나 틀어", {
+    currentBrowserUrl: "https://www.youtube.com/watch?v=test",
+    currentBrowserLabel: "YouTube"
+  });
+
+  assert.equal(plan.forceCurrentBrowserContext, true);
+  assert.deepEqual(plan.steps, []);
+  assert.equal(plan.reply, "YouTube");
+});
+
 test("setSessionContext hydrates recent history from the current thread state", async () => {
   let capturedContext = null;
   const service = new AssistantService({
@@ -305,6 +316,25 @@ test("setSessionContext hydrates recent history from the current thread state", 
   assert.equal(capturedContext.projectId, "project-jarvis");
   assert.equal(capturedContext.projectName, "Jarvis");
   assert.equal(capturedContext.title, "Mail follow-up");
+});
+
+test("looksLikeBrowserContextFollowUp recognizes Korean and English pronoun follow-ups", () => {
+  const service = new AssistantService({
+    automation: {},
+    credentials: {},
+    files: {},
+    obs: {},
+    screen: {},
+    tts: {}
+  });
+  service.lastBrowserContext = {
+    url: "https://www.youtube.com/",
+    label: "YouTube"
+  };
+
+  assert.equal(service.looksLikeBrowserContextFollowUp("거기서 아무거나 틀어"), true);
+  assert.equal(service.looksLikeBrowserContextFollowUp("play anything there"), true);
+  assert.equal(service.looksLikeBrowserContextFollowUp("play anything on that"), true);
 });
 
 test("buildAugmentedUserPrompt includes long-term, project, conversation, and document memory", async () => {

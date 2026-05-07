@@ -67,3 +67,36 @@ Validation results after i18n hardening:
 - `npm run check` ✅
 - `node --test tests/node/i18n-messages.test.cjs tests/node/browser-agent-runtime.test.cjs tests/node/companion-service.test.cjs` ✅ `24/24`
 - `corepack pnpm --dir 'Jarvis Ui' --filter assistant-ui-starter-cloud build` ✅
+
+2026-05-07 browser-context follow-up fixes
+
+Resolved this cycle:
+1. Strengthened current-browser follow-up detection
+   - `src/main/assistant-service.cjs`
+   - `refersToCurrentBrowserContext()` now includes additional pronouns and follow-up forms:
+     - `거기서`, `여기서`, `그거`, `이거`, `그곳`, `이곳`
+     - `it`, `that`, `that one`, `this one`
+
+2. Added a heuristic planner guard to prevent blind Google fallback
+   - `buildHeuristicBrowserPlan(input, options)` now accepts current browser context
+   - when the user clearly refers to the current page and `currentBrowserUrl` exists, the heuristic plan returns:
+     - `forceCurrentBrowserContext: true`
+     - no generic search steps
+   - `planBrowserWorkflow()` now passes live browser planning context into the heuristic fallback
+   - `handleAutonomousTask()` now honors `plan.forceCurrentBrowserContext`
+
+3. Added regression coverage for context carry-over
+   - `tests/node/assistant-service.test.cjs`
+   - verifies:
+     - `거기서 아무거나 틀어` forces current browser context
+     - Korean/English pronoun follow-ups are treated as browser-context follow-ups
+
+4. Added explicit shared-catalog regression coverage
+   - `tests/node/i18n-catalog.test.cjs`
+   - verifies shared JSON runtime key presence and interpolation for `runtime.sensitiveFinalActionLabel`
+
+Validation results after browser-context fixes:
+- `npm run check` ✅
+- `node --test tests/node/assistant-service.test.cjs tests/node/i18n-catalog.test.cjs tests/node/browser-agent-runtime.test.cjs` ✅ `65/65`
+- `npm run test:node` ✅ `164/164`
+- `npm run dev` ✅ Next/Electron dev boot reached local app URL

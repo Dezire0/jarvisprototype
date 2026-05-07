@@ -1,4 +1,4 @@
-2026-05-07 i18n hardening validation
+2026-05-07 browser-context follow-up hardening
 
 Latest remaining warning during node tests:
 - `getconf: confstr: DARWIN_USER_DIR: Input/output error`
@@ -12,6 +12,7 @@ Scope:
 Current product-level result:
 - No failing app/runtime tests remain
 - `npm run check` passed
-- targeted i18n/runtime/companion tests passed
-- Next UI build passed
-- shared message catalog is now used by backend runtime and new frontend Buddy/Admin UI
+- targeted assistant/i18n/runtime tests passed
+- `npm run test:node` passed `164/164`
+- `npm run dev` reached `http://127.0.0.1:3310`
+- current-browser pronoun follow-ups now stay in the active browser context instead of falling back to Google search

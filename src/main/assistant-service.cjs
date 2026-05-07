@@ -514,7 +514,7 @@ function stripBrowserLoginNoise(text = "") {
 }
 
 function refersToCurrentBrowserContext(text = "") {
-  return /(거기|여기|그 사이트|이 사이트|그 페이지|이 페이지|방금 연 사이트|방금 열어둔 페이지|현재 사이트|현재 페이지|that site|this site|that page|this page|there|here|current site|current page|the current page)/i.test(
+  return /(거기|거기서|여기|여기서|그 사이트|이 사이트|그 페이지|이 페이지|방금 연 사이트|방금 열어둔 페이지|현재 사이트|현재 페이지|그거|이거|그곳|이곳|it|that|there|here|that site|this site|that page|this page|that one|this one|current site|current page|the current page)/i.test(
     normalizePlanText(text)
   );
 }
@@ -814,13 +814,23 @@ function looksLikeSystemBriefingRequest(text = "") {
   );
 }
 
-function buildHeuristicBrowserPlan(input) {
+function buildHeuristicBrowserPlan(input, options = {}) {
   const normalized = normalizePlanText(input);
   const plan = {
     reply: "",
     steps: [],
-    login: null
+    login: null,
+    forceCurrentBrowserContext: false
   };
+  const currentBrowserUrl = cleanupParsedText(options.currentBrowserUrl || "");
+  const currentBrowserLabel = cleanupParsedText(options.currentBrowserLabel || "");
+  const contextFollowUp = refersToCurrentBrowserContext(normalized) && Boolean(currentBrowserUrl);
+
+  if (contextFollowUp) {
+    plan.forceCurrentBrowserContext = true;
+    plan.reply = currentBrowserLabel || currentBrowserUrl;
+    return plan;
+  }
   const complexSiteIntent = extractComplexBrowserIntent(normalized);
 
   if (complexSiteIntent) {
@@ -3585,13 +3595,14 @@ class AssistantService {
   }
 
   async planBrowserWorkflow(input = "", route = {}) {
-    const fallbackPlan = buildHeuristicBrowserPlan(input);
+    const planningContext = this.buildBrowserPlanningContext(input, route);
+    const fallbackPlan = buildHeuristicBrowserPlan(input, planningContext);
 
     if (!this.openClaw?.planBrowserTask) {
       return {
         plan: fallbackPlan,
         planner: "jarvis-heuristic",
-        plannerReason: "openclaw-unavailable"
+        plannerReason: fallbackPlan.forceCurrentBrowserContext ? "context-follow-up-fallback" : "openclaw-unavailable"
       };
     }
 
@@ -3618,14 +3629,14 @@ class AssistantService {
       return {
         plan: fallbackPlan,
         planner: "jarvis-heuristic",
-        plannerReason: "openclaw-error"
+        plannerReason: fallbackPlan.forceCurrentBrowserContext ? "context-follow-up-fallback" : "openclaw-error"
       };
     }
 
     return {
       plan: fallbackPlan,
       planner: "jarvis-heuristic",
-      plannerReason: "heuristic-fallback"
+      plannerReason: fallbackPlan.forceCurrentBrowserContext ? "context-follow-up-fallback" : "heuristic-fallback"
     };
   }
 
@@ -5965,7 +5976,7 @@ class AssistantService {
       const plan = browserPlanning.plan;
       const normalizedInput = normalizePlanText(input);
       const isComplexBrowserTask = route.requires_automation === true;
-      const stayInCurrentBrowserContext = this.looksLikeBrowserContextFollowUp(input);
+      const stayInCurrentBrowserContext = this.looksLikeBrowserContextFollowUp(input) || Boolean(plan?.forceCurrentBrowserContext);
       const delegateIndex = Array.isArray(plan?.steps)
         ? plan.steps.findIndex((step) => step.action === "jarvis_delegate")
         : -1;
