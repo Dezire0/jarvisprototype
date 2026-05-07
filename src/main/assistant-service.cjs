@@ -32,6 +32,7 @@ const { routeInputWithLlm } = require("./assistant/router.cjs");
 const { composePromptContextBlocks } = require("./assistant/memory-context.cjs");
 const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
+const { message } = require("./i18n/messages.cjs");
 
 const osAutomation = require("./os-automation.cjs");
 const piiManager = require("./pii-manager.cjs");
@@ -3178,9 +3179,7 @@ class AssistantService {
       };
 
       return {
-        reply: language === "ko"
-          ? "이 동작은 결제, 구매, 구독처럼 민감한 최종 행동으로 보여서 실행 직전에 확인이 필요해요."
-          : "This looks like a sensitive final action, so I need confirmation before I perform it.",
+        reply: message(language, "runtime.sensitiveConfirmation"),
         actions: [this.makeAction(actionType, actionTarget, "needs-confirmation", { tool: toolName })],
         provider: "openclaw-computer-use",
         details: this.buildOpenClawExecutorDetails(
@@ -5897,7 +5896,7 @@ class AssistantService {
     ).slice(0, 160);
     return {
       reason: "sensitive_final_action",
-      message: `This looks like a sensitive final action: ${targetLabel}`,
+      message: message("en", "runtime.sensitiveFinalActionLabel", { label: targetLabel }),
       targetLabel,
       action
     };

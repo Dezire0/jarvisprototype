@@ -537,7 +537,7 @@ function deriveBrowserAgentStopReason({ error = "", state = {}, repeated = false
 }
 
 function buildPlannerFailureReply(language, summary) {
-  return language === "ko" ? summary : summary;
+  return String(summary || "");
 }
 
 function normalizeComparableText(value = "", limit = 240) {
@@ -601,7 +601,7 @@ function buildSensitiveConfirmation(action = {}, element = {}) {
   );
   return {
     reason: "sensitive_final_action",
-    message: `This looks like a sensitive final action: ${label}`,
+    message: message(action?.language || "en", "runtime.sensitiveFinalActionLabel", { label }),
     action,
     targetLabel: label
   };
@@ -1081,7 +1081,7 @@ class BrowserAgentRuntime {
             ok: false,
             error: "Sensitive confirmation is required before clicking this element.",
             requiresConfirmation: true,
-            confirmation: buildSensitiveConfirmation({ tool, input }, observedElement)
+            confirmation: buildSensitiveConfirmation({ tool, input, language: options.language || "en" }, observedElement)
           };
         }
         break;
@@ -1564,7 +1564,7 @@ class BrowserAgentRuntime {
 
     return {
       actions,
-      finalSummary: buildPlannerFailureReply(language, finalSummary),
+      finalSummary: finalSummary,
       lastObservation,
       pendingConfirmation,
       state,

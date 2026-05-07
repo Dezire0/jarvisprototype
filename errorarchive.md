@@ -38,3 +38,32 @@ Validation results after fixes:
 - `npm run test:node` ✅ `160/160`
 - `corepack pnpm --dir 'Jarvis Ui' --filter assistant-ui-starter-cloud build` ✅
 - `npm run dev` + Electron UI verification ✅
+
+2026-05-07 i18n hardening follow-up
+
+Resolved this cycle:
+1. Removed residual browser runtime hardcoded confirmation strings
+   - `src/main/browser-agent-runtime.cjs`
+   - `runtime.sensitiveFinalActionLabel` now comes from the shared catalog
+   - redundant `buildPlannerFailureReply` behavior was reduced to a passthrough and final summaries now return directly
+
+2. Centralized backend/frontend messages into one shared catalog
+   - added `src/shared/jarvis-messages.json`
+   - backend loader: `src/main/i18n/messages.cjs`
+   - frontend helper: `Jarvis Ui/templates/cloud/lib/jarvis-messages.ts`
+
+3. Moved CompanionBuddy UI strings into the shared catalog
+   - `Jarvis Ui/templates/cloud/components/jarvis/companion-buddy.tsx`
+   - removed local `prefersKorean()`-style hardcoded message branching
+
+4. Moved AdminDashboardCard UI strings into the shared catalog
+   - `Jarvis Ui/templates/cloud/components/jarvis/admin-dashboard-card.tsx`
+   - dashboard labels now resolve through the same helper used by Buddy
+
+5. Replaced matching assistant-service sensitive confirmation copy with catalog-backed strings
+   - `src/main/assistant-service.cjs`
+
+Validation results after i18n hardening:
+- `npm run check` ✅
+- `node --test tests/node/i18n-messages.test.cjs tests/node/browser-agent-runtime.test.cjs tests/node/companion-service.test.cjs` ✅ `24/24`
+- `corepack pnpm --dir 'Jarvis Ui' --filter assistant-ui-starter-cloud build` ✅

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SparklesIcon, Music4Icon, PauseIcon, PlayIcon, ScrollTextIcon, WandSparklesIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getJarvisLanguage, jarvisText } from "@/lib/jarvis-messages";
 import { cn } from "@/lib/utils";
 
 type BuddyAction = {
@@ -44,10 +45,6 @@ type CompanionState = {
   };
 };
 
-function prefersKorean() {
-  return typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("ko");
-}
-
 function formatSeconds(ms = 0) {
   const total = Math.max(0, Math.round(ms / 1000));
   const minutes = Math.floor(total / 60);
@@ -56,7 +53,7 @@ function formatSeconds(ms = 0) {
 }
 
 export function CompanionBuddy() {
-  const isKo = prefersKorean();
+  const language = getJarvisLanguage();
   const [companion, setCompanion] = useState<CompanionState | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [busyActionId, setBusyActionId] = useState("");
@@ -212,17 +209,15 @@ export function CompanionBuddy() {
       const suggestedPrompt = response?.data?.suggestedPrompt || "";
       if (suggestedPrompt) {
         setPromptPreview(suggestedPrompt);
-        setStatusMessage(
-          isKo ? "버디가 바로 쓸 수 있는 프롬프트를 준비했어요." : "Buddy prepared a prompt you can use right away."
-        );
+        setStatusMessage(jarvisText(language, "frontend.buddy.manualStatus"));
         if (navigator.clipboard?.writeText) {
           void navigator.clipboard.writeText(suggestedPrompt).catch(() => {});
         }
       } else if (response?.data?.lyrics?.lyricsSnippet) {
         setPromptPreview(response.data.lyrics.lyricsSnippet);
-        setStatusMessage(isKo ? "가사 힌트를 가져왔어요." : "Fetched a lightweight lyrics hint.");
+        setStatusMessage(jarvisText(language, "frontend.buddy.lyricsStatus"));
       } else {
-        setStatusMessage(isKo ? "동작을 실행했어요." : "Action completed.");
+        setStatusMessage(jarvisText(language, "frontend.buddy.actionDone"));
       }
       await refreshState();
     } catch (error) {
@@ -240,7 +235,7 @@ export function CompanionBuddy() {
             {media.thumbnailUrl ? (
               <img
                 src={media.thumbnailUrl}
-                alt={media.title || "Media"}
+                alt={media.title || jarvisText(language, "frontend.buddy.mediaAlt")}
                 className="h-16 w-24 rounded-2xl object-cover"
               />
             ) : (
@@ -253,7 +248,7 @@ export function CompanionBuddy() {
                 {media.provider || "YouTube"}
               </p>
               <p className="mt-1 line-clamp-2 text-sm font-semibold text-white">
-                {media.title || (isKo ? "현재 미디어" : "Current media")}
+                {media.title || jarvisText(language, "frontend.buddy.currentMedia")}
               </p>
               <p className="mt-1 text-xs text-zinc-400">
                 {(media.playbackState || "idle").toUpperCase()} {progressLabel ? `· ${progressLabel}` : ""}
@@ -269,7 +264,7 @@ export function CompanionBuddy() {
               onClick={() => void window.assistantAPI?.invokeTool("media:play", {})}
             >
               <PlayIcon className="mr-2 size-4" />
-              {isKo ? "재생" : "Play"}
+              {jarvisText(language, "frontend.buddy.mediaPlay")}
             </Button>
             <Button
               type="button"
@@ -279,7 +274,7 @@ export function CompanionBuddy() {
               onClick={() => void window.assistantAPI?.invokeTool("media:pause", {})}
             >
               <PauseIcon className="mr-2 size-4" />
-              {isKo ? "일시정지" : "Pause"}
+              {jarvisText(language, "frontend.buddy.mediaPause")}
             </Button>
             <Button
               type="button"
@@ -299,10 +294,10 @@ export function CompanionBuddy() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-300/80">
-                Jarvis Buddy
+                {jarvisText(language, "frontend.buddy.title")}
               </p>
               <p className="mt-2 text-sm leading-6 text-white">
-                {buddy?.message || (isKo ? "로컬 트리거를 기반으로만 개입할 준비를 하고 있어요." : "I only step in when local triggers suggest it might help.")}
+                {buddy?.message || jarvisText(language, "frontend.buddy.triggeredDefault")}
               </p>
               {buddy?.event?.kind ? (
                 <p className="mt-2 text-[11px] text-zinc-400">
@@ -315,7 +310,7 @@ export function CompanionBuddy() {
               onClick={() => setExpanded(false)}
               className="rounded-full border border-white/10 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/6 hover:text-white"
             >
-              {isKo ? "닫기" : "Close"}
+              {jarvisText(language, "frontend.buddy.close")}
             </button>
           </div>
 
@@ -367,7 +362,7 @@ export function CompanionBuddy() {
         className="pointer-events-auto h-14 rounded-full border border-emerald-400/30 bg-emerald-500/18 px-5 text-white shadow-[0_24px_70px_rgba(16,185,129,0.18)] hover:bg-emerald-500/26"
       >
         <SparklesIcon className="mr-2 size-4" />
-        {isKo ? "Buddy" : "Buddy"}
+        {jarvisText(language, "frontend.buddy.button")}
         <WandSparklesIcon className="ml-2 size-4 text-emerald-200" />
       </Button>
     </div>

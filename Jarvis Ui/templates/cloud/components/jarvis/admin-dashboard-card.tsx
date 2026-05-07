@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BarChart3Icon, Clock3Icon, RefreshCwIcon, ShieldCheckIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getJarvisLanguage, jarvisText } from "@/lib/jarvis-messages";
 import { cn } from "@/lib/utils";
 
 type DashboardState = {
@@ -30,6 +31,7 @@ type DashboardState = {
 export function AdminDashboardCard({ isKo = true }: { isKo?: boolean }) {
   const [dashboard, setDashboard] = useState<DashboardState | null>(null);
   const [loading, setLoading] = useState(false);
+  const language = getJarvisLanguage(isKo ? "ko" : "en");
 
   async function refresh(forceLoading = false) {
     if (!window.assistantAPI?.getDashboardState) {
@@ -71,10 +73,10 @@ export function AdminDashboardCard({ isKo = true }: { isKo?: boolean }) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-300/80">
-            {isKo ? "관리 대시보드" : "Admin Dashboard"}
+            {jarvisText(language, "frontend.dashboard.title")}
           </p>
           <p className="mt-1 text-xs text-zinc-400">
-            {isKo ? "Buddy, 미디어, 계정 자동화 지표" : "Buddy, media, and account automation metrics"}
+            {jarvisText(language, "frontend.dashboard.subtitle")}
           </p>
         </div>
         <Button
@@ -89,16 +91,16 @@ export function AdminDashboardCard({ isKo = true }: { isKo?: boolean }) {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <MetricTile label={isKo ? "성공 자동화" : "Success"} value={metrics.successfulAutomations || 0} />
-        <MetricTile label={isKo ? "실패 자동화" : "Failures"} value={metrics.failedAutomations || 0} />
-        <MetricTile label={isKo ? "절약 시간" : "Time Saved"} value={`${metrics.estimatedMinutesSaved || 0}m`} />
-        <MetricTile label={isKo ? "Buddy 트리거" : "Buddy Triggers"} value={metrics.buddyTriggers || 0} />
+        <MetricTile label={jarvisText(language, "frontend.dashboard.success")} value={metrics.successfulAutomations || 0} />
+        <MetricTile label={jarvisText(language, "frontend.dashboard.failures")} value={metrics.failedAutomations || 0} />
+        <MetricTile label={jarvisText(language, "frontend.dashboard.timeSaved")} value={`${metrics.estimatedMinutesSaved || 0}m`} />
+        <MetricTile label={jarvisText(language, "frontend.dashboard.buddyTriggers")} value={metrics.buddyTriggers || 0} />
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 p-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-zinc-300">
           <BarChart3Icon className="size-4 text-emerald-300" />
-          {isKo ? "토큰 사용량 추이" : "Token usage trend"}
+          {jarvisText(language, "frontend.dashboard.tokenTrend")}
         </div>
         <div className="mt-3 flex items-end gap-2">
           {snapshots.length ? snapshots.map((snapshot, index) => {
@@ -118,7 +120,7 @@ export function AdminDashboardCard({ isKo = true }: { isKo?: boolean }) {
             );
           }) : (
             <div className="py-4 text-xs text-zinc-500">
-              {isKo ? "아직 지표가 충분하지 않습니다." : "Not enough metrics yet."}
+              {jarvisText(language, "frontend.dashboard.notEnoughMetrics")}
             </div>
           )}
         </div>
@@ -128,7 +130,7 @@ export function AdminDashboardCard({ isKo = true }: { isKo?: boolean }) {
         <div className="rounded-xl border border-white/8 bg-black/20 p-3">
           <div className="inline-flex items-center gap-1 text-zinc-400">
             <Clock3Icon className="size-3.5" />
-            {isKo ? "큐 처리" : "Queue"}
+            {jarvisText(language, "frontend.dashboard.queue")}
           </div>
           <p className="mt-2 text-sm font-semibold text-white">
             {(metrics.queueCompleted || 0)}/{(metrics.queueFailed || 0) + (metrics.queueCompleted || 0)}
@@ -137,7 +139,7 @@ export function AdminDashboardCard({ isKo = true }: { isKo?: boolean }) {
         <div className="rounded-xl border border-white/8 bg-black/20 p-3">
           <div className="inline-flex items-center gap-1 text-zinc-400">
             <ShieldCheckIcon className="size-3.5" />
-            {isKo ? "미디어 제어" : "Media"}
+            {jarvisText(language, "frontend.dashboard.media")}
           </div>
           <p className="mt-2 text-sm font-semibold text-white">
             {metrics.mediaInteractions || 0}

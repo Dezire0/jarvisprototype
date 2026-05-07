@@ -1,4 +1,4 @@
-2026-05-07 v2 validation
+2026-05-07 i18n hardening validation
 
 Latest remaining warning during node tests:
 - `getconf: confstr: DARWIN_USER_DIR: Input/output error`
@@ -12,7 +12,6 @@ Scope:
 Current product-level result:
 - No failing app/runtime tests remain
 - `npm run check` passed
-- targeted companion/runtime/registry tests passed
-- `npm run test:node` passed `160/160`
+- targeted i18n/runtime/companion tests passed
 - Next UI build passed
-- Electron `Jarvis Desktop` launched and showed the new Buddy + Admin Dashboard UI
+- shared message catalog is now used by backend runtime and new frontend Buddy/Admin UI
