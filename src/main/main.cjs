@@ -50,6 +50,7 @@ const { SttService } = require("./stt-service.cjs");
 const { TtsService } = require("./tts-service.cjs");
 const { UpdaterService } = require("./updater-service.cjs");
 const { createCompanionServices } = require("./v2-services-bridge.cjs");
+const { InternalBrainService } = require("./internal-brain-service.cjs");
 
 const piiManager = require("./pii-manager.cjs");
 const osAutomation = require("./os-automation.cjs");
@@ -233,6 +234,12 @@ async function createServices() {
     language: settings.getPreferredLanguage?.() || "ko"
   });
 
+  const internalBrain = new InternalBrainService({
+    app,
+    settingsStore: settings
+  });
+  await internalBrain.init();
+
   services = {
     automation,
     browser,
@@ -242,6 +249,7 @@ async function createServices() {
     extensions,
     files,
     games,
+    internalBrain,
     memory,
     obs,
     openClaw,
@@ -263,6 +271,7 @@ async function createServices() {
     memory,
     obs,
     openClaw,
+    internalBrain,
     screen: screenService,
     tts,
     settings,
@@ -287,6 +296,7 @@ async function createServices() {
         memory,
         obs,
         openClaw,
+        internalBrain,
         screen: screenService,
         tts,
         settings,
@@ -567,7 +577,7 @@ function createSettingsWindow() {
     height: 960,
     minWidth: 1180,
     minHeight: 780,
-    show: true,
+    show: false,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
     title: "Jarvis Desktop v1.8.9",
@@ -700,12 +710,13 @@ function createSettingsWindow() {
     app.focus({
       steal: true
     });
-  }, 1200);
+  }, 30000);
 }
 
 function openSettingsWindow() {
   if (!settingsWindow) {
     createSettingsWindow();
+    return;
   }
 
   if (settingsWindow.isMinimized()) {

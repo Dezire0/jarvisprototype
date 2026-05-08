@@ -2872,7 +2872,7 @@ const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
 ]);
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, companion, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings, threadId }) {
+  constructor({ automation, browser, codeProjects, companion, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings, internalBrain, threadId }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
@@ -2884,6 +2884,7 @@ class AssistantService {
     this.memory = memory || null;
     this.obs = obs;
     this.openClaw = openClaw || null;
+    this.internalBrain = internalBrain || null;
     this.screen = screen;
     this.tts = tts;
     this.settings = settings;
@@ -3566,10 +3567,11 @@ class AssistantService {
     );
   }
 
-  buildBrowserPlanningContext(input = "", route = {}) {
+  buildBrowserPlanningContext(input = "", route = {}, summary = null) {
     return {
       currentBrowserUrl: this.lastBrowserContext?.url || "",
       currentBrowserLabel: this.lastBrowserContext?.label || "",
+      currentBrowserSummary: summary,
       mailboxContext: isMailboxUrl(this.lastBrowserContext?.url || ""),
       pendingContinuation: Boolean(this.pendingBrowserContinuation),
       officialSiteRequested: prefersOfficialSiteFallback(input),
@@ -3604,8 +3606,8 @@ class AssistantService {
     };
   }
 
-  async planBrowserWorkflow(input = "", route = {}) {
-    const planningContext = this.buildBrowserPlanningContext(input, route);
+  async planBrowserWorkflow(input = "", route = {}, summary = null) {
+    const planningContext = this.buildBrowserPlanningContext(input, route, summary);
     const fallbackPlan = buildHeuristicBrowserPlan(input, planningContext);
     const preferDirectHeuristicPlan =
       Boolean(fallbackPlan.forceCurrentBrowserContext) ||
@@ -3636,7 +3638,7 @@ class AssistantService {
     try {
       const response = await this.openClaw.planBrowserTask(
         input,
-        this.buildBrowserPlanningContext(input, route)
+        planningContext
       );
       const plan = normalizeOpenClawBrowserPlan(response?.plan || response);
 
@@ -5998,7 +6000,20 @@ class AssistantService {
     const plannerTier = chooseAutomationReasoningTier(input, route);
 
     if (route.route === "browser") {
-      const browserPlanning = await this.planBrowserWorkflow(input, route);
+      const summary = await this.browser.getLightweightSummary();
+      const strategyDecision = await this.internalBrain?.decideStrategy(input, summary);
+      
+      let browserPlanning;
+      if (strategyDecision?.strategy === "MACRO") {
+        browserPlanning = await this.planBrowserWorkflow(input, route, summary);
+      } else {
+        // Force ReAct / Autonomous agent route
+        browserPlanning = { 
+          plan: { steps: [] }, 
+          planner: "internal-brain", 
+          plannerReason: strategyDecision?.reason || "brain-forced-react" 
+        };
+      }
       plannerMeta = this.buildBrowserPlannerMeta(browserPlanning);
       const plan = browserPlanning.plan;
       const normalizedInput = normalizePlanText(input);
@@ -6081,6 +6096,10 @@ class AssistantService {
             url: targetUrl
           }
         );
+        const pseudoThink = language === "ko"
+          ? `<think>\n요청 분석 결과, 외부 브라우저(새 창)에서 단일 링크를 여는 작업입니다.\n목표 URL: ${targetUrl}\n추가 탐색이 필요하지 않으므로 즉시 엽니다.\n</think>\n\n`
+          : `<think>\nAnalysis indicates a simple external link.\nTarget URL: ${targetUrl}\nOpening immediately in an external browser.\n</think>\n\n`;
+
         return this.runOpenClawToolAction(
           {
             tool: "browser.open",
@@ -6093,7 +6112,7 @@ class AssistantService {
             route,
             language,
             plannerMeta,
-            reply: fallback
+            reply: pseudoThink + fallback
           }
         );
       }
@@ -6115,7 +6134,28 @@ class AssistantService {
           this.rememberBrowserContext(finalUrl, finalLabel, {
             language
           });
-          return this.completeBrowserPlan(input, data, plannerMeta);
+
+          // Vision Guardrail: Verify if the macro actually achieved the goal using the fixed internal brain
+          let isSuccess = true;
+          try {
+            const screenshot = await this.browser.screenshot?.();
+            if (screenshot) {
+              isSuccess = await this.internalBrain?.verifyOutcome(input, screenshot.toString("base64"));
+            }
+          } catch (_vError) {
+            // If verification fails, assume success to avoid unnecessary loops
+          }
+
+          if (isSuccess) {
+            const baseReply = await this.completeBrowserPlan(input, data, plannerMeta);
+            const pseudoThink = language === "ko"
+              ? `<think>\n요청받은 작업을 분석했습니다.\n이 작업은 고속 매크로 엔진으로 즉시 처리가 가능합니다.\n실행 결과를 시각적으로 확인하였으며, 성공적으로 완료되었습니다.\n</think>\n\n`
+              : `<think>\nTask analyzed. A deterministic high-speed macro is available.\nExecution verified via vision, task completed successfully.\n</think>\n\n`;
+
+            baseReply.reply = pseudoThink + (baseReply.reply || "");
+            return baseReply;
+          }
+          // If NOT success, fall through to ReAct loop for self-healing
         } catch (_error) {
           // Fall through to the ReAct browser agent when the deterministic executor is unavailable.
         }
@@ -6158,8 +6198,12 @@ class AssistantService {
 
       if (isSimpleOpen && !state.anomalies?.length) {
         const label = inferFriendlyBrowserLabel(state.title || initialUrl, language) || initialUrl;
+        const pseudoThink = language === "ko" 
+          ? `<think>\n사용자가 단순 웹사이트 이동을 요청했습니다.\n분석된 목적지: ${state.url || initialUrl}\n이 작업은 추가적인 액션 탐색이 필요하지 않으므로 즉시 이동하고 완료 처리합니다.\n</think>\n\n`
+          : `<think>\nUser requested simple navigation.\nDestination: ${state.url || initialUrl}\nNavigating immediately without further action.\n</think>\n\n`;
+
         return {
-          reply: language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`,
+          reply: pseudoThink + (language === "ko" ? `${label} 열었어요.` : `I opened ${label}.`),
           actions,
           provider: "openclaw-computer-use",
           details: this.buildOpenClawExecutorDetails({

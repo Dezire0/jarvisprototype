@@ -121,7 +121,9 @@ function createDefaultSettings() {
         ...DEFAULT_TTS_SETTINGS.google
       }
     },
-    geminiApiKeyEncrypted: ""
+    geminiApiKeyEncrypted: "",
+    internalGroqKeyEncrypted: "",
+    internalGeminiKeyEncrypted: ""
   };
 }
 
@@ -202,6 +204,8 @@ class SettingsStore {
     return {
       version: 1,
       geminiApiKeyEncrypted: String(raw.geminiApiKeyEncrypted || ""),
+      internalGroqKeyEncrypted: String(raw.internalGroqKeyEncrypted || ""),
+      internalGeminiKeyEncrypted: String(raw.internalGeminiKeyEncrypted || ""),
       conversationModel: {
         provider: normalizeConversationProvider(storedConversation.provider, defaults.conversationModel.provider),
         groq: {

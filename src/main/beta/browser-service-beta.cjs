@@ -291,7 +291,7 @@ class BaseBrowserService {
   // ── Browser Lifecycle (preserved from v1) ──
 
   getCommonLaunchOptions() {
-    const headless = process.env.JARVIS_HEADLESS !== "0";
+    const headless = process.env.JARVIS_HEADLESS === "1";
     return {
       headless,
       viewport: headless ? { width: 1440, height: 960 } : null,
