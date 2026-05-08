@@ -70,7 +70,6 @@ module.exports = {
     "!release{,/**}",
     "!tests{,/**}",
     "!docs{,/**}",
-    "!claw-code-main*{,/**}",
     "!tmp-browser-profile{,/**}",
     "!secret{,/**}"
   ],
