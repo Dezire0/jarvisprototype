@@ -81,8 +81,8 @@ Record the exact checks run in the PR body.
 - Open a PR from the issue branch into `dev` first.
 - Review the PR for code conflicts, unexpected file changes, and missing verification before merging.
 - Merge into `dev` only after the PR is clean and verification is recorded.
-- After `dev` is confirmed healthy, open a second PR from `dev` into `main`.
-- Review the `dev` to `main` PR for conflicts and verification notes before merging.
+- After `dev` is confirmed healthy, open a second PR from the same remote issue branch into `main`.
+- Review the issue-branch to `main` PR for conflicts and verification notes before merging.
 - Merge into `main` only after `dev` has no known issue from the change.
 - After the `main` merge is complete, delete the pushed remote issue branch.
 - Keep the local repository on `main` or `dev` after cleanup, not on a deleted issue branch.
