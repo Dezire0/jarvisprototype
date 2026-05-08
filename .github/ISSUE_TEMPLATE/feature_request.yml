@@ -1,0 +1,85 @@
+name: Feature or improvement
+description: Propose a new feature, UX improvement, or behavior change.
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should be added or improved?
+      placeholder: Describe the requested change in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation or Problem
+      description: Why is this useful?
+      placeholder: Explain the user need, workflow gap, or technical reason.
+    validations:
+      required: true
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current Behavior
+      description: What happens now?
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What should happen after this is implemented?
+    validations:
+      required: true
+  - type: textarea
+    id: user_flow
+    attributes:
+      label: User Flow
+      description: How should a user experience this feature?
+      placeholder: |
+        1. User opens ...
+        2. User chooses ...
+        3. App responds by ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Which app surfaces, files, or flows are likely affected?
+      placeholder: Settings UI, assistant runtime, browser tools, tests, docs, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: What should this issue intentionally not cover?
+      placeholder: Keep unrelated refactors, visual redesigns, or provider changes out of scope.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: What concrete outcomes prove this is complete?
+      placeholder: |
+        - User can ...
+        - App persists ...
+        - Regression test covers ...
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification Plan
+      description: What commands or manual checks should be run?
+      placeholder: |
+        - npm run check
+        - npm run test:node
+        - Manual Electron check: ...
+    validations:
+      required: true

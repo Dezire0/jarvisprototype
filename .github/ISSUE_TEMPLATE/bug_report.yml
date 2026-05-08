@@ -1,0 +1,85 @@
+name: Bug fix
+description: Report a reproducible bug that should be fixed.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken?
+      placeholder: Describe the bug in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Motivation or Problem
+      description: Why does this need to be fixed?
+      placeholder: Explain the user impact or technical risk.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: How can someone reproduce the problem?
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current Behavior
+      description: What happens now?
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What should happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Which app surfaces, files, or flows are likely affected?
+      placeholder: Electron UI, voice input, src/main service, tests, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: What concrete outcomes prove the bug is fixed?
+      placeholder: |
+        - The error no longer appears when ...
+        - The UI shows ...
+        - Regression test covers ...
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification Plan
+      description: What commands or manual checks should be run?
+      placeholder: |
+        - npm run check
+        - npm run test:node
+        - Manual Electron check: ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, app version, branch, API provider, or other relevant context.
+      placeholder: macOS, Electron dev mode, main branch, etc.
+    validations:
+      required: false
