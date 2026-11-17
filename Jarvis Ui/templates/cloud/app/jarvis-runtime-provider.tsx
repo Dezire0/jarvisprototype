@@ -3,6 +3,7 @@
 import { createContext, useContext, type ReactNode, useMemo, useState } from "react";
 
 import { createAssistantStream } from "assistant-stream";
+import { attachmentPrefix, createChatAttachmentAdapter, readAttachmentLabel, type AttachmentError } from "@/lib/chat-attachments";
 import {
   AssistantRuntimeProvider,
   type AssistantTransportCommand,
@@ -14,10 +15,18 @@ import {
 } from "@assistant-ui/react";
 
 const TransportError = createContext<string | null>(null);
+const FileError = createContext<{ error: AttachmentError | null; clear: () => void }>({
+  error: null,
+  clear: () => {},
+});
 
 export function useJarvisTransportError() {
   return useContext(TransportError);
 }
+export function useJarvisAttachmentError() {
+  return useContext(FileError);
+}
+
 type TransportMessage = {
   id: string;
   role: "user" | "assistant";
@@ -27,6 +36,8 @@ type TransportMessage = {
   provider?: string;
   actions?: any[];
   details?: any;
+  attachmentReview?: boolean;
+  attachmentNames?: string[];
 };
 
 type TransportState = {
@@ -123,6 +134,7 @@ function buildMemoryContext(threadId: string | null) {
 
 async function syncToCloud(threadId: string, title?: string, messages?: readonly any[]) {
   if (typeof window === "undefined") return;
+  if (messages?.some((message) => message.metadata?.custom?.attachmentReview)) return;
   const token = window.localStorage.getItem("jarvis_auth_token");
   if (!token) return;
 
@@ -224,7 +236,7 @@ const threadListAdapter: RemoteThreadListAdapter = {
         .join(" ")
         .trim();
 
-      const title = content ? content.slice(0, 50) : "New Chat";
+      const title = content ? content.slice(0, 50) : firstUserMessage?.attachments.length ? "File review" : "New Chat";
       controller.appendText(title);
       
       // Sync title to cloud after generation
@@ -282,6 +294,7 @@ function toThreadMessages(state: TransportState): any[] {
           custom: {
             provider: message.provider || "local",
             details: message.details || null,
+            attachmentReview: message.attachmentReview === true,
           },
         },
       };
@@ -292,10 +305,17 @@ function toThreadMessages(state: TransportState): any[] {
       role: "user" as const,
       createdAt,
       content,
-      attachments: [],
+      attachments: (message.attachmentNames ?? []).map((name, index) => ({
+        id: message.id + "-file-" + index,
+        name,
+        type: "document",
+        status: { type: "complete" },
+        content: [],
+      })),
       metadata: {
         custom: {
           details: message.details || null,
+          attachmentReview: message.attachmentReview === true,
         },
       },
     };
@@ -318,7 +338,7 @@ function extractCommandText(
       .map((part) =>
         part?.type === "text" && typeof part.text === "string" ? part.text : "",
       )
-      .filter((part) => part.trim().length > 0)
+      .filter((part) => part.trim().length > 0 && !part.startsWith(attachmentPrefix))
       .join(" ")
       .trim();
   }
@@ -351,7 +371,13 @@ function createOptimisticMessage(
   }
 
   const text = extractCommandText(command.message);
-  if (!text) {
+  const attachmentNames = command.message.parts.flatMap((part) => {
+    if (part.type === "image") return ["Clipboard image"];
+    if (part.type !== "text") return [];
+    const label = readAttachmentLabel(part.text);
+    return label ? [label] : [];
+  });
+  if (!text && !attachmentNames.length) {
     return null;
   }
 
@@ -361,6 +387,8 @@ function createOptimisticMessage(
     id: `pending-${index}-${command.sourceId ?? command.parentId ?? "root"}`,
     role,
     text,
+    attachmentNames,
+    attachmentReview: attachmentNames.length > 0,
     createdAt: PENDING_MESSAGE_CREATED_AT,
     ...(role === "assistant" ? { status: "complete" as const } : {}),
   };
@@ -434,7 +462,10 @@ function transportConverter(
   } as any;
 }
 
-function useJarvisTransportRuntime(setError: (value: string | null) => void) {
+function useJarvisTransportRuntime(
+  setError: (value: string | null) => void,
+  setFileError: (value: AttachmentError | null) => void,
+) {
   const token = typeof window !== "undefined" ? window.localStorage.getItem("jarvis_auth_token") : null;
   const headers = useMemo(() => {
     return {
@@ -442,13 +473,16 @@ function useJarvisTransportRuntime(setError: (value: string | null) => void) {
       Authorization: token ? `Bearer ${token}` : "",
     };
   }, [token]);
+  const attachments = useMemo(() => createChatAttachmentAdapter(setFileError), [setFileError]);
 
   return useAssistantTransportRuntime<TransportState>({
     initialState: INITIAL_STATE,
     api: CHAT_API_PATH,
     headers,
+    adapters: { attachments },
     prepareSendCommandsRequest: async (body) => {
       setError(null);
+      setFileError(null);
       return {
         ...body,
         memoryContext: buildMemoryContext(typeof body.threadId === "string" ? body.threadId : null),
@@ -463,7 +497,9 @@ function useJarvisTransportRuntime(setError: (value: string | null) => void) {
     },
     onError: (error) => {
       console.error("Jarvis transport error:", error);
-      setError("transport-unavailable");
+      if (error.message.startsWith("Status 422:")) setError("attachment-invalid");
+      else if (error.message.startsWith("Status 413:")) setError("message-too-large");
+      else setError("transport-unavailable");
     },
   });
 }
@@ -472,14 +508,17 @@ export function JarvisRuntimeProvider({
   children,
 }: Readonly<{ children: ReactNode }>) {
   const [error, setError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<AttachmentError | null>(null);
   const runtime = useRemoteThreadListRuntime({
-    runtimeHook: () => useJarvisTransportRuntime(setError),
+    runtimeHook: () => useJarvisTransportRuntime(setError, setFileError),
     adapter: threadListAdapter,
   });
 
   return (
     <TransportError.Provider value={error}>
-      <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+      <FileError.Provider value={{ error: fileError, clear: () => setFileError(null) }}>
+        <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+      </FileError.Provider>
     </TransportError.Provider>
   );
 }

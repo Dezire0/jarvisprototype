@@ -1,0 +1,15 @@
+{
+  "prefix": "\u001ejarvis-file:1:",
+  "maxFiles": 4,
+  "maxTotalBytes": 4194304,
+  "maxImageBytes": 2097152,
+  "maxTextBytes": 65536,
+  "maxNameLength": 180,
+  "textExtensions": ["txt", "md", "csv", "json", "html", "xml", "css"],
+  "imageExtensions": {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp"
+  }
+}
