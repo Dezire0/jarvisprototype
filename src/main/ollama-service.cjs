@@ -894,13 +894,18 @@ async function resolveAvailableModel(requestedModel = CHAT_MODEL, url = OLLAMA_U
   return installed[0] || requestedModel;
 }
 
-async function chatWithOllama({ systemPrompt, userPrompt, history = [], model = CHAT_MODEL, url = OLLAMA_URL }) {
+async function chatWithOllama({
+  systemPrompt, userPrompt, history = [], model = CHAT_MODEL, url = OLLAMA_URL, images = [], signal, exactModel = false
+}) {
   const messages = buildMessageList({ systemPrompt, userPrompt, history });
-  const primaryModel = await resolveAvailableModel(model, url);
+  if (images.length) messages.at(-1).images = images.map(({ data }) => data);
+  const candidates = exactModel
+    ? [model]
+    : [...buildModelCandidates(await resolveAvailableModel(model, url)), ...buildModelCandidates(model)];
   const attemptedModels = new Set();
   let lastError = null;
 
-  for (const candidateModel of [...buildModelCandidates(primaryModel), ...buildModelCandidates(model)]) {
+  for (const candidateModel of candidates) {
     if (!candidateModel || attemptedModels.has(candidateModel)) {
       continue;
     }
@@ -909,6 +914,7 @@ async function chatWithOllama({ systemPrompt, userPrompt, history = [], model = 
 
     const response = await fetch(url, {
       method: "POST",
+      signal,
       headers: {
         "Content-Type": "application/json"
       },
@@ -950,9 +956,9 @@ async function chatWithOllama({ systemPrompt, userPrompt, history = [], model = 
   throw lastError || new Error("Ollama request failed.");
 }
 
-async function chatWithGemini({ systemPrompt, userPrompt, history = [], model = FAST_LLM_MODEL }) {
-  const apiKey = getGeminiApiKey();
-
+async function chatWithGemini({
+  systemPrompt, userPrompt, history = [], model = FAST_LLM_MODEL, apiKey = getGeminiApiKey(), images = [], signal
+}) {
   if (!apiKey) {
     throw new Error("Gemini API key is missing. Set GEMINI_API_KEY or GOOGLE_API_KEY.");
   }
@@ -968,9 +974,15 @@ async function chatWithGemini({ systemPrompt, userPrompt, history = [], model = 
         }
       ]
     }));
+  if (images.length) {
+    conversation.at(-1).parts.push(...images.map(({ mimeType, data }) => ({
+      inlineData: { mimeType, data }
+    })));
+  }
 
   const response = await fetch(url, {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json"
     },
@@ -1010,10 +1022,20 @@ async function chatWithOpenAICompatible({
   history = [],
   model = COMPLEX_LLM_MODEL,
   url = COMPLEX_LLM_URL,
-  apiKey = COMPLEX_LLM_API_KEY
+  apiKey = COMPLEX_LLM_API_KEY,
+  images = [],
+  signal
 }) {
+  const messages = buildMessageList({ systemPrompt, userPrompt, history });
+  if (images.length) {
+    messages.at(-1).content = [
+      { type: "text", text: userPrompt },
+      ...images.map(({ mimeType, data }) => ({ type: "image_url", image_url: { url: `data:${mimeType};base64,${data}` } }))
+    ];
+  }
   const response = await fetch(url, {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       ...(apiKey
@@ -1025,7 +1047,7 @@ async function chatWithOpenAICompatible({
     body: JSON.stringify({
       model,
       stream: false,
-      messages: buildMessageList({ systemPrompt, userPrompt, history })
+      messages
     })
   });
 
@@ -1119,7 +1141,9 @@ function getTierProviderLabel(tier = "complex") {
   return `${config.provider}:${config.model}`;
 }
 
-async function chat({ systemPrompt, userPrompt, history = [], model, tier = "complex", provider, url, apiKey }) {
+async function chat({
+  systemPrompt, userPrompt, history = [], model, tier = "complex", provider, url, apiKey, images = [], signal, exactModel
+}) {
   const config = resolveConfig({ tier, provider, model, url, apiKey });
 
   if (config.provider === "gemini") {
@@ -1127,7 +1151,10 @@ async function chat({ systemPrompt, userPrompt, history = [], model, tier = "com
       systemPrompt,
       userPrompt,
       history,
-      model: config.model
+      model: config.model,
+      apiKey: config.apiKey,
+      images,
+      signal
     });
   }
 
@@ -1156,7 +1183,9 @@ async function chat({ systemPrompt, userPrompt, history = [], model, tier = "com
       history,
       model: config.model,
       url: config.url,
-      apiKey: config.apiKey
+      apiKey: config.apiKey,
+      images,
+      signal
     });
   }
 
@@ -1185,7 +1214,10 @@ async function chat({ systemPrompt, userPrompt, history = [], model, tier = "com
     userPrompt,
     history,
     model: config.model,
-    url: config.url
+    url: config.url,
+    images,
+    signal,
+    exactModel
   });
 }
 
