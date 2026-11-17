@@ -19,31 +19,40 @@ export function ThemeToggle() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
-    const storedTheme =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(STORAGE_KEY)
-        : null;
-    const resolvedTheme =
-      storedTheme === "light" || storedTheme === "dark"
-        ? storedTheme
-        : "dark";
-
-    setTheme(resolvedTheme);
-    applyTheme(resolvedTheme);
+    const colors = window.matchMedia("(prefers-color-scheme: dark)");
+    function updateTheme() {
+      let storedTheme: string | null = null;
+      try {
+        storedTheme = window.localStorage.getItem(STORAGE_KEY);
+      } catch {
+        // A browser with storage disabled can still render the system theme.
+      }
+      const next = storedTheme === "light" || storedTheme === "dark"
+        ? storedTheme : colors.matches ? "dark" : "light";
+      setTheme(next);
+      applyTheme(next);
+    }
+    updateTheme();
+    colors.addEventListener("change", updateTheme);
+    return () => colors.removeEventListener("change", updateTheme);
   }, []);
 
   function toggleTheme() {
     const nextTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
     applyTheme(nextTheme);
-    window.localStorage.setItem(STORAGE_KEY, nextTheme);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, nextTheme);
+    } catch {
+      // Keep the live appearance when preferences cannot be persisted.
+    }
   }
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
-      className="aui-theme-toggle inline-flex h-10 items-center gap-2 rounded-full border border-border/70 bg-card/70 px-4 text-sm font-medium text-foreground transition hover:bg-accent"
+      className="jarvis-icon-button"
       aria-label={
         theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
       }
@@ -53,7 +62,6 @@ export function ThemeToggle() {
       ) : (
         <MoonStarIcon className="size-4" />
       )}
-      <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
     </button>
   );
 }

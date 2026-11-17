@@ -23,6 +23,8 @@ declare global {
         provider?: string;
         text?: string;
       }>;
+      loadLocalWorkspace?: () => Promise<string | null>;
+      saveLocalWorkspace?: (serialized: string) => Promise<void>;
       invokeTool: (tool: string, payload?: Record<string, unknown>) => Promise<unknown>;
       onUpdateStatus: (callback: (payload: unknown) => void) => (() => void) | void;
     };

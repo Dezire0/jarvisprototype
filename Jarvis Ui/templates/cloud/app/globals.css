@@ -54,12 +54,18 @@
 }
 
 :root {
-  --font-geist-sans: "SF Pro Display", "Helvetica Neue", ui-sans-serif, system-ui,
-    sans-serif;
+  --font-geist-sans: system-ui, "Apple SD Gothic Neo", sans-serif;
   --font-geist-mono: "SF Mono", "Menlo", "Monaco", "Cascadia Mono",
     "Segoe UI Mono", monospace;
   --radius: 0.625rem;
-  --background: #f4f4f5;
+  --jarvis-control: #fff;
+  --jarvis-control-border: #cbd1cf;
+  --jarvis-focus: #11675b;
+  --jarvis-focus-halo: #11675b28;
+  --jarvis-action: #176c60;
+  --jarvis-action-hover: #10594f;
+  --jarvis-action-text: #fff;
+  --background: #f8faf9;
   --foreground: #0f1115;
   --card: rgba(255, 255, 255, 0.9);
   --card-foreground: #0f1115;
@@ -82,7 +88,7 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: #ececee;
+  --sidebar: #eef2ef;
   --sidebar-foreground: #0f1115;
   --sidebar-primary: #111111;
   --sidebar-primary-foreground: #fafafa;
@@ -95,7 +101,14 @@
 }
 
 .dark {
-  --background: #212121;
+  --jarvis-control: #242929;
+  --jarvis-control-border: #48514f;
+  --jarvis-focus: #93d8c6;
+  --jarvis-focus-halo: #93d8c629;
+  --jarvis-action: #a7dbc9;
+  --jarvis-action-hover: #bae7d8;
+  --jarvis-action-text: #173731;
+  --background: #171c1b;
   --foreground: #f5f5f5;
   --card: rgba(255, 255, 255, 0.03);
   --card-foreground: #f5f5f5;
@@ -118,7 +131,7 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: #171717;
+  --sidebar: #1e2422;
   --sidebar-foreground: #f5f5f5;
   --sidebar-primary: #ffffff;
   --sidebar-primary-foreground: #111111;
@@ -150,8 +163,262 @@
 
   body {
     @apply bg-background text-foreground;
-    background-image:
-      radial-gradient(circle at top, rgba(255, 255, 255, 0.07), transparent 24%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 26%);
+    font-family: var(--font-geist-sans);
   }
+}
+
+/* Workspace chrome stays quiet so typed commands and execution results carry the contrast. */
+.jarvis-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 3.625rem;
+  gap: .5rem;
+  padding: .5rem clamp(.75rem, 3vw, 1.5rem);
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+
+.jarvis-sidebar {
+  border-inline-end: 1px solid var(--sidebar-border);
+}
+
+.jarvis-toolbar-link,
+.jarvis-icon-button,
+.jarvis-secondary-button,
+.jarvis-sidebar-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  min-height: 2.5rem;
+  border-radius: .625rem;
+  color: var(--foreground);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.jarvis-toolbar-link,
+.jarvis-secondary-button {
+  padding: .375rem .7rem;
+  white-space: nowrap;
+  font-size: .875rem;
+  font-weight: 500;
+}
+
+.jarvis-icon-button {
+  flex: none;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  padding: 0;
+}
+
+.jarvis-sidebar-control {
+  width: 100%;
+  justify-content: flex-start;
+  padding: .375rem .625rem;
+  text-align: start;
+  font-size: .875rem;
+  font-weight: 500;
+}
+
+.jarvis-toolbar-link:hover,
+.jarvis-icon-button:hover,
+.jarvis-sidebar-control:hover { background: var(--accent); }
+.jarvis-secondary-button { background: var(--secondary); }
+.jarvis-secondary-button:hover { background: var(--accent); }
+
+.jarvis-toolbar-link:active,
+.jarvis-icon-button:active,
+.jarvis-sidebar-control:active,
+.jarvis-secondary-button:active { transform: scale(.97); }
+.jarvis-toolbar-link:focus-visible,
+.jarvis-icon-button:focus-visible,
+.jarvis-sidebar-control:focus-visible,
+.jarvis-secondary-button:focus-visible {
+  outline: 2px solid var(--jarvis-focus);
+  outline-offset: 2px;
+}
+
+.jarvis-icon-active {
+  background: var(--accent);
+  color: var(--jarvis-focus);
+}
+
+.jarvis-send {
+  background: var(--jarvis-action);
+  color: var(--jarvis-action-text);
+}
+
+.jarvis-send:hover { background: var(--jarvis-action-hover); }
+.jarvis-icon-button:disabled,
+.jarvis-secondary-button:disabled { opacity: .45; }
+
+.jarvis-thread-viewport { padding: .75rem clamp(1rem, 5vw, 3rem) 0; }
+.jarvis-thread-viewport[data-empty="true"] { padding-top: clamp(1.5rem, 13dvh, 7rem); }
+.jarvis-start h1,
+.jarvis-local h1 {
+  font-size: clamp(1.8rem, 3.5vw, 2.35rem);
+  letter-spacing: -.035em;
+  font-weight: 620;
+  line-height: 1.15;
+}
+
+.jarvis-composer-dock {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  margin-inline: auto;
+  padding-block: .75rem max(1rem, env(safe-area-inset-bottom));
+  background: var(--background);
+}
+
+.jarvis-composer-dock[data-empty="true"] {
+  position: relative;
+  margin-top: 0;
+  padding-top: 1rem;
+}
+
+.jarvis-composer,
+.jarvis-local-command {
+  border: 1px solid var(--jarvis-control-border);
+  border-radius: .875rem;
+  background: var(--jarvis-control);
+  padding: .55rem;
+}
+
+.jarvis-composer:focus-within,
+.jarvis-local-command:focus-within,
+.jarvis-entry-form:focus-within {
+  border-color: var(--jarvis-focus);
+  box-shadow: 0 0 0 2px var(--jarvis-focus-halo);
+}
+
+.jarvis-local { min-height: 100dvh; background: var(--background); }
+.jarvis-local .jarvis-toolbar { position: sticky; top: 0; z-index: 2; }
+.jarvis-local-content {
+  width: min(100% - 2rem, 41rem);
+  margin-inline: auto;
+  padding-block: clamp(1.75rem, 8dvh, 4rem) 3rem;
+}
+
+.jarvis-local-command {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-top: 1rem;
+  padding-inline-start: .875rem;
+}
+
+.jarvis-local-command input,
+.jarvis-entry-form input {
+  width: 100%;
+  min-width: 0;
+  color: var(--foreground);
+  outline: none;
+}
+
+.jarvis-local-command input::placeholder,
+.jarvis-entry-form input::placeholder { color: var(--muted-foreground); }
+
+.jarvis-local-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 1rem;
+  row-gap: .5rem;
+  margin-top: .75rem;
+  padding: .75rem .875rem;
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+  overflow-wrap: anywhere;
+  background: var(--card);
+}
+
+.jarvis-local-result[data-error] { border-color: var(--destructive); }
+.jarvis-result-detail {
+  color: var(--muted-foreground);
+  line-height: 1.55;
+  font-size: .875rem;
+  white-space: pre-line;
+  margin-top: .2rem;
+}
+
+.jarvis-tool-section {
+  display: grid;
+  gap: .55rem;
+  padding-block: 1.125rem;
+  border-top: 1px solid var(--border);
+}
+.jarvis-tool-section:first-of-type { margin-top: 1.5rem; }
+.jarvis-tool-section h2 { font-size: 1rem; font-weight: 620; }
+
+.jarvis-timer-layout {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: end;
+  gap: .5rem;
+}
+.jarvis-timer-value {
+  color: var(--foreground);
+  font-size: clamp(2.05rem, 5vw, 2.75rem);
+  font-weight: 520;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.05em;
+  line-height: 1.15;
+}
+.jarvis-timer-message { color: var(--jarvis-focus); font-size: .875rem; }
+.jarvis-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  padding: .125rem 0;
+}
+.jarvis-entry label { display: flex; align-items: center; gap: .55rem; min-height: 2.5rem; }
+.jarvis-entry input { accent-color: var(--jarvis-action); }
+.jarvis-entry-form {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding-inline-start: .75rem;
+  border: 1px solid var(--jarvis-control-border);
+  border-radius: .625rem;
+}
+.jarvis-auth-shell {
+  display: grid;
+  align-content: start;
+  min-height: 100dvh;
+  background: var(--background);
+}
+.jarvis-auth-panel {
+  width: min(100% - 2rem, 23rem);
+  margin: clamp(1.5rem, 10dvh, 5rem) auto 2rem;
+}
+.jarvis-auth-panel h1 { font-size: 1.85rem; letter-spacing: -.035em; font-weight: 625; }
+.jarvis-auth-field { display: grid; gap: .35rem; font-size: .875rem; font-weight: 500; }
+.jarvis-auth-field input { background: var(--jarvis-control); border-color: var(--jarvis-control-border); }
+.jarvis-auth-error { color: var(--destructive); font-size: .875rem; }
+.jarvis-receipt {
+  margin-top: .55rem;
+  border-radius: .625rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: .55rem .7rem;
+  font-size: .875rem;
+}
+.jarvis-receipt-status { color: var(--muted-foreground); }
+.jarvis-receipt-status[data-attention] { color: var(--destructive); }
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-toolbar-link, .jarvis-icon-button, .jarvis-secondary-button, .jarvis-sidebar-control {
+    transition: none;
+    transform: none;
+  }
+}
+@media (prefers-contrast: more) {
+  .jarvis-toolbar, .jarvis-tool-section { border-color: var(--muted-foreground); }
 }

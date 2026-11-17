@@ -49,16 +49,33 @@ export async function OPTIONS() {
 export async function POST(req: Request) {
   const transportUrl = getTransportUrl();
   const body = await req.text();
-  const upstream = await fetch(transportUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": req.headers.get("content-type") || "application/json",
-    },
-    body,
-  });
+  const headersDeadline = new AbortController();
+  const timeout = setTimeout(() => headersDeadline.abort(), 10000);
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: copyStreamingHeaders(upstream),
-  });
+  try {
+    const upstream = await fetch(transportUrl, {
+      method: "POST",
+      headers: { "Content-Type": req.headers.get("content-type") || "application/json" },
+      body,
+      signal: AbortSignal.any([req.signal, headersDeadline.signal]),
+    });
+
+    if (!upstream.ok) {
+      return new Response("The assistant could not accept the request.", {
+        status: upstream.status,
+        headers: { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: copyStreamingHeaders(upstream),
+    });
+  } catch {
+    return new Response("The local assistant is unavailable. Open Jarvis Desktop and try again.", {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8" },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }

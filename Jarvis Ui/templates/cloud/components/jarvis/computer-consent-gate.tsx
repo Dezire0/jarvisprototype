@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { LocalToolsLink } from "./local-tools-link";
 
 const COMPUTER_CONSENT_KEY = "jarvis-computer-control-consent-v1";
 
@@ -33,12 +34,9 @@ export function ComputerConsentGate() {
         aria-modal="true"
         aria-labelledby="computer-consent-title"
         role="dialog"
-        className="w-full max-w-xl rounded-[32px] border border-white/15 bg-background/95 p-6 text-foreground shadow-[0_32px_120px_rgba(0,0,0,0.45)] md:p-8"
+        className="w-full max-w-xl rounded-2xl border border-border bg-background p-5 text-foreground shadow-xl md:p-7"
       >
-        <p className="text-xs font-semibold uppercase tracking-[0.32em] text-muted-foreground">
-          Computer Control
-        </p>
-        <h2 id="computer-consent-title" className="mt-3 text-2xl font-semibold tracking-tight">
+        <h2 id="computer-consent-title" className="text-2xl font-semibold tracking-tight">
           Jarvis 컴퓨터 작업 동의
         </h2>
         <p className="mt-4 text-sm leading-6 text-muted-foreground">
@@ -62,10 +60,11 @@ export function ComputerConsentGate() {
           type="button"
           disabled={!checked}
           onClick={acceptConsent}
-          className="mt-5 w-full rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-45"
+          className="jarvis-send mt-5 w-full rounded-lg px-5 py-3 text-sm font-semibold disabled:opacity-45"
         >
           동의하고 시작
         </button>
+        <div className="mt-2 flex justify-center"><LocalToolsLink /></div>
       </section>
     </div>
   );

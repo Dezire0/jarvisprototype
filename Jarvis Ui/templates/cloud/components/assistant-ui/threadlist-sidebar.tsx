@@ -38,11 +38,11 @@ import {
   LogOutIcon,
   Link2Icon,
   Link2OffIcon,
+  Settings2Icon,
   SparklesIcon,
   ShieldAlertIcon,
   RocketIcon,
   MonitorIcon,
-  BadgeCheckIcon,
   UserRoundIcon,
   RefreshCwIcon,
 } from "lucide-react";
@@ -1109,7 +1109,7 @@ export function ThreadListSidebar({
     authUser?.name?.trim() || authUser?.email?.split("@")[0] || t("로그인이 필요합니다", "Login Required");
   const userSubLabel = authUser
     ? authUser.settings?.autoSync
-      ? t("동기화 활성화됨", "Sync Enabled")
+      ? t("동기화 설정 켜짐", "Sync enabled in settings")
       : t("로컬 프로필", "Local Profile")
     : t("플러스 멤버십", "Plus Membership");
 
@@ -1129,7 +1129,7 @@ export function ThreadListSidebar({
       />
 
       <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
-        <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-md">
+        <DialogContent className="border-border bg-background text-foreground sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t("새 프로젝트 만들기", "Create New Project")}</DialogTitle>
           </DialogHeader>
@@ -1162,7 +1162,7 @@ export function ThreadListSidebar({
       </Dialog>
 
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-        <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-2xl">
+        <DialogContent className="border-border bg-background text-foreground sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t("글로벌 채팅 검색", "Global Chat Search")}</DialogTitle>
           </DialogHeader>
@@ -1221,7 +1221,7 @@ export function ThreadListSidebar({
       </Dialog>
 
       <Dialog open={launcherOpen} onOpenChange={setLauncherOpen}>
-        <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-2xl">
+        <DialogContent className="border-border bg-background text-foreground sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>생산성 앱 런처</DialogTitle>
             <DialogDescription className="text-zinc-400">
@@ -1268,7 +1268,7 @@ export function ThreadListSidebar({
       </Dialog>
 
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="border-white/10 bg-[#171717] text-white sm:max-w-md">
+        <DialogContent className="border-border bg-background text-foreground sm:max-w-md">
           <DialogHeader>
             <DialogTitle>프로필 편집</DialogTitle>
             <DialogDescription className="text-zinc-400">
@@ -1332,47 +1332,30 @@ export function ThreadListSidebar({
 
       <Sidebar
         {...props}
-        className="border-r-0 bg-sidebar text-sidebar-foreground [--sidebar-width:280px]"
+        className="jarvis-sidebar bg-sidebar text-sidebar-foreground [--sidebar-width:16rem]"
       >
         <SidebarHeader className="border-none px-3 pt-3 pb-0">
           <button
             type="button"
             onClick={() => setWebAiModalOpen(true)}
-            className={cn(
-              "mb-2 flex w-full items-center gap-2 rounded-xl border border-white/5 px-3 py-2.5 text-left font-semibold text-xs transition-all",
-              conversationConnection.connected
-                ? "bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/25 hover:bg-emerald-500/18 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20 dark:hover:bg-emerald-500/20"
-                : "bg-card/80 text-foreground/78 ring-1 ring-border hover:bg-accent hover:text-foreground dark:bg-zinc-800/60 dark:text-zinc-300 dark:ring-zinc-700/30 dark:hover:bg-zinc-700/60 dark:hover:text-white",
-            )}
+            className="jarvis-sidebar-control"
           >
-            <SparklesIcon className="size-3.5 shrink-0" />
-            <span className="flex-1 truncate">
-              {webAiStatus === "checking"
-                ? "상태 확인 중..."
-                : conversationConnection.connected
-                  ? `${conversationConnection.label} 연결됨`
-                  : "AI 모델 연동 및 관리"}
-            </span>
-            <div
-              className={cn(
-                "flex items-center gap-1.5 rounded-full px-1.5 py-0.5 font-bold text-[9px] uppercase tracking-wider",
-                conversationConnection.connected
-                  ? "bg-emerald-900/12 text-emerald-800 dark:bg-black/20 dark:text-emerald-300"
-                  : "bg-foreground/8 text-foreground/75 dark:bg-black/20 dark:text-zinc-300"
-              )}
-            >
-              {conversationConnection.connected ? conversationConnection.label : "API"}
-            </div>
+            <Settings2Icon className="size-4 shrink-0" />
+            <span className="flex-1 truncate">{t("모델 설정", "Model settings")}</span>
+            {conversationConnection.connected && (
+              <span className="truncate text-xs text-muted-foreground">
+                {conversationConnection.label}
+              </span>
+            )}
           </button>
 
           {/* AI Model Management Modal */}
           <Dialog open={webAiModalOpen} onOpenChange={setWebAiModalOpen}>
-            <DialogContent className="max-h-[86dvh] max-w-[560px] overflow-y-auto border-none bg-[#171717] p-0 text-white shadow-2xl">
-              <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
+            <DialogContent className="max-h-[86dvh] max-w-[560px] overflow-y-auto border-border bg-background p-0 text-foreground shadow-xl">
               <div className="p-6">
                 <DialogHeader className="mb-4">
                   <DialogTitle className="flex items-center gap-2 text-xl">
-                    <SparklesIcon className="size-5 text-emerald-400" />
+                    <SparklesIcon className="size-5 text-muted-foreground" />
                     AI 모델 관리
                   </DialogTitle>
                   <DialogDescription className="text-zinc-400">
@@ -1763,9 +1746,9 @@ export function ThreadListSidebar({
                 );
               })
             ) : (
-              <div className="mx-3 rounded-xl border border-border bg-card/70 px-4 py-5 text-center text-sm font-medium text-foreground/68 dark:border-white/5 dark:bg-white/[0.02] dark:text-zinc-500">
+              <p className="px-3 py-2 text-sm text-muted-foreground">
                 {t("프로젝트가 없습니다.", "No projects yet.")}
-              </div>
+              </p>
             )}
           </div>
 
@@ -1795,20 +1778,12 @@ export function ThreadListSidebar({
                 </Button>
               ))
             ) : (
-              <div className="mx-3 rounded-xl border border-border bg-card/70 px-4 py-5 text-center text-sm font-medium text-foreground/68 dark:border-white/5 dark:bg-white/[0.02] dark:text-zinc-500">
+              <p className="px-3 py-2 text-sm text-muted-foreground">
                 {t("대화 기록이 없습니다.", "No recent threads.")}
-              </div>
+              </p>
             )}
           </div>
 
-          {authUser && (
-            <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 dark:border-emerald-500/10 dark:bg-emerald-500/[0.03]">
-              <div className="flex items-center gap-2 font-semibold text-emerald-700 text-[11px] uppercase tracking-tight dark:text-emerald-500/80">
-                <BadgeCheckIcon className="size-3.5" />
-                <span>{t("동기화 활성화됨", "Cloud Sync Active")}</span>
-              </div>
-            </div>
-          )}
         </SidebarContent>
 
         <SidebarFooter className="border-none px-3 pt-2 pb-3">

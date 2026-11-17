@@ -10,6 +10,7 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useJarvisTransportError } from "@/app/jarvis-runtime-provider";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -41,25 +42,6 @@ import {
 import { useEffect, useState, type FC, type FormEvent } from "react";
 
 
-
-const WELCOME_PROMPTS = [
-  {
-    title: { ko: "오늘 할 일 정리", en: "Plan my day" },
-    prompt: { ko: "지금 내가 제일 먼저 해야 할 일을 우선순위로 정리해줘", en: "Help me prioritize my tasks for today" },
-  },
-  {
-    title: { ko: "작업 환경 열기", en: "Open workspace" },
-    prompt: { ko: "크롬 열고 Gmail과 Notion을 한 번에 열어줘", en: "Open Chrome, Gmail, and Notion together" },
-  },
-  {
-    title: { ko: "화면 브리핑", en: "Brief the screen" },
-    prompt: { ko: "지금 화면에서 중요한 것만 짧게 설명해줘", en: "Summarize the important parts of my current screen" },
-  },
-  {
-    title: { ko: "집중용 음악", en: "Focus music" },
-    prompt: { ko: "유튜브 열고 집중할 때 들을 음악 재생해줘", en: "Play some focus music on YouTube" },
-  },
-];
 
 type CredentialPromptDetails = {
   kind?: string;
@@ -108,36 +90,37 @@ function prefersKorean(language?: string) {
 }
 
 export const Thread: FC = () => {
-  const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
-  const t = (ko: string, en: string) => (isKo ? ko : en);
+  const isEmpty = useAuiState((state) => state.thread.isEmpty);
+  const transportError = useJarvisTransportError();
+  const isKo = prefersKorean();
 
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root @container flex h-full flex-col overflow-hidden rounded-[32px] border border-border/70 bg-background shadow-[0_32px_120px_rgba(0,0,0,0.18)]"
-      style={{
-        ["--thread-max-width" as string]: "48rem",
-        ["--composer-radius" as string]: "28px",
-        ["--composer-padding" as string]: "12px",
-      }}
+      className="aui-root aui-thread-root @container flex h-full min-h-0 flex-col"
+      style={{ "--thread-max-width": "46rem" } as React.CSSProperties}
     >
       <ThreadPrimitive.Viewport
         turnAnchor="top"
-        className="aui-thread-viewport relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth bg-background px-4 pt-4 md:px-8 md:pt-6"
+        data-empty={isEmpty}
+        className="jarvis-thread-viewport flex min-h-0 flex-1 flex-col overflow-y-auto"
       >
         <AuiIf condition={(state) => state.thread.isEmpty}>
-          <ThreadWelcome />
+          <div className="jarvis-start mx-auto w-full max-w-(--thread-max-width)">
+            <h1>{isKo ? "새 대화" : "New conversation"}</h1>
+          </div>
         </AuiIf>
-
         <ThreadPrimitive.Messages>
           {() => <ThreadMessage />}
         </ThreadPrimitive.Messages>
-
-        <ThreadPrimitive.ViewportFooter className="aui-thread-viewport-footer sticky bottom-0 mx-auto mt-auto flex w-full max-w-(--thread-max-width) flex-col gap-4 overflow-visible bg-background/96 pb-4 pt-6 backdrop-blur md:pb-6">
-          <ThreadScrollToBottom />
+        <ThreadPrimitive.ViewportFooter
+          data-empty={isEmpty}
+          className="jarvis-composer-dock mx-auto w-full max-w-(--thread-max-width)"
+        >
+          {!isEmpty && <ThreadScrollToBottom />}
           <Composer />
-          <p className="text-center text-[11px] text-muted-foreground">
-            {t("자비스는 실수를 할 수 있습니다. 중요한 정보는 확인해 주세요.", "Jarvis can make mistakes. Verify important information.")}
-          </p>
+          {transportError && <p role="alert" className="jarvis-auth-error mt-2">
+            {isKo ? "어시스턴트에 연결하지 못했습니다. Jarvis 데스크톱을 열고 다시 시도하세요." : "Couldn’t reach the assistant. Open Jarvis Desktop and try again."}
+          </p>}
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
     </ThreadPrimitive.Root>
@@ -173,73 +156,6 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
-const ThreadWelcome: FC = () => {
-  const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
-  const t = (ko: string, en: string) => (isKo ? ko : en);
-
-  return (
-    <div className="aui-thread-welcome-root mx-auto my-auto flex w-full max-w-(--thread-max-width) grow flex-col">
-      <div className="aui-thread-welcome-center flex w-full grow flex-col items-center justify-center">
-        <div className="aui-thread-welcome-message flex size-full flex-col items-center justify-center px-4 text-center">
-          <Avatar.Root className="mb-5 flex h-14 w-14 items-center justify-center rounded-[22px] border border-white/15 bg-white/5 shadow-[0_12px_50px_rgba(255,255,255,0.08)]">
-            <Avatar.Fallback className="text-lg font-semibold text-foreground">
-              J
-            </Avatar.Fallback>
-          </Avatar.Root>
-          <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both font-semibold text-3xl tracking-tight duration-200">
-            {t("오늘 무엇을 도와드릴까요?", "How can I help you?")}
-          </h1>
-          <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-base text-muted-foreground delay-75 duration-200 md:text-lg">
-            {t("자비스는 일정 정리, 글 초안, 브라우징, 자동화를 돕는 실무형 AI 비서입니다.", "Jarvis is a practical AI assistant for planning, drafting, browsing, and automation.")}
-          </p>
-        </div>
-      </div>
-      <ThreadSuggestions />
-    </div>
-  );
-};
-
-const ThreadSuggestions: FC = () => {
-  const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
-
-  return (
-    <div className="aui-thread-welcome-suggestions grid w-full gap-3 pb-4 @md:grid-cols-2">
-      {WELCOME_PROMPTS.map((item) => (
-        <WelcomePromptCard
-          key={item.title.en}
-          title={isKo ? item.title.ko : item.title.en}
-          prompt={isKo ? item.prompt.ko : item.prompt.en}
-        />
-      ))}
-    </div>
-  );
-};
-
-const WelcomePromptCard: FC<{
-  title: string;
-  prompt: string;
-}> = ({ title, prompt }) => {
-  const aui = useAui();
-  const isRunning = useAuiState((state) => state.thread.isRunning);
-
-  function runPrompt() {
-    aui.composer().setText(prompt);
-    aui.composer().send();
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={runPrompt}
-      disabled={isRunning}
-      className="aui-thread-welcome-suggestion flex h-auto w-full items-center justify-between rounded-[24px] border border-border/70 bg-card/70 px-5 py-5 text-left shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      <p className="font-medium text-[15px] text-foreground">{title}</p>
-      <ArrowUpIcon className="size-4 text-muted-foreground/50" />
-    </button>
-  );
-};
-
 const Composer: FC = () => {
   const {
     supported,
@@ -248,47 +164,42 @@ const Composer: FC = () => {
     error,
     continuous,
     startOnce,
+    stop,
     toggleContinuous,
   } = useJarvisVoice();
 
-  const voiceSummary = error
-    ? error
-    : status === "listening"
-      ? transcript
-        ? `Listening: ${transcript}`
-        : "Listening for your voice..."
-      : status === "processing"
-        ? "Sending voice message..."
-        : continuous
-          ? "Continuous voice mode is active."
-          : "Click the mic to speak.";
+  const isKo = prefersKorean();
+  const voiceSummary = error || (status === "listening"
+    ? (transcript || (isKo ? "듣는 중" : "Listening"))
+    : status === "processing"
+      ? (isKo ? "음성을 처리하는 중" : "Processing voice")
+      : continuous ? (isKo ? "연속 듣기" : "Continuous voice") : "");
 
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="composer-shell"
-          className="flex w-full flex-col gap-2 rounded-(--composer-radius) border border-white/8 bg-[color:var(--aui-composer-bg)] p-(--composer-padding) shadow-[0_16px_70px_rgba(0,0,0,0.16)] transition-shadow focus-within:border-white/15 focus-within:ring-2 focus-within:ring-white/10 data-[dragging=true]:border-ring data-[dragging=true]:border-dashed data-[dragging=true]:bg-accent/50"
+          className="jarvis-composer flex w-full flex-col data-[dragging=true]:border-dashed data-[dragging=true]:border-ring"
         >
           <ComposerAttachments />
           <ComposerPrimitive.Input
-            placeholder="Message Jarvis"
-            className="aui-composer-input max-h-40 min-h-12 w-full resize-none bg-transparent px-2 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/80"
+            placeholder={isKo ? "메시지를 입력하세요" : "Write a message"}
+            className="aui-composer-input max-h-40 min-h-12 w-full resize-none bg-transparent px-2 py-2 text-base text-foreground outline-none placeholder:text-muted-foreground"
             rows={1}
             autoFocus
-            aria-label="Message input"
+            aria-label={isKo ? "메시지 입력" : "Message input"}
           />
-          <div className="flex items-end justify-between gap-3">
-            <div className="flex min-w-0 flex-col gap-1">
-              <span className="text-xs text-muted-foreground">
-                {voiceSummary}
-              </span>
+          <div className="flex items-center justify-between gap-2 px-1">
+            <div role="status" className={cn("min-w-0 break-words text-xs", error ? "text-destructive" : "text-muted-foreground")}>
+              {voiceSummary}
             </div>
             <ComposerAction
               supported={supported}
               status={status}
               continuous={continuous}
               startOnce={startOnce}
+              stop={stop}
               toggleContinuous={toggleContinuous}
             />
           </div>
@@ -303,8 +214,9 @@ const ComposerAction: FC<{
   status: string;
   continuous: boolean;
   startOnce: () => void;
+  stop: () => void;
   toggleContinuous: () => void;
-}> = ({ supported, status, continuous, startOnce, toggleContinuous }) => {
+}> = ({ supported, status, continuous, startOnce, stop, toggleContinuous }) => {
   const aui = useAui();
   const messages = useAuiState((state) => state.thread.messages);
 
@@ -346,27 +258,29 @@ const ComposerAction: FC<{
         type="button"
         variant="ghost"
         className={cn(
-          "size-9 rounded-full border border-border/70 bg-background/60 text-foreground",
-          continuous && "bg-white text-black",
+          "jarvis-icon-button",
+          continuous && "jarvis-icon-active",
         )}
         onClick={toggleContinuous}
         aria-label="Toggle continuous voice mode"
+        aria-pressed={continuous}
         disabled={!supported}
       >
         <AudioLinesIcon className="size-4" />
       </TooltipIconButton>
       <TooltipIconButton
-        tooltip="Voice input"
+        tooltip={status === "listening" ? "Stop voice input" : "Voice input"}
         side="bottom"
         type="button"
         variant="ghost"
         className={cn(
-          "size-9 rounded-full border border-border/70 bg-background/60 text-foreground",
-          status === "listening" && "bg-white text-black",
+          "jarvis-icon-button",
+          status === "listening" && "jarvis-icon-active",
         )}
-        onClick={startOnce}
-        aria-label="Start voice input"
-        disabled={!supported || status === "listening"}
+        onClick={status === "listening" ? stop : startOnce}
+        aria-label={status === "listening" ? "Stop voice input" : "Start voice input"}
+        aria-pressed={status === "listening"}
+        disabled={!supported || status === "processing"}
       >
         <MicIcon className="size-4" />
       </TooltipIconButton>
@@ -378,7 +292,7 @@ const ComposerAction: FC<{
             type="button"
             variant="default"
             size="icon"
-            className="aui-composer-send size-9 rounded-full bg-white text-black shadow-sm hover:bg-white/90"
+            className="aui-composer-send jarvis-send size-9 rounded-full"
             aria-label="Send message"
           >
             <ArrowUpIcon className="aui-composer-send-icon size-4 [&_path]:stroke-1.8" />
@@ -390,7 +304,7 @@ const ComposerAction: FC<{
           type="button"
           variant="default"
           size="icon"
-          className="aui-composer-cancel size-9 rounded-full bg-white text-black"
+          className="aui-composer-cancel jarvis-send size-9 rounded-full"
           aria-label="Stop generating"
           onClick={restoreLastUserMessageAndCancel}
         >
@@ -416,29 +330,8 @@ const AssistantRunStatus: FC = () => {
   const details = useAuiState((state) =>
     ((state.message.metadata as any)?.custom?.details || null) as AssistantResultDetails | null,
   );
-  const [stepIndex, setStepIndex] = useState(0);
   const [preview, setPreview] = useState<LivePreviewSnapshot | null>(null);
   const isKo = prefersKorean();
-  const steps = Array.isArray(details?.progressSteps)
-    ? details.progressSteps.filter((step): step is string => typeof step === "string" && step.trim().length > 0)
-    : [];
-
-  useEffect(() => {
-    setStepIndex(0);
-
-    if (!isRunning || steps.length <= 1) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      setStepIndex((current) => Math.min(current + 1, steps.length - 1));
-    }, 2200);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [isRunning, steps]);
-
   useEffect(() => {
     let active = true;
 
@@ -486,44 +379,14 @@ const AssistantRunStatus: FC = () => {
     return null;
   }
 
-  const activeStep = steps[stepIndex] || details?.progressLabel || (isKo ? "작업을 준비하는 중" : "Preparing the task");
-  const executorLabel = details?.executorLabel || (isKo ? "OpenClaw Computer Use" : "OpenClaw Computer Use");
-  const modeLabel = details?.executorMode === "playwright"
-    ? "Playwright"
-    : details?.executorMode === "desktop"
-      ? (isKo ? "Desktop Control" : "Desktop Control")
-      : "";
-
   return (
-    <div className="mt-4 flex flex-col gap-3">
-      <div className="rounded-[26px] border border-white/10 bg-white/5 p-4 shadow-[0_18px_70px_rgba(0,0,0,0.18)]">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300/80">
-          <span className="inline-flex size-2 rounded-full bg-emerald-300 animate-pulse" />
-          {executorLabel}
-          {modeLabel ? <span className="text-[10px] tracking-[0.18em] text-emerald-100/60">· {modeLabel}</span> : null}
-        </div>
-        <p className="mt-3 text-sm leading-6 text-foreground">{activeStep}</p>
-        {steps.length ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {steps.map((step, index) => (
-              <span
-                key={`${step}-${index}`}
-                className={cn(
-                  "rounded-full border px-3 py-1.5 text-[11px] transition-colors",
-                  index === stepIndex
-                    ? "border-white/20 bg-white/[0.12] text-foreground"
-                    : "border-white/10 bg-white/5 text-muted-foreground",
-                )}
-              >
-                {step}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </div>
+    <div className="mt-3 flex flex-col gap-3">
+      <p role="status" className="text-sm text-muted-foreground">
+        {isKo ? "처리 중…" : "Working…"}
+      </p>
 
       {preview?.imageDataUrl ? (
-        <div className="w-full max-w-[320px] rounded-[22px] border border-white/10 bg-black/30 p-2 shadow-[0_18px_70px_rgba(0,0,0,0.18)]">
+        <div className="w-full max-w-[320px] rounded-xl border border-border bg-card p-2">
           <img
             src={preview.imageDataUrl}
             alt={preview.title || (isKo ? "작업 미리보기" : "Task preview")}
@@ -820,13 +683,69 @@ const SensitiveConfirmationCard: FC<{ confirmation: SensitiveConfirmationDetails
   );
 };
 
+const ACTION_LABELS: Record<string, [string, string]> = {
+  open_url: ["페이지 열기", "Open page"],
+  open_app: ["앱 열기", "Open app"],
+  browser_login: ["사이트 로그인", "Sign in to site"],
+  browser_search: ["브라우저 검색", "Search browser"],
+  read_page: ["페이지 읽기", "Read page"],
+  app_key: ["키보드 입력", "Send keyboard shortcut"],
+  app_type: ["텍스트 입력", "Enter text"],
+  app_menu_click: ["메뉴 선택", "Choose menu item"],
+};
+
+const ACTION_STATES: Record<string, [string, string]> = {
+  executed: ["실행됨", "Executed"],
+  failed: ["실패", "Failed"],
+  "needs-confirmation": ["승인 대기", "Awaiting confirmation"],
+  "needs-install": ["설치 필요", "Installation needed"],
+};
+
+function ExecutionReceipt({ args, fallback }: { args: unknown; fallback: React.ReactNode }) {
+  if (!args || typeof args !== "object") return fallback;
+  const action = args as Record<string, unknown>;
+  if (typeof action.type !== "string" || typeof action.status !== "string") return fallback;
+
+  const t = (labels: [string, string]) => labels[prefersKorean() ? 0 : 1];
+  const label = Object.hasOwn(ACTION_LABELS, action.type)
+    ? t(ACTION_LABELS[action.type])
+    : action.type.replace(/[_.-]+/g, " ").slice(0, 72);
+  const status = Object.hasOwn(ACTION_STATES, action.status)
+    ? t(ACTION_STATES[action.status])
+    : action.status.replace(/[_.-]+/g, " ").slice(0, 72);
+  const target = typeof action.target === "string" ? action.target : "";
+  let destination = "";
+  if (action.type === "open_url") {
+    try {
+      const url = new URL(target);
+      if (url.protocol === "https:" || url.protocol === "http:") {
+        destination = url.hostname;
+      }
+    } catch {
+      // Some action results have no URL.
+    }
+  } else if (action.type === "open_app") {
+    destination = target.slice(0, 72);
+  }
+
+  return (
+    <div className="jarvis-receipt">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <span className="font-medium">{label}</span>
+        <span className="jarvis-receipt-status" data-attention={action.status !== "executed" || undefined}>{status}</span>
+      </div>
+      {destination && <div className="text-xs text-muted-foreground">{destination}</div>}
+    </div>
+  );
+}
+
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root
-      className="aui-assistant-message-root fade-in slide-in-from-bottom-1 relative mx-auto grid w-full max-w-(--thread-max-width) grid-cols-[auto_1fr] items-start gap-3 animate-in py-4 duration-150"
+      className="aui-assistant-message-root relative mx-auto grid w-full max-w-(--thread-max-width) grid-cols-[auto_1fr] items-start gap-3 py-4"
       data-role="assistant"
     >
-      <Avatar.Root className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+      <Avatar.Root className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">
         <Avatar.Fallback className="text-xs font-semibold text-foreground">
           J
         </Avatar.Fallback>
@@ -842,7 +761,7 @@ const AssistantMessage: FC = () => {
                 return <Reasoning {...part} />;
               }
               if (part.type === "tool-call") {
-                return part.toolUI ?? <ToolFallback {...part} />;
+                return part.toolUI ?? <ExecutionReceipt args={part.args} fallback={<ToolFallback {...part} />} />;
               }
               return null;
             }}

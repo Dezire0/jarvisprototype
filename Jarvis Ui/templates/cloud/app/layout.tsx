@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Jarvis Desktop",
-  description: "Jarvis desktop runtime powered by the original assistant-ui template",
+  description: "Command, conversation and local tools for Jarvis Desktop",
 };
 
 export default function RootLayout({
