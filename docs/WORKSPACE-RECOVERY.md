@@ -26,7 +26,7 @@ Timer deadlines, tasks, notes, and spoken-result preferences use the desktop app
 
 ## Desktop and API
 
-The account and computer-control flows continue to gate the conversation workspace and native integrations. Existing thread, project, attachment, voice, app-launcher, and model-settings entry points remain in the UI. Action receipts render the reported outcome and show the hostname for opened pages.
+The first screen offers Local tools immediately. After signing in, the app asks for computer-control consent before opening the conversation workspace. The macOS Accessibility settings are available from the Help menu. Existing thread, project, attachment, voice, app-launcher, and model-settings entry points remain in the UI. Action receipts render the reported outcome and show the hostname for opened pages.
 
 ### Conversation history
 

@@ -65,6 +65,32 @@ function createSecurityStub() {
   };
 }
 
+test("a review profile uses its own credential vault and does not read the legacy keychain", {
+  skip: process.platform !== "darwin"
+}, async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-review-credentials-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const security = createSecurityStub();
+  security.passwords.set("friday-jarvis-prototype::example.com:password", "regular fixture");
+  security.passwords.set("jarvis::example.com_password", "legacy fixture");
+  const calls = [];
+  const store = new CredentialStore({
+    app: { getPath: () => directory },
+    sharedVaultDir: path.join(directory, "vault"),
+    keychainService: "friday-jarvis-prototype:review-a",
+    legacyKeychainService: null,
+    execFileImpl(command, args) {
+      calls.push(args[args.indexOf("-s") + 1]);
+      return security.execFile(command, args);
+    }
+  });
+  assert.equal(await store.readPassword("example.com"), "");
+  await store.deleteCredential("example.com");
+  assert.ok(calls.length);
+  assert.ok(calls.every((service) => service === "friday-jarvis-prototype:review-a"));
+  assert.equal(security.passwords.size, 2);
+});
+
 test("CredentialStore migrates the legacy Electron vault into the shared Friday vault", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-credential-store-"));
   const sharedVaultDir = path.join(tempRoot, "shared");

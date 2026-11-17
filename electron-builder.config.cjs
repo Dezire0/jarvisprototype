@@ -1,5 +1,7 @@
 const path = require("node:path");
 const packageJson = require("./package.json");
+const signingName = String(process.env.CSC_NAME || "").trim();
+const hasSigningIdentity = Boolean(String(process.env.CSC_LINK || "").trim() || (signingName && signingName !== "-"));
 
 const publishProvider = String(process.env.JARVIS_UPDATER_PROVIDER || "").trim().toLowerCase();
 const publishChannel = String(process.env.JARVIS_UPDATE_CHANNEL || "latest").trim() || "latest";
@@ -82,10 +84,10 @@ module.exports = {
   ],
   mac: {
     icon: path.join(__dirname, "resources", "icons", "icon.icns"),
-    hardenedRuntime: Boolean(process.env.CSC_LINK),
+    hardenedRuntime: hasSigningIdentity,
     gatekeeperAssess: false,
-    // CSC_LINK가 설정되지 않은 경우 ad-hoc 서명 사용 (서명 불일치로 인한 업데이트 실패 방지)
-    identity: process.env.CSC_LINK ? undefined : null,
+    // Sign local builds without requiring an Apple Developer ID.
+    identity: hasSigningIdentity ? undefined : "-",
     category: "public.app-category.productivity",
     entitlements: path.join(__dirname, "resources", "macos", "entitlements.mac.plist"),
     entitlementsInherit: path.join(__dirname, "resources", "macos", "entitlements.mac.inherit.plist"),

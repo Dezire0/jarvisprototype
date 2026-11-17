@@ -36,11 +36,20 @@ function isMissingPasswordError(error) {
 }
 
 class CredentialStore {
-  constructor({ app, safeStorage, execFileImpl, sharedVaultDir } = {}) {
+  constructor({
+    app,
+    safeStorage,
+    execFileImpl,
+    sharedVaultDir,
+    keychainService = KEYCHAIN_SERVICE,
+    legacyKeychainService = LEGACY_KEYCHAIN_SERVICE
+  } = {}) {
     this.app = app;
     this.safeStorage = safeStorage || null;
     this.execFile = execFileImpl || execFileAsync;
     this.sharedVaultDir = sharedVaultDir || path.join(os.homedir(), ".friday-jarvis");
+    this.keychainService = keychainService;
+    this.legacyKeychainService = legacyKeychainService;
     this.migrationPromise = null;
   }
 
@@ -179,7 +188,7 @@ class CredentialStore {
   }
 
   async readPassword(siteKey, legacyEntry = null) {
-    const primaryPassword = await this.getPasswordFromKeychain(KEYCHAIN_SERVICE, this.passwordAccount(siteKey)).catch(
+    const primaryPassword = await this.getPasswordFromKeychain(this.keychainService, this.passwordAccount(siteKey)).catch(
       () => ""
     );
 
@@ -187,13 +196,15 @@ class CredentialStore {
       return primaryPassword;
     }
 
-    const legacyKeychainPassword = await this.getPasswordFromKeychain(
-      LEGACY_KEYCHAIN_SERVICE,
-      this.legacyPasswordAccount(siteKey)
-    ).catch(() => "");
+    if (this.legacyKeychainService) {
+      const legacyKeychainPassword = await this.getPasswordFromKeychain(
+        this.legacyKeychainService,
+        this.legacyPasswordAccount(siteKey)
+      ).catch(() => "");
 
-    if (legacyKeychainPassword) {
-      return legacyKeychainPassword;
+      if (legacyKeychainPassword) {
+        return legacyKeychainPassword;
+      }
     }
 
     if (legacyEntry?.password) {
@@ -252,13 +263,13 @@ class CredentialStore {
         sharedChanged = true;
       }
 
-      const storedPassword = await this.getPasswordFromKeychain(KEYCHAIN_SERVICE, this.passwordAccount(siteKey)).catch(
+      const storedPassword = await this.getPasswordFromKeychain(this.keychainService, this.passwordAccount(siteKey)).catch(
         () => ""
       );
 
       if (!storedPassword && entry.password) {
         try {
-          await this.savePasswordToKeychain(KEYCHAIN_SERVICE, this.passwordAccount(siteKey), this.decrypt(entry.password));
+          await this.savePasswordToKeychain(this.keychainService, this.passwordAccount(siteKey), this.decrypt(entry.password));
         } catch (_error) {
           // Keep the legacy vault as a fallback if Keychain migration is unavailable.
         }
@@ -282,7 +293,7 @@ class CredentialStore {
     const updatedAt = new Date().toISOString();
 
     try {
-      await this.savePasswordToKeychain(KEYCHAIN_SERVICE, this.passwordAccount(key), password);
+      await this.savePasswordToKeychain(this.keychainService, this.passwordAccount(key), password);
     } catch (error) {
       if (!this.safeStorage?.isEncryptionAvailable?.()) {
         throw new Error(`Secure credential storage is unavailable: ${error.message}`);
@@ -377,10 +388,12 @@ class CredentialStore {
       await this.writeLegacyVault(legacyVault);
     }
 
-    const keychainDeleted = await this.deletePasswordFromKeychain(KEYCHAIN_SERVICE, this.passwordAccount(key)).catch(
+    const keychainDeleted = await this.deletePasswordFromKeychain(this.keychainService, this.passwordAccount(key)).catch(
       () => false
     );
-    await this.deletePasswordFromKeychain(LEGACY_KEYCHAIN_SERVICE, this.legacyPasswordAccount(key)).catch(() => false);
+    if (this.legacyKeychainService) {
+      await this.deletePasswordFromKeychain(this.legacyKeychainService, this.legacyPasswordAccount(key)).catch(() => false);
+    }
 
     return {
       deleted: sharedDeleted || legacyDeleted || keychainDeleted,
