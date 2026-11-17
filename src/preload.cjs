@@ -70,6 +70,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   saveLocalWorkspace(serialized) {
     return ipcRenderer.invoke("assistant:save-local-workspace", serialized);
   },
+  readHostDiagnostics() {
+    return ipcRenderer.invoke("assistant:read-host-diagnostics");
+  },
   invokeTool(tool, payload = {}) {
     return ipcRenderer.invoke("assistant:invoke-tool", {
       tool,

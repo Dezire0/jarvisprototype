@@ -1,7 +1,23 @@
 export type Timer = { seconds: number; remaining: number; endsAt: number | null };
 export type Entry = { id: string; text: string };
 export type Task = Entry & { done: boolean };
-export type Workspace = { timer: Timer; tasks: Task[]; notes: Entry[]; speakResults: boolean };
+export const activityLabels = {
+  timer: ["타이머 시작", "Timer started"],
+  pause: ["타이머 일시 정지", "Timer paused"],
+  reset: ["타이머 초기화", "Timer reset"],
+  task: ["할 일 추가", "Task added"],
+  complete: ["할 일 완료", "Task completed"],
+  reopen: ["할 일 다시 열기", "Task reopened"],
+  note: ["메모 저장", "Note saved"],
+  "remove-task": ["할 일 삭제", "Task deleted"],
+  "remove-note": ["메모 삭제", "Note deleted"],
+  undo: ["삭제 취소", "Deletion undone"],
+  speech: ["결과 읽기 변경", "Spoken results changed"],
+} as const;
+
+export type ActivityKind = keyof typeof activityLabels;
+type Activity = { id: string; at: number; kind: ActivityKind };
+export type Workspace = { timer: Timer; tasks: Task[]; notes: Entry[]; speakResults: boolean; activity: Activity[] };
 export type Result = { title: string; detail?: string; href?: string; failed?: boolean };
 
 export const emptyWorkspace: Workspace = {
@@ -9,10 +25,12 @@ export const emptyWorkspace: Workspace = {
   tasks: [],
   notes: [],
   speakResults: false,
+  activity: [],
 };
 
 export const workspaceKey = "jarvis-local-workspace:v1";
 const MAX_DURATION = 24 * 60 * 60;
+const MAX_ACTIVITY = 35;
 const TIME_UNITS: Record<string, number> = { h: 3600, m: 60, s: 1, 시간: 3600, 분: 60, 초: 1 };
 const SHORTCUTS = new Map([
   ["github", "https://github.com/"],
@@ -32,6 +50,24 @@ export function remainingSeconds(timer: Timer, now: number) {
 export function formatTimer(seconds: number) {
   const minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
   return minutes + ":" + String(seconds % 60).padStart(2, "0");
+}
+
+export function recordActivity(workspace: Workspace, kind: ActivityKind, at: number, id: string): Workspace {
+  return { ...workspace, activity: [{ id, at, kind }, ...workspace.activity].slice(0, MAX_ACTIVITY) };
+}
+
+function readActivity(saved: unknown): Activity[] {
+  if (!Array.isArray(saved)) return [];
+  const activity: Activity[] = [];
+  for (const item of saved) {
+    if (item && typeof item.id === "string" && item.id.length <= 64 &&
+        typeof item.kind === "string" && Object.hasOwn(activityLabels, item.kind) &&
+        Number.isFinite(item.at) && item.at >= 0 && item.at <= 8.64e15) {
+      activity.push({ id: item.id, at: item.at, kind: item.kind as ActivityKind });
+      if (activity.length === MAX_ACTIVITY) break;
+    }
+  }
+  return activity;
 }
 
 function parseDuration(input: string) {
@@ -67,6 +103,7 @@ export function readWorkspace(value: string | null): Workspace {
         : [],
       notes: Array.isArray(saved?.notes) ? saved.notes.filter(validEntry) : [],
       speakResults: saved?.speakResults === true,
+      activity: readActivity(saved?.activity),
     };
   } catch {
     return emptyWorkspace;
@@ -195,7 +232,15 @@ export function runLocalCommand(
 ): { workspace: Workspace; result: Result } {
   const ko = locale.startsWith("ko");
   const t = (korean: string, english: string) => ko ? korean : english;
-  const finish = (result: Result, next = workspace) => ({ workspace: next, result });
+  const finish = (result: Result, next = workspace) => {
+    const kind = command.kind === "resume" ? "timer" : command.kind;
+    return {
+      workspace: next !== workspace && Object.hasOwn(activityLabels, kind)
+        ? recordActivity(next, kind as ActivityKind, now, id)
+        : next,
+      result,
+    };
+  };
   const timer = workspace.timer;
 
   switch (command.kind) {
