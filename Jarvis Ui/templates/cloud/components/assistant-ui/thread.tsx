@@ -12,7 +12,7 @@ import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
-import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportError } from "@/app/jarvis-runtime-provider";
+import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportError, useTemporaryChat } from "@/app/jarvis-runtime-provider";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -104,6 +104,7 @@ export const Thread: FC<{
   const isEmpty = useAuiState((state) => state.thread.isEmpty);
   const transportError = useJarvisTransportError();
   const historyError = useChatHistoryError();
+  const temporary = useTemporaryChat();
   const isKo = prefersKorean();
 
   return (
@@ -111,6 +112,16 @@ export const Thread: FC<{
       className="aui-root aui-thread-root @container flex h-full min-h-0 flex-col"
       style={{ "--thread-max-width": "46rem" } as React.CSSProperties}
     >
+      {temporary && (
+        <div role="status" className="mx-auto w-full max-w-(--thread-max-width) px-4 py-3 text-sm">
+          <p className="font-medium">{isKo ? "임시 채팅" : "Temporary chat"}</p>
+          <p className="text-muted-foreground">
+            {isKo
+              ? "이 대화는 기록에 저장되지 않으며 이전 대화의 기억을 사용하지 않습니다."
+              : "Jarvis won’t save this chat or use memory from other conversations."}
+          </p>
+        </div>
+      )}
       <ThreadPrimitive.Viewport
         turnAnchor="top"
         data-empty={isEmpty}
@@ -130,7 +141,7 @@ export const Thread: FC<{
         >
           {!isEmpty && <ThreadScrollToBottom />}
           <Composer runLocalCommand={runLocalCommand} />
-          {historyError && <p role="alert" className="jarvis-auth-error mt-2">
+          {historyError && !temporary && <p role="alert" className="jarvis-auth-error mt-2">
             {isKo ? "기기의 대화 기록에 접근하지 못했습니다. 현재 대화에서 필요한 내용을 복사하세요."
               : "Conversation history is unavailable on this device. Copy anything you need from this conversation."}
           </p>}

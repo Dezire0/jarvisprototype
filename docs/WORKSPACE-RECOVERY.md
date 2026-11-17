@@ -32,9 +32,15 @@ The account and computer-control flows continue to gate the conversation workspa
 
 Sign in to the same account after reopening Jarvis to see saved conversations in the sidebar. Select a conversation to continue it, or find it through local search. Jarvis saves completed turns, thread titles and project grouping in the Electron app data directory under the signed-in account's namespace. The browser preview uses that account's storage at the current origin.
 
-The saved transcript includes file names and replies. File contents, open prompts, live previews and raw action payloads are excluded from the history file. A temporary-mode turn stays in the current workspace. Older flattened searches and assistant memory are kept in their existing stores.
+The saved transcript includes file names and replies. File contents, open prompts, live previews and raw action payloads are excluded from the history file.
 
 Cloud sync starts off in this version. Open the profile and save your cloud sync choice to apply it to this account on this device. The setting survives signing in again. When enabled, cloud search can open a selected conversation and save a local copy. Background sync excludes file review conversations and temporary turns.
+
+### Memory and temporary chat
+
+The desktop Assistant stores conversation recall, project context, indexed documents and saved personal context in a separate on-device store for each workspace account. Relevant excerpts can be included in requests to the configured model. The chat transcript and Assistant recall are separate stores. Legacy unscoped memory stays with the legacy desktop entry point because its account owner is unknown.
+
+Choose **Temporary Chat** from the sidebar. The conversation keeps its own context while open and does not read saved Assistant recall. It does not appear in recent conversations, search or cloud sync. Choose **New Chat** or an existing conversation in the sidebar to return to regular chat. Temporary requests still use the configured model, and actions you explicitly run, including local tasks and notes, still apply.
 
 ### Running the desktop UI
 

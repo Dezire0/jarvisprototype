@@ -94,6 +94,45 @@ test("assistant stops before running a command when the client disconnects while
   assert.equal(invoked, false);
 });
 
+test("the same thread ID gets separate Assistants for each account and memory mode", async (t) => {
+  const token = createDesktopSessionToken();
+  const created = [];
+  const server = createAssistantTransportServer({
+    port: 0,
+    sessionToken: token,
+    async createAssistantForThread(threadId, context) {
+      assert.equal(threadId, payload.threadId);
+      created.push([context.accountId, context.memoryMode]);
+      let count = 0;
+      return { async handleInput() { return { reply: "Turn " + ++count }; } };
+    },
+  });
+  await server.start();
+  t.after(() => server.stop());
+
+  async function send(memoryContext) {
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [SESSION_HEADER]: token },
+      body: JSON.stringify({ ...payload, memoryContext }),
+    });
+    assert.equal(response.status, 200);
+    return response.text();
+  }
+
+  const regular = { accountId: "account-a" };
+  const temporary = { ...regular, memoryMode: "temporary" };
+  assert.match(await send(regular), /Turn 1/);
+  assert.match(await send({ accountId: "account-b" }), /Turn 1/);
+  assert.match(await send(temporary), /Turn 1/);
+  assert.match(await send({}), /Turn 1/);
+  assert.match(await send(regular), /Turn 2/);
+  assert.match(await send(temporary), /Turn 2/);
+  assert.deepEqual(created, [
+    ["account-a", "persistent"], ["account-b", "persistent"], ["account-a", "temporary"], ["", "persistent"],
+  ]);
+});
+
 test("only the current desktop main frame is assigned the synthetic session header", () => {
   let onRequest;
   const origin = "http://127.0.0.1:3310";

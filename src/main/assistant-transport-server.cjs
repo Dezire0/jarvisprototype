@@ -1,5 +1,6 @@
 const http = require("node:http");
 const { SESSION_HEADER, isDesktopSessionToken, matchesDesktopToken } = require("./desktop-session.cjs");
+const { normalizeMemoryAccountId } = require("./memory-store.cjs");
 const { normalizeFileName, parseAssistantInput } = require("./assistant/chat-attachments.cjs");
 const { maxFiles } = require("./assistant/attachment-contract.json");
 
@@ -184,6 +185,7 @@ function normalizeMemoryContext(rawContext = {}, threadId = "") {
 
   return {
     threadId,
+    accountId: normalizeMemoryAccountId(context.accountId),
     projectId: typeof context.projectId === "string" ? context.projectId.trim() : "",
     projectName: typeof context.projectName === "string" ? context.projectName.trim() : "",
     threadTitle: typeof context.threadTitle === "string" ? context.threadTitle.trim() : "",
@@ -266,11 +268,15 @@ function writeAuthCallbackPage(res) {
 function createThreadAssistantResolver(createAssistantForThread) {
   const cache = new Map();
 
-  return (threadId) => {
-    const cacheKey = threadId || "default-thread";
+  return (context) => {
+    const { accountId, threadId, memoryMode } = context;
+    const cacheKey = JSON.stringify([accountId, threadId, memoryMode]);
 
     if (!cache.has(cacheKey)) {
-      cache.set(cacheKey, createAssistantForThread(cacheKey));
+      cache.set(cacheKey, Promise.resolve().then(() => createAssistantForThread(threadId, context)).catch((error) => {
+        cache.delete(cacheKey);
+        throw error;
+      }));
     }
 
     return cache.get(cacheKey);
@@ -330,7 +336,8 @@ function createAssistantTransportServer({
     }
 
     if (disconnected()) return;
-    const assistant = resolveAssistant(threadId);
+    const assistant = await resolveAssistant(memoryContext);
+    if (disconnected()) return;
     const attachmentAbort = attachmentReview ? new AbortController() : null;
     if (attachmentAbort) {
       res.once("close", () => {

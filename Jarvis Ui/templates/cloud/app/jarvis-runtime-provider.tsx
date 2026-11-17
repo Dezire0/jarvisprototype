@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { createAssistantStream } from "assistant-stream";
 import { attachmentPrefix, createChatAttachmentAdapter, readAttachmentLabel, type AttachmentError } from "@/lib/chat-attachments";
@@ -10,12 +10,13 @@ import {
   type AssistantTransportConnectionMetadata,
   type RemoteThreadListAdapter,
   useAssistantTransportRuntime,
+  useAui,
   useAuiState,
   useRemoteThreadListRuntime,
   type ThreadMessage,
 } from "@assistant-ui/react";
 
-import { ChatHistory, memoryMode, type TransportMessage, type TransportState } from "@/lib/chat-history";
+import { ChatHistory, type TransportMessage, type TransportState } from "@/lib/chat-history";
 import { AUTH_SESSION_CHANGED, readStoredAuthSession } from "@/components/jarvis/auth-session";
 
 const History = createContext<ChatHistory | null>(null);
@@ -29,6 +30,14 @@ export function useChatHistory() {
 
 export function useChatHistoryError() {
   return useContext(HistoryError);
+}
+
+export function useTemporaryChat() {
+  const history = useChatHistory();
+  const id = useAuiState((state) => state.threadListItem.remoteId ?? state.threadListItem.id);
+  const isDraft = useAuiState((state) => state.threadListItem.status === "new");
+  useSyncExternalStore(history.subscribe, history.getRevision, history.getRevision);
+  return history.isTemporary(id, isDraft);
 }
 
 const TransportError = createContext<string | null>(null);
@@ -48,15 +57,20 @@ const INITIAL_STATE: TransportState = { messages: [] };
 const PENDING_MESSAGE_CREATED_AT = new Date(0).toISOString();
 const CHAT_API_PATH = "/api/chat";
 
-function buildMemoryContext(history: ChatHistory, threadId: string | null) {
+function buildMemoryContext(history: ChatHistory, threadId: string, isDraft: boolean) {
+  const accountId = history.accountId;
+  if (history.isTemporary(threadId, isDraft)) {
+    return { accountId, memoryMode: "temporary" };
+  }
   const { projects, threadMetaById, selectedProjectId } = history.sidebar;
-  const meta = threadId ? threadMetaById[threadId] : undefined;
+  const meta = threadMetaById[threadId];
   const projectId = meta ? meta.projectId : selectedProjectId;
   return {
     projectId,
     projectName: projects.find((project) => project.id === projectId)?.name || null,
-    threadTitle: threadId ? history.get(threadId)?.title || "" : "",
-    memoryMode: memoryMode(),
+    threadTitle: history.get(threadId)?.title || "",
+    accountId,
+    memoryMode: "persistent",
   };
 }
 
@@ -93,6 +107,7 @@ function createThreadListAdapter(history: ChatHistory): RemoteThreadListAdapter 
     },
     async generateTitle(remoteId, messages) {
       return createAssistantStream((controller) => {
+        if (history.isTemporary(remoteId)) return;
         const first = messages.find((message) => message.role === "user");
         const name = first?.content
           .filter((part) => part.type === "text").map((part) => part.text).join(" ").trim();
@@ -329,8 +344,8 @@ function useJarvisTransportRuntime(
   setError: (value: string | null) => void,
   setFileError: (value: AttachmentError | null) => void,
 ) {
+  const aui = useAui();
   const id = useAuiState((state) => state.threadListItem.remoteId);
-  const skipHistory = useRef(false);
   const attachments = useMemo(() => createChatAttachmentAdapter(setFileError), [setFileError]);
   const runtime = useAssistantTransportRuntime<TransportState>({
     initialState: id ? { messages: history.get(id)?.messages ?? [] } : INITIAL_STATE,
@@ -340,9 +355,9 @@ function useJarvisTransportRuntime(
     prepareSendCommandsRequest: async (body) => {
       setError(null);
       setFileError(null);
-      const context = buildMemoryContext(history, typeof body.threadId === "string" ? body.threadId : null);
-      if (context.memoryMode === "temporary") skipHistory.current = true;
-      return { ...body, memoryContext: context };
+      const thread = aui.threadListItem().getState();
+      const threadId = thread.remoteId ?? thread.id;
+      return { ...body, threadId, memoryContext: buildMemoryContext(history, threadId, thread.status === "new") };
     },
     converter: transportConverter,
     onCancel: ({ updateState }) => {
@@ -368,7 +383,7 @@ function useJarvisTransportRuntime(
     function checkpoint() {
       const state = thread.getState();
       const messages = (state.state as TransportState | null)?.messages;
-      if (!skipHistory.current && !state.isRunning && Array.isArray(messages) && messages.length &&
+      if (!state.isRunning && Array.isArray(messages) && messages.length &&
           messages !== seen && messages.at(-1)?.status !== "running") {
         seen = messages;
         history.checkpoint(id!, messages);

@@ -6,6 +6,8 @@ const path = require("node:path");
 
 const {
   MemoryStore,
+  createAccountMemoryResolver,
+  createEmptyStoreState,
   formatMemoryForPrompt
 } = require("../../src/main/memory-store.cjs");
 
@@ -29,6 +31,36 @@ async function cleanup(root) {
     force: true
   });
 }
+
+test("desktop account memory isolates each layer and leaves unscoped memory in the legacy store", async (t) => {
+  const { app, root } = await createTempApp();
+  t.after(() => cleanup(root));
+  const legacy = new MemoryStore({ app });
+  await legacy.merge({ notes: { sample: "legacy workspace memo" } });
+  const resolve = createAccountMemoryResolver(root);
+  const [account, other] = await Promise.all([resolve({ accountId: "account-a" }), resolve({ accountId: "account-b" })]);
+  assert.equal(await resolve({ accountId: "account-a" }), account);
+  assert.equal(await resolve({ accountId: "account-a", memoryMode: "temporary" }), null);
+  assert.equal(await resolve({}), null);
+  assert.equal(await resolve({ accountId: "" }), null);
+  assert.equal(await resolve({ accountId: "x".repeat(257) }), null);
+
+  const context = { threadId: "shared-id", projectId: "shared-project", projectName: "Launch" };
+  const subject = "Cerulean Orchard";
+  await Promise.all([
+    account.merge({ notes: { sample: subject } }),
+    account.appendThreadTurns({ ...context, turns: [{ role: "user", content: subject }] }),
+    account.rememberDocument({ ...context, path: "/fixture/orchard.md", content: subject }),
+  ]);
+
+  const reopened = await createAccountMemoryResolver(root)({ accountId: "account-a" });
+  assert.equal(reopened.getSnapshot().notes.sample.value, subject);
+  assert.equal(reopened.getRecentThreadTurns(context.threadId, 4)[0].content, subject);
+  assert.equal(reopened.getProjectContext(context.projectId).name, "Launch");
+  assert.equal(reopened.searchDocuments({ ...context, query: subject })[0].excerpt, subject);
+  assert.deepEqual(other.getStoreSnapshot(), createEmptyStoreState());
+  assert.equal(legacy.getSnapshot().notes.sample.value, "legacy workspace memo");
+});
 
 test("MemoryStore loads an empty schema when nothing has been saved yet", async () => {
   const { app, root } = await createTempApp();
