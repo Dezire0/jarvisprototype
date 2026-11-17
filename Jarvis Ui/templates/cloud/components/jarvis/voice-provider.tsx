@@ -156,6 +156,8 @@ export function JarvisVoiceProvider({
   const statusRef = useRef<VoiceStatus>("idle");
   const shouldResumeRef = useRef(false);
   const isMountedRef = useRef(true);
+  const recognitionSession = useRef(0);
+  const isCurrent = (session: number) => isMountedRef.current && session === recognitionSession.current;
 
   useEffect(() => {
     statusRef.current = status;
@@ -191,11 +193,14 @@ export function JarvisVoiceProvider({
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      recognitionSession.current++;
       recognitionRef.current?.abort();
       recognitionRef.current = null;
-      void stopRecorderRecognition();
+      stopRecorderRecognition();
+      void disposeRecorderResources();
     };
   }, []);
 
@@ -237,57 +242,39 @@ export function JarvisVoiceProvider({
 
   async function disposeRecorderResources() {
     clearRecorderTimers();
-
-    if (recorderSourceRef.current) {
-      try {
-        recorderSourceRef.current.disconnect();
-      } catch (_error) {
-        // Ignore disconnect races while cleaning up.
-      }
-      recorderSourceRef.current = null;
-    }
-
+    const source = recorderSourceRef.current;
+    const context = recorderAudioContextRef.current;
+    const stream = recorderStreamRef.current;
+    recorderSourceRef.current = null;
+    recorderAudioContextRef.current = null;
+    recorderStreamRef.current = null;
     recorderAnalyserRef.current = null;
-
-    if (recorderAudioContextRef.current) {
-      try {
-        await recorderAudioContextRef.current.close();
-      } catch (_error) {
-        // Ignore close races while cleaning up.
-      }
-      recorderAudioContextRef.current = null;
-    }
-
-    if (recorderStreamRef.current) {
-      recorderStreamRef.current.getTracks().forEach((track) => track.stop());
-      recorderStreamRef.current = null;
-    }
-
     recorderRef.current = null;
     recorderChunksRef.current = [];
     recorderHeardSpeechRef.current = false;
     recorderSilenceStartedAtRef.current = 0;
+
+    try {
+      source?.disconnect();
+    } catch {
+      // The source may already have disconnected during recorder cleanup.
+    }
+    stream?.getTracks().forEach((track) => track.stop());
+    await context?.close().catch(() => {});
   }
 
-  async function stopRecorderRecognition() {
+  function stopRecorderRecognition() {
     const recorder = recorderRef.current;
-
-    if (!recorder || recorder.state === "inactive") {
-      await disposeRecorderResources();
-      return;
-    }
-
-    await new Promise<void>((resolve) => {
-      recorder.addEventListener("stop", () => resolve(), { once: true });
-      recorder.stop();
-    });
+    if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
   function stopRecognition() {
+    recognitionSession.current++;
     shouldResumeRef.current = false;
-    recognitionRef.current?.stop();
+    recognitionRef.current?.abort();
     recognitionRef.current = null;
-    void stopRecorderRecognition();
+    stopRecorderRecognition();
+    void disposeRecorderResources();
     setTranscript("");
     setError("");
     setStatus(supported ? "idle" : "unsupported");
@@ -304,24 +291,24 @@ export function JarvisVoiceProvider({
 
     setTranscript(normalized);
     setError("");
-    setStatus("processing");
+    setStatus("idle");
     shouldResumeRef.current = keepContinuous;
     aui.composer().setText(normalized);
     aui.composer().send();
   }
 
-  async function transcribeRecorderAudio(mimeType: string, language: string) {
+  async function transcribeRecorderAudio(chunks: Blob[], mimeType: string, language: string) {
     const bridge = getAssistantBridge();
 
     if (!bridge?.transcribeAudio) {
       throw new Error("앱 내 음성 인식 엔진에 연결할 수 없어요.");
     }
 
-    if (!recorderChunksRef.current.length) {
+    if (!chunks.length) {
       throw new Error("No voice audio was captured.");
     }
 
-    const blob = new Blob(recorderChunksRef.current, {
+    const blob = new Blob(chunks, {
       type: mimeType,
     });
     const arrayBuffer = await blob.arrayBuffer();
@@ -332,16 +319,18 @@ export function JarvisVoiceProvider({
       binary += String.fromCharCode(bytes[index]!);
     }
 
-    const result = await bridge.transcribeAudio({
-      audioBase64: btoa(binary),
-      mimeType,
-      language,
-    });
+    let deadline: number | undefined;
+    const result = await Promise.race([
+      bridge.transcribeAudio({ audioBase64: btoa(binary), mimeType, language }),
+      new Promise<never>((_resolve, reject) => {
+        deadline = window.setTimeout(() => reject(new Error("음성 인식 시간이 초과됐어요. 다시 시도해 주세요.")), 25000);
+      }),
+    ]).finally(() => window.clearTimeout(deadline));
 
     return String(result?.text || "").trim();
   }
 
-  async function startRecorderRecognition(keepContinuous = false) {
+  async function startRecorderRecognition(session: number, keepContinuous: boolean) {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       throw new Error("이 환경에서는 녹음 기반 음성 입력을 사용할 수 없어요.");
     }
@@ -354,7 +343,9 @@ export function JarvisVoiceProvider({
 
     recognitionRef.current?.abort();
     recognitionRef.current = null;
-    await stopRecorderRecognition();
+    stopRecorderRecognition();
+    await disposeRecorderResources();
+    if (!isCurrent(session)) return;
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -363,6 +354,12 @@ export function JarvisVoiceProvider({
         autoGainControl: true,
       },
     });
+
+    if (!isCurrent(session)) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    recorderStreamRef.current = stream;
 
     const preferredMimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
@@ -373,6 +370,7 @@ export function JarvisVoiceProvider({
       ? new MediaRecorder(stream, { mimeType: preferredMimeType })
       : new MediaRecorder(stream);
     const audioContext = new AudioContext();
+    recorderAudioContextRef.current = audioContext;
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 2048;
     const source = audioContext.createMediaStreamSource(stream);
@@ -380,20 +378,19 @@ export function JarvisVoiceProvider({
 
     recorderRef.current = recorder;
     recorderChunksRef.current = [];
-    recorderStreamRef.current = stream;
-    recorderAudioContextRef.current = audioContext;
     recorderAnalyserRef.current = analyser;
     recorderSourceRef.current = source;
     recorderHeardSpeechRef.current = false;
     recorderSilenceStartedAtRef.current = 0;
 
     recorder.addEventListener("dataavailable", (event) => {
-      if (event.data && event.data.size > 0) {
+      if (isCurrent(session) && event.data && event.data.size > 0) {
         recorderChunksRef.current.push(event.data);
       }
     });
-    const recordingDone = new Promise<void>((resolve) => {
-      recorder.addEventListener("stop", () => resolve(), { once: true });
+    const recordingDone = new Promise<boolean>((resolve) => {
+      recorder.addEventListener("stop", () => resolve(true), { once: true });
+      recorder.addEventListener("error", () => resolve(false), { once: true });
     });
 
     setError("");
@@ -405,12 +402,12 @@ export function JarvisVoiceProvider({
     const silenceThreshold = 18;
 
     recorderMaxTimeoutRef.current = window.setTimeout(() => {
-      void stopRecorderRecognition();
+      stopRecorderRecognition();
     }, 12000);
 
     recorderSilenceTimeoutRef.current = window.setTimeout(() => {
       if (!recorderHeardSpeechRef.current) {
-        void stopRecorderRecognition();
+        stopRecorderRecognition();
       }
     }, 5000);
 
@@ -446,17 +443,23 @@ export function JarvisVoiceProvider({
       }
 
       if (Date.now() - recorderSilenceStartedAtRef.current >= 1200) {
-        void stopRecorderRecognition();
+        stopRecorderRecognition();
       }
     }, 150);
 
-    await recordingDone;
+    const recordingSucceeded = await recordingDone;
+    if (!isCurrent(session)) return;
+    const chunks = recorderChunksRef.current;
+    const heardSpeech = recorderHeardSpeechRef.current;
+    await disposeRecorderResources();
+    if (!isCurrent(session)) return;
 
     const language = resolveRecognitionLanguage();
     const mimeType = recorder.mimeType || "audio/webm";
 
     try {
-      if (!recorderHeardSpeechRef.current) {
+      if (!recordingSucceeded) throw new Error("녹음을 마치지 못했습니다. 다시 시도해 주세요.");
+      if (!heardSpeech) {
         setStatus("error");
         setError("말소리를 제대로 듣지 못했어요. 조금 더 또렷하게 말씀해 주세요.");
         return;
@@ -464,9 +467,10 @@ export function JarvisVoiceProvider({
 
       setStatus("processing");
       setTranscript("음성을 텍스트로 변환하고 있어요...");
-      const text = await transcribeRecorderAudio(mimeType, language);
-      finalizeTranscript(text, keepContinuous);
+      const text = await transcribeRecorderAudio(chunks, mimeType, language);
+      if (isCurrent(session)) finalizeTranscript(text, keepContinuous);
     } catch (voiceError) {
+      if (!isCurrent(session)) return;
       const message =
         voiceError instanceof Error
           ? voiceError.message
@@ -474,12 +478,10 @@ export function JarvisVoiceProvider({
       setStatus("error");
       setError(message);
       shouldResumeRef.current = false;
-    } finally {
-      await disposeRecorderResources();
     }
   }
 
-  function startBrowserRecognition(keepContinuous = false) {
+  function startBrowserRecognition(session: number, keepContinuous: boolean) {
     const Recognition = getRecognitionConstructor();
 
     if (!Recognition) {
@@ -498,12 +500,15 @@ export function JarvisVoiceProvider({
     recognition.lang = resolveRecognitionLanguage();
 
     recognition.onstart = () => {
+      if (!isCurrent(session)) return;
       setError("");
       setTranscript("");
       setStatus("listening");
     };
 
+    let finalReceived = false;
     recognition.onresult = (event) => {
+      if (!isCurrent(session) || finalReceived) return;
       let partialTranscript = "";
       let finalTranscript = "";
 
@@ -534,11 +539,14 @@ export function JarvisVoiceProvider({
       }
 
       if (finalTranscript.trim()) {
+        finalReceived = true;
         finalizeTranscript(finalTranscript, keepContinuous);
+        recognition.stop();
       }
     };
 
     recognition.onerror = (event) => {
+      if (!isCurrent(session) || finalReceived) return;
       const reason = String(event?.error || event?.message || "unknown");
 
       if (reason === "aborted") {
@@ -573,32 +581,32 @@ export function JarvisVoiceProvider({
     };
 
     recognition.onend = () => {
-      recognitionRef.current = null;
-
-      if (!isMountedRef.current) {
-        return;
-      }
-
-      if (shouldResumeRef.current) {
-        setStatus("processing");
-        return;
-      }
-
-      if (statusRef.current === "listening") {
-        setStatus("idle");
-      }
+      if (!isCurrent(session)) return;
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      if (statusRef.current === "listening") setStatus("idle");
     };
 
     recognition.start();
   }
 
   function startRecognition(keepContinuous = false) {
-    if (hasConfiguredAssistantStt()) {
-      void startRecorderRecognition(keepContinuous);
-      return;
-    }
-
-    startBrowserRecognition(keepContinuous);
+    const session = ++recognitionSession.current;
+    shouldResumeRef.current = false;
+    const start = async () => {
+      if (hasConfiguredAssistantStt()) {
+        await startRecorderRecognition(session, keepContinuous);
+      } else {
+        startBrowserRecognition(session, keepContinuous);
+      }
+    };
+    void start().catch((error: unknown) => {
+      if (!isCurrent(session)) return;
+      stopRecorderRecognition();
+      void disposeRecorderResources();
+      setStatus("error");
+      setError(error instanceof Error ? error.message : "음성 입력을 시작하지 못했습니다.");
+      setContinuous(false);
+    });
   }
 
   function toggleContinuous() {

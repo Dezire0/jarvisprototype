@@ -1,4 +1,5 @@
 const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
+const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 20000;
 const GROQ_TRANSCRIPTION_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 
 function pickFirstNonEmpty(...values) {
@@ -36,8 +37,9 @@ async function extractErrorDetail(response) {
 }
 
 class SttService {
-  constructor({ settingsStore }) {
+  constructor({ settingsStore, timeoutMs = DEFAULT_TRANSCRIPTION_TIMEOUT_MS }) {
     this.settingsStore = settingsStore;
+    this.timeoutMs = timeoutMs;
   }
 
   getProviderChain() {
@@ -105,6 +107,8 @@ class SttService {
     let lastError = null;
 
     for (const provider of providers) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
         const form = new FormData();
         const blob = new Blob([buffer], { type: mimeType || "audio/webm" });
@@ -119,7 +123,8 @@ class SttService {
           headers: {
             Authorization: `Bearer ${provider.apiKey}`
           },
-          body: form
+          body: form,
+          signal: controller.signal
         });
 
         if (!response.ok) {
@@ -138,7 +143,11 @@ class SttService {
           text
         };
       } catch (error) {
-        lastError = error;
+        lastError = controller.signal.aborted
+          ? new Error(`${provider.name} transcription timed out. Try again.`)
+          : error;
+      } finally {
+        clearTimeout(timeout);
       }
     }
 
