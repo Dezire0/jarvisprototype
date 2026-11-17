@@ -1,6 +1,6 @@
 # Jarvis workspace recovery
 
-The desktop workspace opens with the conversation composer, voice controls, and a link to Local tools. The interface uses the system typeface, system light/dark preference until a user chooses an appearance, and a visible focus treatment. Local tools also opens from the account and computer-control consent screens.
+The desktop workspace opens with the conversation composer, voice controls, and shortcuts to Timer, Tasks, and Notes. Each shortcut opens Local tools over the conversation and focuses its first control. Close Local tools to return to the same conversation. Open the sidebar to see threads, projects, and account settings. The interface uses the system typeface, system light/dark preference until a user chooses an appearance, and a visible focus treatment. Local tools also opens from the account and computer-control consent screens.
 
 ## Local tools
 
