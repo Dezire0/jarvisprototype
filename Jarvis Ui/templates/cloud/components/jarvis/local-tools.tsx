@@ -14,6 +14,7 @@ import {
 } from "@/lib/local-workspace";
 
 type Receipt = Result & { offerWeather?: boolean };
+export type ToolSection = "timer" | "tasks" | "notes";
 
 function speak(text: string, language: string) {
   if (!("speechSynthesis" in window)) return;
@@ -27,7 +28,10 @@ function loadWorkspace() {
   return readWorkspace(window.localStorage.getItem(workspaceKey));
 }
 
-export function LocalTools() {
+export function LocalTools({ embedded = false, initialSection }: {
+  embedded?: boolean;
+  initialSection?: ToolSection;
+}) {
   const [locale, setLocale] = useState("en");
   const [workspace, setWorkspace] = useState(emptyWorkspace);
   const [now, setNow] = useState(0);
@@ -40,6 +44,7 @@ export function LocalTools() {
   const [nativeStorage, setNativeStorage] = useState(false);
   const [undo, setUndo] = useState<(() => void) | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const toolsRef = useRef<HTMLFieldSetElement>(null);
   const requestCounter = useRef(0);
   const latestNativeWorkspace = useRef(emptyWorkspace);
   const nativeReadSucceeded = useRef(false);
@@ -85,8 +90,12 @@ export function LocalTools() {
   }, []);
 
   useEffect(() => {
-    if (workspaceReady) inputRef.current?.focus();
-  }, [workspaceReady]);
+    if (!workspaceReady) return;
+
+    const section = initialSection && toolsRef.current?.querySelector(`[aria-labelledby="jarvis-${initialSection}"]`);
+    const control = section ? section.querySelector<HTMLElement>("[data-tool-focus]") : inputRef.current;
+    control?.focus();
+  }, [initialSection, workspaceReady]);
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
@@ -274,17 +283,17 @@ export function LocalTools() {
   }
 
   return (
-    <div className="jarvis-local">
-      <header className="jarvis-toolbar">
+    <div className="jarvis-local" data-embedded={embedded || undefined}>
+      {!embedded && <header className="jarvis-toolbar">
         <Link href="/" className="jarvis-toolbar-link">
           <ArrowLeftIcon size={16} aria-hidden="true" />
           {t("대화 및 계정", "Chat and account")}
         </Link>
         <ThemeToggle />
-      </header>
-      <main className="jarvis-local-content">
-        <h1>{t("로컬 도구", "Local tools")}</h1>
-        <fieldset className="min-w-0" disabled={!workspaceReady}>
+      </header>}
+      <div className="jarvis-local-content" role={embedded ? undefined : "main"}>
+        {!embedded && <h1>{t("로컬 도구", "Local tools")}</h1>}
+        <fieldset ref={toolsRef} className="min-w-0" disabled={!workspaceReady}>
         <form className="jarvis-local-command" onSubmit={submit}>
           <input ref={inputRef} value={command} onChange={(event) => setCommand(event.target.value)}
             maxLength={600} aria-label={t("로컬 명령 입력", "Local command")}
@@ -336,7 +345,7 @@ export function LocalTools() {
               <p className="jarvis-timer-value" role="timer" aria-live="off">{formatTimer(remaining)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="jarvis-secondary-button" onClick={() => execute({ kind: timerRunning ? "pause" : "resume" })}>
+              <button type="button" className="jarvis-secondary-button" data-tool-focus onClick={() => execute({ kind: timerRunning ? "pause" : "resume" })}>
                 <ClockIcon size={16} aria-hidden="true" />
                 {timerRunning ? t("일시 정지", "Pause") : t("시작", "Start")}
               </button>
@@ -379,7 +388,7 @@ export function LocalTools() {
           ))}
         </EntrySection>
         </fieldset>
-      </main>
+      </div>
     </div>
   );
 }
@@ -405,7 +414,7 @@ function EntrySection({ id, title, label, limit, onAdd, children }: {
       <h2 id={id}>{title}</h2>
       <ul>{children}</ul>
       <form className="jarvis-entry-form" onSubmit={submit}>
-        <input aria-label={label} placeholder={label} maxLength={limit} value={value}
+        <input data-tool-focus aria-label={label} placeholder={label} maxLength={limit} value={value}
           onChange={(event) => setValue(event.target.value)} />
         <button type="submit" className="jarvis-icon-button" aria-label={label} disabled={!value.trim()}>
           <PlusIcon size={18} />

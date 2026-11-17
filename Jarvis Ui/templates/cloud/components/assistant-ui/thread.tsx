@@ -7,6 +7,7 @@ import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import type { ToolSection } from "@/components/jarvis/local-tools";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,15 +30,18 @@ import {
   ArrowUpIcon,
   AudioLinesIcon,
   CheckIcon,
+  ClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
+  ListTodoIcon,
   MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  StickyNoteIcon,
 } from "lucide-react";
 import { useEffect, useState, type FC, type FormEvent } from "react";
 
@@ -89,7 +93,9 @@ function prefersKorean(language?: string) {
   return language === "ko" || (typeof navigator !== "undefined" && navigator.language.startsWith("ko"));
 }
 
-export const Thread: FC = () => {
+export const Thread: FC<{
+  onOpenTools: (section: ToolSection, trigger: HTMLButtonElement) => void;
+}> = ({ onOpenTools }) => {
   const isEmpty = useAuiState((state) => state.thread.isEmpty);
   const transportError = useJarvisTransportError();
   const isKo = prefersKorean();
@@ -106,7 +112,7 @@ export const Thread: FC = () => {
       >
         <AuiIf condition={(state) => state.thread.isEmpty}>
           <div className="jarvis-start mx-auto w-full max-w-(--thread-max-width)">
-            <h1>{isKo ? "새 대화" : "New conversation"}</h1>
+            <h1>{isKo ? "무엇을 할까요?" : "What would you like to do?"}</h1>
           </div>
         </AuiIf>
         <ThreadPrimitive.Messages>
@@ -121,6 +127,22 @@ export const Thread: FC = () => {
           {transportError && <p role="alert" className="jarvis-auth-error mt-2">
             {isKo ? "어시스턴트에 연결하지 못했습니다. Jarvis 데스크톱을 열고 다시 시도하세요." : "Couldn’t reach the assistant. Open Jarvis Desktop and try again."}
           </p>}
+          {isEmpty && (
+            <div className="jarvis-start-actions" role="group" aria-label={isKo ? "로컬 도구" : "Local tools"}>
+              <button type="button" className="jarvis-secondary-button" aria-haspopup="dialog"
+                onClick={(event) => onOpenTools("timer", event.currentTarget)}>
+                <ClockIcon size={16} aria-hidden="true" />{isKo ? "타이머" : "Timer"}
+              </button>
+              <button type="button" className="jarvis-secondary-button" aria-haspopup="dialog"
+                onClick={(event) => onOpenTools("tasks", event.currentTarget)}>
+                <ListTodoIcon size={16} aria-hidden="true" />{isKo ? "할 일" : "Tasks"}
+              </button>
+              <button type="button" className="jarvis-secondary-button" aria-haspopup="dialog"
+                onClick={(event) => onOpenTools("notes", event.currentTarget)}>
+                <StickyNoteIcon size={16} aria-hidden="true" />{isKo ? "메모" : "Notes"}
+              </button>
+            </div>
+          )}
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
     </ThreadPrimitive.Root>

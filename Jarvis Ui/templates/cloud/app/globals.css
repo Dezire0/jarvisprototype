@@ -278,6 +278,26 @@
   padding-top: 1rem;
 }
 
+.jarvis-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: .75rem;
+}
+
+.jarvis-tools-dialog { max-height: min(42rem, 100dvh - 2rem); }
+.jarvis-tools-dialog-title {
+  margin: 0;
+  padding: 1rem 3rem .75rem 1rem;
+}
+.jarvis-local[data-embedded] { min-height: 0; }
+.jarvis-local[data-embedded] .jarvis-local-content {
+  width: auto;
+  margin: 0;
+  padding: 0 1rem 1rem;
+}
+.jarvis-local[data-embedded] .jarvis-local-command { margin-top: 0; }
+
 .jarvis-composer,
 .jarvis-local-command {
   border: 1px solid var(--jarvis-control-border);

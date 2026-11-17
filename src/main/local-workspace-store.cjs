@@ -47,7 +47,7 @@ function isLocalWorkspacePage(frameUrl, applicationUrl) {
     return source.origin === expectedOrigin &&
       (source.protocol === "http:" || source.protocol === "https:") &&
       ["127.0.0.1", "localhost", "[::1]"].includes(source.hostname) &&
-      source.pathname === "/tools";
+      ["/", "/tools"].includes(source.pathname);
   } catch {
     return false;
   }
@@ -63,7 +63,7 @@ function registerLocalWorkspaceHandlers({ ipcMain, getWindow, getDesktopUiUrl, g
       event.senderFrame !== window.webContents.mainFrame ||
       !isLocalWorkspacePage(event.senderFrame.url, getDesktopUiUrl())
     ) {
-      throw new Error("The workspace is only available in the desktop tools window.");
+      throw new Error("The workspace is only available in the desktop window.");
     }
     store ||= new LocalWorkspaceStore(getUserDataDirectory());
     return store;
