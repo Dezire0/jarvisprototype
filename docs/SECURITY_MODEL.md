@@ -24,6 +24,10 @@
 - Passwords are stored in the OS keychain on macOS when available.
 - Older Electron-only credential files are treated as migration input, not the long-term source of truth.
 
+## Desktop Workspace Recall
+
+The current desktop chat main frame supplies the account namespace over its process-scoped local Assistant connection. Each namespace has a separate transcript and recall database. The anonymous and temporary chat paths do not load persistent Assistant recall. The legacy command entry point uses its pre-existing device store. Account separation relies on the trusted desktop renderer and does not encrypt the on-device files or replace operating-system account isolation.
+
 ## Safe Alternative to "Auto Login Everywhere"
 
 For websites and apps, the right pattern is:

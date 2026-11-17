@@ -36,14 +36,7 @@ type Snapshot = {
 
 const EMPTY_SIDEBAR: SidebarHistory = { projects: [], threadMetaById: {}, selectedProjectId: null };
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
-const MEMORY_MODE_KEY = "jarvis-memory-mode-v1";
 const STORAGE_KEY = "jarvis-chat-history:v1:";
-
-export function memoryMode() {
-  return typeof window !== "undefined" && window.localStorage.getItem(MEMORY_MODE_KEY) === "temporary"
-    ? "temporary"
-    : "persistent";
-}
 
 function readSnapshot(raw: string | null): Snapshot {
   if (raw === null) return { version: 1, threads: [], sidebar: EMPTY_SIDEBAR };
@@ -77,7 +70,8 @@ function completedTranscript(messages: TransportMessage[]): TransportMessage[] {
 
 export class ChatHistory {
   private saved = new Map<string, ThreadHistory>();
-  private temporary = new Map<string, ThreadHistory>();
+  private temporary = new Set<string>();
+  private temporaryDraft = false;
   private listeners = new Set<() => void>();
   private revision = 0;
   private pendingWrite = Promise.resolve();
@@ -121,9 +115,19 @@ export class ChatHistory {
 
   getRevision = () => this.revision;
 
-  list() { return [...this.saved.values(), ...this.temporary.values()].sort((a, b) => b.updatedAt - a.updatedAt); }
+  list() { return [...this.saved.values()].sort((a, b) => b.updatedAt - a.updatedAt); }
   localThreads() { return [...this.saved.values()].filter((thread) => thread.messages.length || thread.title); }
-  get(id: string) { return this.temporary.get(id) ?? this.saved.get(id); }
+  get(id: string) { return this.saved.get(id); }
+
+  isTemporary(id: string | null, isDraft = false) {
+    return Boolean(id && this.temporary.has(id)) || (isDraft && this.temporaryDraft);
+  }
+
+  setTemporaryDraft(temporary: boolean) {
+    if (temporary === this.temporaryDraft) return;
+    this.temporaryDraft = temporary;
+    this.update(false);
+  }
 
   cloudToken() {
     if (!this.cloudSync || !this.syncPreferenceSaved) return null;
@@ -171,24 +175,22 @@ export class ChatHistory {
   }
 
   initialize(id: string) {
-    if (this.get(id)) return;
-    const thread = { remoteId: id, status: "regular" as const, updatedAt: Date.now(), messages: [] };
-    if (memoryMode() === "temporary") {
-      this.temporary.set(id, thread);
-      this.update(false);
+    if (this.get(id) || this.temporary.has(id)) return;
+    if (this.temporaryDraft) {
+      this.temporary.add(id);
+      this.temporaryDraft = false;
     } else {
       // Persist a new thread after it has a completed turn or an explicit title.
-      this.saved.set(id, thread);
-      this.update(false);
+      this.saved.set(id, { remoteId: id, status: "regular", updatedAt: Date.now(), messages: [] });
     }
+    this.update(false);
   }
 
   revise(id: string, change: Partial<Pick<ThreadHistory, "title" | "status">>) {
-    const target = this.temporary.has(id) ? this.temporary : this.saved;
-    const thread = target.get(id);
+    const thread = this.saved.get(id);
     if (!thread) return;
-    target.set(id, { ...thread, ...change });
-    this.update(target === this.saved);
+    this.saved.set(id, { ...thread, ...change });
+    this.update(true);
   }
 
   remove(id: string) {
@@ -199,7 +201,7 @@ export class ChatHistory {
 
   checkpoint(id: string, messages: TransportMessage[]) {
     const thread = this.saved.get(id);
-    if (!thread || this.temporary.has(id) || messages.at(-1)?.role !== "assistant") return;
+    if (!thread || messages.at(-1)?.role !== "assistant") return;
     const completed = completedTranscript(messages);
     if (JSON.stringify(thread.messages) === JSON.stringify(completed)) return;
     const next = {
@@ -218,11 +220,11 @@ export class ChatHistory {
   }
 
   private queueCloud(thread: ThreadHistory, includeMessages: boolean) {
-    if (memoryMode() === "temporary" || !this.cloudToken() || !thread.messages.length ||
+    if (!this.cloudToken() || !thread.messages.length ||
         thread.messages.some((message) => message.attachmentReview)) return;
     this.pendingCloud = this.pendingCloud.then(async () => {
       const token = this.cloudToken();
-      if (!token || memoryMode() === "temporary") return;
+      if (!token) return;
       await fetch(`${API_BASE}/api/chat/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -239,7 +241,7 @@ export class ChatHistory {
 
   async importCloud(id: string, title: string, updatedAt: number) {
     const token = this.cloudToken();
-    if (!token || memoryMode() === "temporary") return false;
+    if (!token || this.isTemporary(id)) return false;
     if (this.get(id)) return true;
     const response = await fetch(`${API_BASE}/api/chat/threads/${encodeURIComponent(id)}/messages`, {
       headers: { Authorization: `Bearer ${token}` },
