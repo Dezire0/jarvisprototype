@@ -1,5 +1,5 @@
-import { LocalTools } from "@/components/jarvis/local-tools";
+import { StandaloneLocalTools } from "@/components/jarvis/local-tools";
 
 export default function LocalToolsPage() {
-  return <LocalTools />;
+  return <StandaloneLocalTools />;
 }

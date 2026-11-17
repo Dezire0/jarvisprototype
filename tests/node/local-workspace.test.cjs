@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
   calculate, emptyWorkspace, formatTimer, parseLocalCommand, readWorkspace,
-  recordActivity, remainingSeconds, runLocalCommand,
+  recordActivity, remainingSeconds, resolveComposerCommand, runLocalCommand,
 } = require("../../Jarvis Ui/templates/cloud/lib/local-workspace.ts");
 
 const NOW = Date.UTC(2026, 10, 17, 20);
@@ -18,6 +18,40 @@ test("starts a timer from Korean natural language and English commands", () => {
   assert.deepEqual(parseLocalCommand("타이머 1시간 2분 30초"), { kind: "timer", seconds: 3750 });
   assert.deepEqual(parseLocalCommand("set a timer for 30 seconds"), { kind: "timer", seconds: 30 });
   assert.deepEqual(parseLocalCommand("focus"), { kind: "timer", seconds: 1500 });
+});
+
+test("the composer keeps structured local operations on the device", () => {
+  for (const [text, kind] of [
+    ["자비스, 10분 타이머 맞춰줘", "timer"],
+    ["focus", "timer"],
+    ["타이머 일시 정지", "pause"],
+    ["pause timer", "pause"],
+    ["save note Review tomorrow", "note"],
+    ["note: Review tomorrow", "note"],
+    ["메모 월요일 회의", "note"],
+    ["add task Review tomorrow", "task"],
+    ["calculate 12 / 0", "calculate"],
+    ["timer 25 hours", "timer"],
+  ]) {
+    assert.equal(resolveComposerCommand(text, false)?.kind ?? null, kind, text);
+    assert.equal(resolveComposerCommand(text, true), null);
+  }
+});
+
+test("conversation, multi-line drafts and external actions retain the chat path", () => {
+  for (const text of [
+    "timer recommendations",
+    "note that the meeting was moved",
+    "remember how these types work",
+    "calculate the annual cost",
+    "What is the weather?",
+    "search for my site",
+    "open gmail",
+    "add task Research\nThen discuss the examples",
+    "save note " + "a".repeat(601),
+  ]) {
+    assert.equal(resolveComposerCommand(text, false), null, text);
+  }
 });
 
 test("the timer survives persistence, expires by deadline, and pauses/resumes from remaining time", () => {
