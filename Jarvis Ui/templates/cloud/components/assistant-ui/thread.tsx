@@ -12,7 +12,7 @@ import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
-import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportError, useTemporaryChat } from "@/app/jarvis-runtime-provider";
+import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportNotice, useTemporaryChat } from "@/app/jarvis-runtime-provider";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -45,7 +45,7 @@ import {
   StickyNoteIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useState, type FC, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FC, type FormEvent, type Ref } from "react";
 
 
 
@@ -102,7 +102,7 @@ export const Thread: FC<{
   dismissLocalResult: () => void;
 }> = ({ onOpenTools, runLocalCommand, localResult, dismissLocalResult }) => {
   const isEmpty = useAuiState((state) => state.thread.isEmpty);
-  const transportError = useJarvisTransportError();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyError = useChatHistoryError();
   const temporary = useTemporaryChat();
   const isKo = prefersKorean();
@@ -140,7 +140,7 @@ export const Thread: FC<{
           className="jarvis-composer-dock mx-auto w-full max-w-(--thread-max-width)"
         >
           {!isEmpty && <ThreadScrollToBottom />}
-          <Composer runLocalCommand={runLocalCommand} />
+          <Composer runLocalCommand={runLocalCommand} inputRef={inputRef} />
           {historyError && !temporary && <p role="alert" className="jarvis-auth-error mt-2">
             {isKo ? "기기의 대화 기록에 접근하지 못했습니다. 현재 대화에서 필요한 내용을 복사하세요."
               : "Conversation history is unavailable on this device. Copy anything you need from this conversation."}
@@ -157,13 +157,7 @@ export const Thread: FC<{
               </button>
             </div>
           )}
-          {transportError && <p role="alert" className="jarvis-auth-error mt-2">
-            {transportError === "attachment-invalid"
-              ? (isKo ? "첨부 파일이 손상됐거나 파일 제한을 초과했습니다." : "An attachment is invalid or exceeds the file limits.")
-              : transportError === "message-too-large"
-                ? (isKo ? "메시지가 너무 큽니다. 내용을 줄이거나 일부 파일을 제거하세요." : "This message is too large. Shorten it or remove a file.")
-              : (isKo ? "어시스턴트에 연결하지 못했습니다. Jarvis 데스크톱을 열고 다시 시도하세요." : "Couldn’t reach the assistant. Open Jarvis Desktop and try again.")}
-          </p>}
+          <TransportFeedback focusInput={() => inputRef.current?.focus()} />
           {isEmpty && (
             <div className="jarvis-start-actions" role="group" aria-label={isKo ? "로컬 도구" : "Local tools"}>
               <button type="button" className="jarvis-secondary-button" aria-haspopup="dialog"
@@ -185,6 +179,54 @@ export const Thread: FC<{
     </ThreadPrimitive.Root>
   );
 };
+
+function TransportFeedback({ focusInput }: { focusInput: () => void }) {
+  const { notice, dismiss } = useJarvisTransportNotice();
+  const aui = useAui();
+  const input = useAuiState((state) => state.thread.composer.text);
+  const busyDraft = useAuiState((state) => Boolean(state.thread.composer.attachments.length || state.thread.composer.quote));
+  const isKo = prefersKorean();
+  if (!notice) return null;
+
+  const titles = {
+    cancelled: isKo ? "응답을 중지했습니다." : "Response stopped.",
+    "attachment-invalid": isKo ? "첨부 파일을 보내지 못했습니다." : "Couldn’t send the attachment.",
+    "message-too-large": isKo ? "메시지 크기 제한을 초과했습니다." : "This message is too large.",
+    "transport-unavailable": isKo ? "어시스턴트 응답을 받지 못했습니다." : "Couldn’t reach the assistant or finish its reply.",
+  };
+  const showRestore = Boolean(notice.text && notice.text !== input);
+  const occupied = Boolean(input.trim()) || busyDraft;
+
+  return (
+    <div className="jarvis-local-result" data-error={notice.kind !== "cancelled" || undefined}>
+      <div>
+        <div role={notice.kind === "cancelled" ? "status" : "alert"}>
+          <p className="font-semibold">{titles[notice.kind]}</p>
+          {notice.hadAttachments && <p className="jarvis-result-detail">
+            {isKo ? "다시 보내려면 첨부 파일을 선택하세요." : "Select the files again before sending."}
+          </p>}
+          {showRestore && occupied && <p className="jarvis-result-detail">
+            {isKo ? "현재 입력을 비우면 보냈던 문장을 복원할 수 있습니다." : "Clear the current draft to restore the earlier message."}
+          </p>}
+        </div>
+        {showRestore && <button type="button" className="jarvis-composer-alternate mt-2" disabled={occupied}
+          onClick={() => {
+            const composer = aui.thread().composer();
+            const draft = composer.getState();
+            if (draft.text.trim() || draft.attachments.length || draft.quote) return;
+            composer.setText(notice.text);
+            focusInput();
+          }}>
+          {isKo ? "초안 복원" : "Restore draft"}
+        </button>}
+      </div>
+      <button type="button" className="jarvis-icon-button" onClick={dismiss}
+        aria-label={isKo ? "전송 상태 닫기" : "Dismiss delivery status"}>
+        <XIcon size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
 
 const ThreadMessage: FC = () => {
   const role = useAuiState((state) => state.message.role);
@@ -215,7 +257,10 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
-const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCommand }) => {
+const Composer: FC<{
+  runLocalCommand: ComposerCommandHandler;
+  inputRef: Ref<HTMLTextAreaElement>;
+}> = ({ runLocalCommand, inputRef }) => {
   const aui = useAui();
   const text = useAuiState((state) => state.composer.text);
   const { error: fileError, clear: clearFileError } = useJarvisAttachmentError();
@@ -278,6 +323,7 @@ const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCom
           <ComposerAttachments />
           {fileIssue && <p className="jarvis-auth-error px-2 py-1" role="alert">{fileIssue}</p>}
           <ComposerPrimitive.Input
+            ref={inputRef}
             placeholder={isKo ? "메시지 또는 명령 입력" : "Write a message or command"}
             className="aui-composer-input max-h-40 min-h-12 w-full resize-none bg-transparent px-2 py-2 text-base text-foreground outline-none placeholder:text-muted-foreground"
             rows={1}
@@ -336,41 +382,10 @@ const ComposerAction: FC<{
 }> = ({
   supported, status, continuous, startOnce, stop, toggleContinuous, onBeforeSend, isLocalCommand, fileBlocked, onChooseFile,
 }) => {
-  const aui = useAui();
-  const messages = useAuiState((state) => state.thread.messages);
   const isKo = prefersKorean();
   const sendLabel = isLocalCommand
     ? (isKo ? "기기에서 명령 실행" : "Run command on this device")
     : (isKo ? "메시지 보내기" : "Send message");
-
-  function extractText(value: unknown): string {
-    if (!value) return "";
-    if (typeof value === "string") return value.trim();
-    if (Array.isArray(value)) {
-      return value.map(extractText).filter(Boolean).join(" ").trim();
-    }
-    if (typeof value === "object") {
-      const record = value as Record<string, unknown>;
-      if (typeof record.text === "string") return record.text.trim();
-      if ("content" in record) return extractText(record.content);
-      if ("parts" in record) return extractText(record.parts);
-    }
-    return "";
-  }
-
-  function restoreLastUserMessageAndCancel() {
-    const lastUserMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === "user");
-    const text = extractText(lastUserMessage);
-
-    aui.thread().cancelRun();
-    if (text) {
-      queueMicrotask(() => {
-        aui.composer().setText(text);
-      });
-    }
-  }
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center gap-2">
@@ -425,16 +440,17 @@ const ComposerAction: FC<{
         </ComposerPrimitive.Send>
       </AuiIf>
       <AuiIf condition={(state) => state.thread.isRunning}>
-        <Button
-          type="button"
-          variant="default"
-          size="icon"
-          className="aui-composer-cancel jarvis-send size-9 rounded-full"
-          aria-label="Stop generating"
-          onClick={restoreLastUserMessageAndCancel}
-        >
-          <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
-        </Button>
+        <ComposerPrimitive.Cancel asChild>
+          <Button
+            type="button"
+            variant="default"
+            size="icon"
+            className="aui-composer-cancel jarvis-send size-9 rounded-full"
+            aria-label={isKo ? "응답 중지" : "Stop response"}
+          >
+            <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
+          </Button>
+        </ComposerPrimitive.Cancel>
       </AuiIf>
     </div>
   );
@@ -926,11 +942,13 @@ const AssistantActionBar: FC = () => {
           </AuiIf>
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
-      <ActionBarPrimitive.Reload asChild>
-        <TooltipIconButton tooltip="Refresh">
-          <RefreshCwIcon />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Reload>
+      <AuiIf condition={(state) => state.thread.capabilities.reload}>
+        <ActionBarPrimitive.Reload asChild>
+          <TooltipIconButton tooltip="Refresh">
+            <RefreshCwIcon />
+          </TooltipIconButton>
+        </ActionBarPrimitive.Reload>
+      </AuiIf>
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton
@@ -969,9 +987,11 @@ const UserMessage: FC = () => {
         <div className="aui-user-message-content wrap-break-word peer rounded-[28px] bg-[color:var(--aui-user-bubble-bg)] px-4 py-3 text-foreground shadow-sm empty:hidden">
           <MessagePrimitive.Parts />
         </div>
-        <div className="aui-user-action-bar-wrapper absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2 peer-empty:hidden">
-          <UserActionBar />
-        </div>
+        <AuiIf condition={(state) => state.thread.capabilities.edit}>
+          <div className="aui-user-action-bar-wrapper absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2 peer-empty:hidden">
+            <UserActionBar />
+          </div>
+        </AuiIf>
       </div>
 
       <BranchPicker className="aui-user-branch-picker col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
@@ -1022,6 +1042,8 @@ const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
   className,
   ...rest
 }) => {
+  const canSwitchBranches = useAuiState((state) => state.thread.capabilities.switchToBranch);
+  if (!canSwitchBranches) return null;
   return (
     <BranchPickerPrimitive.Root
       hideWhenSingleBranch

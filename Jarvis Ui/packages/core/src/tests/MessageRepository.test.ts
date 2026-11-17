@@ -186,6 +186,25 @@ describe("MessageRepository", () => {
   });
 
   describe("Branch management", () => {
+    it("rejects a cyclic move before changing the current branch", () => {
+      const root = createTestMessage({
+        id: "root",
+        content: [{ type: "text", text: "Before" }],
+      });
+      const child = createTestMessage({ id: "child" });
+      repository.addOrUpdateMessage(null, root);
+      repository.addOrUpdateMessage("root", child);
+
+      expect(() =>
+        repository.addOrUpdateMessage("child", {
+          ...root,
+          content: [{ type: "text", text: "After" }],
+        }),
+      ).toThrow("A message with the same id already exists");
+      expect(repository.getMessages()).toEqual([root, child]);
+      expect(repository.getBranches("root")).toEqual(["root"]);
+    });
+
     it("should create multiple branches from a parent message", () => {
       const parent = createTestMessage({ id: "parent-id" });
       const branch1 = createTestMessage({ id: "branch1-id" });

@@ -1637,7 +1637,7 @@ export function ThreadListSidebar({
                   )}
                 >
                   <span className="flex-1 truncate font-medium text-sm">
-                    {thread.title || t("새 채팅", "New Chat")}
+                    {history.get(thread.remoteId ?? thread.id)?.title || thread.title || t("새 채팅", "New Chat")}
                   </span>
                 </Button>
               ))

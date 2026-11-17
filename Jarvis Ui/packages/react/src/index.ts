@@ -110,6 +110,7 @@ export {
 export type {
   AssistantTransportConnectionMetadata,
   AssistantTransportCommand,
+  AssistantTransportState,
   AssistantTransportProtocol,
   SendCommandsRequestBody,
 } from "./legacy-runtime/runtime-cores/assistant-transport/types";

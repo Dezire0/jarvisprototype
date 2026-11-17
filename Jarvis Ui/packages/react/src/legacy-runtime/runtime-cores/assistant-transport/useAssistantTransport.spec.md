@@ -123,3 +123,5 @@ Callbacks
 Return Value
 
 - `useAssistantTransport` returns the runtime object from `useExternalStoreRuntime` (e.g., `{ isRunning, messages, ... }`), rather than a custom wrapper shape.
+- A converter can return a `messageRepository` as the authoritative view of the conversation. Keep its active timeline consistent with the converter's `messages` array, which is also used for tool invocation.
+- Enable `requireFinish` when the server sends an explicit finish event. A successful HTTP response that ends without that event follows the error callback path.
