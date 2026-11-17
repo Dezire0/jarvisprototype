@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import {
-  emptyWorkspace, formatTimer, parseLocalCommand, readWorkspace,
+  activityLabels, emptyWorkspace, formatTimer, parseLocalCommand, readWorkspace, recordActivity,
   remainingSeconds, runLocalCommand, workspaceKey,
   type LocalCommand, type Result, type Workspace,
 } from "@/lib/local-workspace";
@@ -85,6 +85,7 @@ export function LocalTools({ embedded = false, initialSection }: {
     window.addEventListener("storage", onStorage);
     return () => {
       mounted = false;
+      requestCounter.current++;
       window.removeEventListener("storage", onStorage);
     };
   }, []);
@@ -158,6 +159,34 @@ export function LocalTools({ embedded = false, initialSection }: {
     setUndo(null);
   }
 
+  async function diagnose(title: string) {
+    const storage = storageAvailable
+      ? nativeStorage
+        ? t("데스크톱 저장소 사용 가능", "Desktop storage is available")
+        : t("브라우저 저장소 사용 가능", "Browser storage is available")
+      : t("저장소에 접근할 수 없습니다.", "Storage is unavailable.");
+    const read = window.assistantAPI?.readHostDiagnostics;
+    const unavailable = t("측정 불가", "Unavailable");
+    const draw = (cpu: string, memory: string) => {
+      setReceipt({ title, detail: [storage, `CPU ${cpu}`, `${t("메모리", "Memory")} ${memory}`].join("\n") });
+    };
+    if (!read) {
+      showReceipt({ title, detail: storage + "\n" + t("시스템 측정은 Jarvis 데스크톱에서 사용할 수 있습니다.", "Host measurements are available in Jarvis Desktop.") });
+      return;
+    }
+
+    showReceipt({ title, detail: storage + "\n" + t("시스템 사용량 측정 중…", "Measuring host usage…") });
+    const request = requestCounter.current;
+    try {
+      const { cpuPercent, memoryPercent } = await read();
+      if (request === requestCounter.current) {
+        draw(cpuPercent === null ? unavailable : `${cpuPercent}%`, memoryPercent === null ? unavailable : `${memoryPercent}%`);
+      }
+    } catch {
+      if (request === requestCounter.current) draw(unavailable, unavailable);
+    }
+  }
+
   function execute(action: LocalCommand) {
     if (action.kind === "clear") {
       requestCounter.current++;
@@ -178,14 +207,12 @@ export function LocalTools({ embedded = false, initialSection }: {
     const current = latestWorkspace();
     const timestamp = Date.now();
     const result = runLocalCommand(action, current, timestamp, crypto.randomUUID(), locale);
-    if (result.workspace !== current) saveWorkspace(result.workspace);
     if (action.kind === "diagnostics") {
-      result.result.detail = storageAvailable
-        ? nativeStorage
-          ? t("데스크톱 저장소 사용 가능", "Desktop storage is available")
-          : t("브라우저 저장소 사용 가능", "Browser storage is available")
-        : t("저장소에 접근할 수 없습니다.", "Storage is unavailable.");
+      if (current.speakResults && voiceAvailable) speak(result.result.title, locale);
+      void diagnose(result.result.title);
+      return;
     }
+    if (result.workspace !== current) saveWorkspace(result.workspace);
     if (result.workspace.speakResults && voiceAvailable && !result.result.failed) {
       speak(result.result.title, locale);
     } else if (action.kind === "speech" && voiceAvailable) {
@@ -254,7 +281,8 @@ export function LocalTools({ embedded = false, initialSection }: {
     const current = latestWorkspace();
     const task = current.tasks.find((item) => item.id === id);
     if (!task) return;
-    saveWorkspace({ ...current, tasks: current.tasks.map((item) => item.id === id ? { ...item, done: !item.done } : item) });
+    const next = { ...current, tasks: current.tasks.map((item) => item.id === id ? { ...item, done: !item.done } : item) };
+    saveWorkspace(recordActivity(next, task.done ? "reopen" : "complete", Date.now(), crypto.randomUUID()));
     showReceipt({ title: task.done ? t("할 일 다시 열기", "Task reopened") : t("할 일 완료", "Task completed"), detail: task.text });
   }
 
@@ -267,16 +295,18 @@ export function LocalTools({ embedded = false, initialSection }: {
 
     if (kind === "tasks") {
       const task = current.tasks.find((item) => item.id === id)!;
-      saveWorkspace({ ...current, tasks: current.tasks.filter((item) => item.id !== id) });
+      const next = { ...current, tasks: current.tasks.filter((item) => item.id !== id) };
+      saveWorkspace(recordActivity(next, "remove-task", Date.now(), crypto.randomUUID()));
       setUndo(() => () => {
-        const next = latestWorkspace();
-        saveWorkspace({ ...next, tasks: [task, ...next.tasks] });
+        const latest = latestWorkspace();
+        saveWorkspace(recordActivity({ ...latest, tasks: [task, ...latest.tasks] }, "undo", Date.now(), crypto.randomUUID()));
       });
     } else {
-      saveWorkspace({ ...current, notes: current.notes.filter((item) => item.id !== id) });
+      const next = { ...current, notes: current.notes.filter((item) => item.id !== id) };
+      saveWorkspace(recordActivity(next, "remove-note", Date.now(), crypto.randomUUID()));
       setUndo(() => () => {
-        const next = latestWorkspace();
-        saveWorkspace({ ...next, notes: [entry, ...next.notes] });
+        const latest = latestWorkspace();
+        saveWorkspace(recordActivity({ ...latest, notes: [entry, ...latest.notes] }, "undo", Date.now(), crypto.randomUUID()));
       });
     }
     setReceipt({ title: kind === "tasks" ? t("할 일 삭제", "Task deleted") : t("메모 삭제", "Note deleted"), detail: entry.text });
@@ -303,6 +333,10 @@ export function LocalTools({ embedded = false, initialSection }: {
             <ArrowUpIcon size={18} />
           </button>
         </form>
+        <button type="button" className="jarvis-toolbar-link"
+          onClick={() => execute({ kind: "diagnostics" })}>
+          {t("시스템 진단", "Diagnostics")}
+        </button>
         {receipt && (
           <div className="jarvis-local-result" data-error={receipt.failed || undefined}>
             <div role="status">
@@ -387,6 +421,30 @@ export function LocalTools({ embedded = false, initialSection }: {
             </li>
           ))}
         </EntrySection>
+        <details className="jarvis-tool-section jarvis-activity">
+          <summary>{t("최근 활동", "Recent activity")}</summary>
+          {workspace.activity.length ? (
+            <>
+              <ol>
+                {workspace.activity.map(({ id, kind, at }) => (
+                  <li key={id} className="jarvis-result-detail">
+                    <span>{activityLabels[kind][ko ? 0 : 1]}</span>
+                    <time dateTime={new Date(at).toISOString()}>
+                      {new Date(at).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" })}
+                    </time>
+                  </li>
+                ))}
+              </ol>
+              <button type="button" className="jarvis-toolbar-link" onClick={(event) => {
+                saveWorkspace({ ...latestWorkspace(), activity: [] });
+                showReceipt({ title: t("활동을 지웠습니다", "Activity cleared") });
+                event.currentTarget.closest("details")?.querySelector("summary")?.focus();
+              }}>
+                {t("활동 지우기", "Clear activity")}
+              </button>
+            </>
+          ) : <p className="jarvis-result-detail" role="status">{t("기록된 활동이 없습니다.", "No activity yet.")}</p>}
+        </details>
         </fieldset>
       </div>
     </div>

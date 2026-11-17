@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { readHostDiagnostics } = require("./host-diagnostics.cjs");
 
 const MAX_WORKSPACE_BYTES = 1024 * 1024;
 
@@ -55,7 +56,7 @@ function isLocalWorkspacePage(frameUrl, applicationUrl) {
 
 function registerLocalWorkspaceHandlers({ ipcMain, getWindow, getDesktopUiUrl, getUserDataDirectory }) {
   let store;
-  function trustedStore(event) {
+  function requireWorkspaceWindow(event) {
     const window = getWindow();
     if (
       !window ||
@@ -65,12 +66,20 @@ function registerLocalWorkspaceHandlers({ ipcMain, getWindow, getDesktopUiUrl, g
     ) {
       throw new Error("The workspace is only available in the desktop window.");
     }
+  }
+
+  function trustedStore(event) {
+    requireWorkspaceWindow(event);
     store ||= new LocalWorkspaceStore(getUserDataDirectory());
     return store;
   }
 
   ipcMain.handle("assistant:load-local-workspace", (event) => trustedStore(event).read());
   ipcMain.handle("assistant:save-local-workspace", (event, serialized) => trustedStore(event).write(serialized));
+  ipcMain.handle("assistant:read-host-diagnostics", (event) => {
+    requireWorkspaceWindow(event);
+    return readHostDiagnostics();
+  });
 }
 
 module.exports = { LocalWorkspaceStore, isLocalWorkspacePage, registerLocalWorkspaceHandlers };
