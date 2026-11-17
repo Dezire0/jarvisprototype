@@ -11,6 +11,7 @@ import type { ToolSection } from "@/components/jarvis/local-tools";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { useJarvisTransportError } from "@/app/jarvis-runtime-provider";
 import {
   ActionBarMorePrimitive,
@@ -42,6 +43,7 @@ import {
   RefreshCwIcon,
   SquareIcon,
   StickyNoteIcon,
+  XIcon,
 } from "lucide-react";
 import { useEffect, useState, type FC, type FormEvent } from "react";
 
@@ -95,7 +97,10 @@ function prefersKorean(language?: string) {
 
 export const Thread: FC<{
   onOpenTools: (section: ToolSection, trigger: HTMLButtonElement) => void;
-}> = ({ onOpenTools }) => {
+  runLocalCommand: ComposerCommandHandler;
+  localResult: Result | null;
+  dismissLocalResult: () => void;
+}> = ({ onOpenTools, runLocalCommand, localResult, dismissLocalResult }) => {
   const isEmpty = useAuiState((state) => state.thread.isEmpty);
   const transportError = useJarvisTransportError();
   const isKo = prefersKorean();
@@ -123,7 +128,19 @@ export const Thread: FC<{
           className="jarvis-composer-dock mx-auto w-full max-w-(--thread-max-width)"
         >
           {!isEmpty && <ThreadScrollToBottom />}
-          <Composer />
+          <Composer runLocalCommand={runLocalCommand} />
+          {localResult && (
+            <div className="jarvis-local-result" data-error={localResult.failed || undefined}>
+              <div role={localResult.failed ? "alert" : "status"}>
+                <p className="font-semibold">{localResult.title}</p>
+                {localResult.detail && <p className="jarvis-result-detail">{localResult.detail}</p>}
+              </div>
+              <button type="button" className="jarvis-icon-button" onClick={dismissLocalResult}
+                aria-label={isKo ? "로컬 실행 결과 닫기" : "Dismiss local result"}>
+                <XIcon size={16} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           {transportError && <p role="alert" className="jarvis-auth-error mt-2">
             {isKo ? "어시스턴트에 연결하지 못했습니다. Jarvis 데스크톱을 열고 다시 시도하세요." : "Couldn’t reach the assistant. Open Jarvis Desktop and try again."}
           </p>}
@@ -178,7 +195,13 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
-const Composer: FC = () => {
+const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCommand }) => {
+  const aui = useAui();
+  const text = useAuiState((state) => state.composer.text);
+  const hasAttachmentsOrQuote = useAuiState((state) => Boolean(
+    state.composer.attachments.length || state.composer.quote,
+  ));
+  const localCommand = resolveComposerCommand(text, hasAttachmentsOrQuote);
   const {
     supported,
     status,
@@ -197,8 +220,21 @@ const Composer: FC = () => {
       ? (isKo ? "음성을 처리하는 중" : "Processing voice")
       : continuous ? (isKo ? "연속 듣기" : "Continuous voice") : "");
 
+  function routeSubmission(event: { preventDefault(): void }) {
+    const composer = aui.composer();
+    const { text, attachments, quote } = composer.getState();
+    const destination = runLocalCommand(text, {
+      hasAttachmentsOrQuote: Boolean(attachments.length || quote),
+      allowSpeech: !continuous && status !== "listening" && status !== "processing",
+    });
+    if (destination === "chat") return;
+    event.preventDefault();
+    if (destination === "local") composer.setText("");
+  }
+
   return (
-    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col"
+      onSubmit={routeSubmission}>
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="composer-shell"
@@ -206,12 +242,22 @@ const Composer: FC = () => {
         >
           <ComposerAttachments />
           <ComposerPrimitive.Input
-            placeholder={isKo ? "메시지를 입력하세요" : "Write a message"}
+            placeholder={isKo ? "메시지 또는 명령 입력" : "Write a message or command"}
             className="aui-composer-input max-h-40 min-h-12 w-full resize-none bg-transparent px-2 py-2 text-base text-foreground outline-none placeholder:text-muted-foreground"
             rows={1}
             autoFocus
             aria-label={isKo ? "메시지 입력" : "Message input"}
           />
+          {localCommand && (
+            <div className="jarvis-composer-destination">
+              <span role="status">{isKo ? "기기에서 실행" : "Runs on this device"}</span>
+              <ComposerPrimitive.Send asChild>
+                <button type="button" className="jarvis-composer-alternate">
+                  {isKo ? "대화로 보내기" : "Send to chat"}
+                </button>
+              </ComposerPrimitive.Send>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-2 px-1">
             <div role="status" className={cn("min-w-0 break-words text-xs", error ? "text-destructive" : "text-muted-foreground")}>
               {voiceSummary}
@@ -223,6 +269,8 @@ const Composer: FC = () => {
               startOnce={startOnce}
               stop={stop}
               toggleContinuous={toggleContinuous}
+              onBeforeSend={routeSubmission}
+              isLocalCommand={Boolean(localCommand)}
             />
           </div>
         </div>
@@ -238,9 +286,15 @@ const ComposerAction: FC<{
   startOnce: () => void;
   stop: () => void;
   toggleContinuous: () => void;
-}> = ({ supported, status, continuous, startOnce, stop, toggleContinuous }) => {
+  onBeforeSend: (event: { preventDefault(): void }) => void;
+  isLocalCommand: boolean;
+}> = ({ supported, status, continuous, startOnce, stop, toggleContinuous, onBeforeSend, isLocalCommand }) => {
   const aui = useAui();
   const messages = useAuiState((state) => state.thread.messages);
+  const isKo = prefersKorean();
+  const sendLabel = isLocalCommand
+    ? (isKo ? "기기에서 명령 실행" : "Run command on this device")
+    : (isKo ? "메시지 보내기" : "Send message");
 
   function extractText(value: unknown): string {
     if (!value) return "";
@@ -309,13 +363,14 @@ const ComposerAction: FC<{
       <AuiIf condition={(state) => !state.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
           <TooltipIconButton
-            tooltip="Send message"
+            tooltip={sendLabel}
             side="bottom"
             type="button"
             variant="default"
             size="icon"
             className="aui-composer-send jarvis-send size-9 rounded-full"
-            aria-label="Send message"
+            aria-label={sendLabel}
+            onClick={onBeforeSend}
           >
             <ArrowUpIcon className="aui-composer-send-icon size-4 [&_path]:stroke-1.8" />
           </TooltipIconButton>

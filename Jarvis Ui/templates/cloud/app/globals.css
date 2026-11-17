@@ -285,6 +285,23 @@
   margin-top: .75rem;
 }
 
+.jarvis-composer-destination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .25rem .75rem;
+  padding-inline: .5rem;
+  color: var(--muted-foreground);
+  font-size: .8125rem;
+}
+.jarvis-composer-alternate {
+  min-height: 1.75rem;
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+.jarvis-composer-alternate:disabled { opacity: .45; }
+
 .jarvis-tools-dialog { max-height: min(42rem, 100dvh - 2rem); }
 .jarvis-tools-dialog-title {
   margin: 0;

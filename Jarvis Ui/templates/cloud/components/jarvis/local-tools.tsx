@@ -7,16 +7,16 @@ import {
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
+import { useLocalWorkspace, type LocalWorkspace } from "@/lib/use-local-workspace";
 import {
-  activityLabels, emptyWorkspace, formatTimer, parseLocalCommand, readWorkspace, recordActivity,
-  remainingSeconds, runLocalCommand, workspaceKey,
-  type LocalCommand, type Result, type Workspace,
+  activityLabels, formatTimer, parseLocalCommand, recordActivity, remainingSeconds, runLocalCommand,
+  type LocalCommand, type Result,
 } from "@/lib/local-workspace";
 
 type Receipt = Result & { offerWeather?: boolean };
 export type ToolSection = "timer" | "tasks" | "notes";
 
-function speak(text: string, language: string) {
+export function speakLocalResult(text: string, language: string) {
   if (!("speechSynthesis" in window)) return;
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = language;
@@ -24,31 +24,27 @@ function speak(text: string, language: string) {
   window.speechSynthesis.speak(utterance);
 }
 
-function loadWorkspace() {
-  return readWorkspace(window.localStorage.getItem(workspaceKey));
+export function StandaloneLocalTools() {
+  const local = useLocalWorkspace();
+  return <LocalTools local={local} />;
 }
 
-export function LocalTools({ embedded = false, initialSection }: {
+export function LocalTools({ local, embedded = false, initialSection }: {
+  local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: ToolSection;
 }) {
   const [locale, setLocale] = useState("en");
-  const [workspace, setWorkspace] = useState(emptyWorkspace);
+  const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
   const [now, setNow] = useState(0);
   const [command, setCommand] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [weatherPending, setWeatherPending] = useState(false);
-  const [storageAvailable, setStorageAvailable] = useState(true);
   const [voiceAvailable, setVoiceAvailable] = useState(false);
-  const [workspaceReady, setWorkspaceReady] = useState(false);
-  const [nativeStorage, setNativeStorage] = useState(false);
   const [undo, setUndo] = useState<(() => void) | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLFieldSetElement>(null);
   const requestCounter = useRef(0);
-  const latestNativeWorkspace = useRef(emptyWorkspace);
-  const nativeReadSucceeded = useRef(false);
-  const latestSave = useRef(0);
   const ko = locale.startsWith("ko");
   const t = (korean: string, english: string) => ko ? korean : english;
 
@@ -56,38 +52,7 @@ export function LocalTools({ embedded = false, initialSection }: {
     setLocale(navigator.language || "en");
     setVoiceAvailable("speechSynthesis" in window);
     setNow(Date.now());
-    let mounted = true;
-    const bridge = window.assistantAPI;
-    const loadNative = bridge?.loadLocalWorkspace;
-    const useNative = Boolean(loadNative && bridge?.saveLocalWorkspace);
-    setNativeStorage(useNative);
-
-    const syncWorkspace = async () => {
-      try {
-        const persisted = useNative && loadNative ? await loadNative() : null;
-        if (!mounted) return;
-        nativeReadSucceeded.current = useNative;
-        const next = persisted === null ? loadWorkspace() : readWorkspace(persisted);
-        latestNativeWorkspace.current = next;
-        setWorkspace(next);
-      } catch {
-        if (mounted) setStorageAvailable(false);
-      } finally {
-        if (mounted) setWorkspaceReady(true);
-      }
-    };
-    void syncWorkspace();
-    const onStorage = (event: StorageEvent) => {
-      if (!useNative && (event.key === null || event.key === workspaceKey)) {
-        void syncWorkspace();
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => {
-      mounted = false;
-      requestCounter.current++;
-      window.removeEventListener("storage", onStorage);
-    };
+    return () => { requestCounter.current++; };
   }, []);
 
   useEffect(() => {
@@ -119,38 +84,6 @@ export function LocalTools({ embedded = false, initialSection }: {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(timer);
   }, [timerRunning]);
-
-  function latestWorkspace() {
-    if (nativeStorage) return latestNativeWorkspace.current;
-    if (!storageAvailable) return workspace;
-    try {
-      return loadWorkspace();
-    } catch {
-      setStorageAvailable(false);
-      return workspace;
-    }
-  }
-
-  function saveWorkspace(next: Workspace) {
-    setWorkspace(next);
-    const serialized = JSON.stringify(next);
-    if (nativeStorage && window.assistantAPI?.saveLocalWorkspace) {
-      latestNativeWorkspace.current = next;
-      if (!nativeReadSucceeded.current) return;
-      const save = ++latestSave.current;
-      void window.assistantAPI.saveLocalWorkspace(serialized).then(
-        () => { if (save === latestSave.current) setStorageAvailable(true); },
-        () => { if (save === latestSave.current) setStorageAvailable(false); },
-      );
-      return;
-    }
-    try {
-      window.localStorage.setItem(workspaceKey, serialized);
-      setStorageAvailable(true);
-    } catch {
-      setStorageAvailable(false);
-    }
-  }
 
   function showReceipt(result: Receipt) {
     requestCounter.current++;
@@ -208,13 +141,13 @@ export function LocalTools({ embedded = false, initialSection }: {
     const timestamp = Date.now();
     const result = runLocalCommand(action, current, timestamp, crypto.randomUUID(), locale);
     if (action.kind === "diagnostics") {
-      if (current.speakResults && voiceAvailable) speak(result.result.title, locale);
+      if (current.speakResults && voiceAvailable) speakLocalResult(result.result.title, locale);
       void diagnose(result.result.title);
       return;
     }
     if (result.workspace !== current) saveWorkspace(result.workspace);
     if (result.workspace.speakResults && voiceAvailable && !result.result.failed) {
-      speak(result.result.title, locale);
+      speakLocalResult(result.result.title, locale);
     } else if (action.kind === "speech" && voiceAvailable) {
       window.speechSynthesis.cancel();
     }
@@ -364,7 +297,7 @@ export function LocalTools({ embedded = false, initialSection }: {
               )}
               {voiceAvailable && !receipt.offerWeather && (
                 <button type="button" className="jarvis-icon-button" aria-label={t("결과 읽기", "Read result aloud")}
-                  onClick={() => speak([receipt.title, receipt.detail].filter(Boolean).join(". "), locale)}>
+                  onClick={() => speakLocalResult([receipt.title, receipt.detail].filter(Boolean).join(". "), locale)}>
                   <Volume2Icon size={17} />
                 </button>
               )}
