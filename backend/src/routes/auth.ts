@@ -6,7 +6,14 @@ import { eq } from "drizzle-orm";
 
 const INTERNAL_JWT_SECRET = "jarvis-permanent-secret-key-2024-v1";
 
-const auth = new Hono<{ Bindings: { DB: D1Database; JWT_SECRET: string } }>();
+type Bindings = {
+  DB: D1Database;
+  JWT_SECRET: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+};
+
+const auth = new Hono<{ Bindings: Bindings }>();
 const ALLOWED_WEB_RETURN_ORIGINS = new Set([
   "https://dexproject.pages.dev",
 ]);
@@ -81,33 +88,41 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 auth.post("/register", async (c) => {
-  const { email, password } = await c.req.json();
-  if (!email || !password) {
-    return c.json({ error: "Email and password are required" }, 400);
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return c.json({ error: "Invalid registration data" }, 400);
+  }
+
+  const { email, password, name } = body as Record<string, unknown>;
+  const address = typeof email === "string" ? email.trim() : "";
+  if (address.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) ||
+      typeof password !== "string" || !password.trim() || password.length > 1024 ||
+      (name != null && (typeof name !== "string" || name.trim().length > 120))) {
+    return c.json({ error: "Enter a valid email, password, and optional name" }, 400);
   }
 
   const db = drizzle(c.env.DB);
   const hashedPassword = await hashPassword(password);
-  const userId = crypto.randomUUID();
-
   try {
-    await db.insert(users).values({
-      id: userId,
-      email,
+    const inserted = await db.insert(users).values({
+      id: crypto.randomUUID(),
+      email: address,
       passwordHash: hashedPassword,
-      name: name || null,
+      name: typeof name === "string" ? name.trim() || null : null,
       plan: "free",
-      dailyMessageCount: 0,
-      dailyTokenCount: 0,
-      lastMessageDate: "",
-    });
+    }).onConflictDoNothing({ target: users.email }).returning({ id: users.id });
+
+    if (!inserted.length) return c.json({ error: "Email already exists" }, 409);
     return c.json({ success: true, message: "User registered successfully" });
-  } catch (error: any) {
-    console.error("Registration error:", error);
-    if (error.message && error.message.includes("UNIQUE constraint failed")) {
-      return c.json({ error: "Email already exists" }, 409);
-    }
-    return c.json({ error: `Registration failed: ${error.message || "Unknown error"}` }, 500);
+  } catch (error) {
+    console.error("Registration failed", error instanceof Error ? error.name : "Unknown error");
+    return c.json({ error: "Registration failed" }, 500);
   }
 });
 
@@ -139,6 +154,7 @@ auth.post("/login", async (c) => {
     user: { 
       id: user.id, 
       email: user.email,
+      name: user.name,
       plan: user.plan 
     },
     hasGeminiKey: Boolean(user.geminiApiKeyEncrypted),
@@ -225,6 +241,9 @@ auth.get("/google-callback", async (c) => {
   const redirectUri = `${new URL(c.req.url).origin}/api/auth/google-callback`;
 
   if (!code) return c.json({ error: "No code provided" }, 400);
+  if (!clientId || !clientSecret) {
+    return c.json({ error: "Google sign-in is unavailable" }, 503);
+  }
 
   try {
     // 1. Exchange code for access token
