@@ -167,3 +167,25 @@ test("SttService surfaces Groq errors instead of falling through to OpenAI", asy
     }
   });
 });
+
+test("SttService cancels a stalled transcription and reports a retryable timeout", async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, "fetch", (url, { signal }) => {
+    urls.push(String(url));
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  });
+  const { SttService } = require(MODULE_PATH);
+  const service = new SttService({
+    settingsStore: createSettingsStore({
+      groqApiKey: "gsk-stored-groq",
+      conversationOpenaiApiKey: "sk-stored-openai",
+    }),
+    timeoutMs: 10,
+  });
+  await assert.rejects(service.transcribe({
+    audioBase64: Buffer.from("test audio").toString("base64"),
+  }), /groq transcription timed out\. Try again\./);
+  assert.deepEqual(urls, ["https://api.groq.com/openai/v1/audio/transcriptions"]);
+});
