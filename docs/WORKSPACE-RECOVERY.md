@@ -22,9 +22,19 @@ Timer deadlines, tasks, notes, and spoken-result preferences use the desktop app
 
 ## Desktop and API
 
-The account and computer-control flows continue to gate the conversation workspace and native integrations. Existing thread, project, attachment, voice, app-launcher, and model-settings entry points remain in the UI. The conversation composer calls Next's same-origin `/api/chat`, which relays the existing streaming protocol to the local Assistant transport. The proxy returns HTTP 503 when it cannot contact the transport and the composer displays a connection error. Real action metadata provides the status displayed on each execution receipt. Receipts for opened pages show the destination host and do not expose URL query strings.
+The account and computer-control flows continue to gate the conversation workspace and native integrations. Existing thread, project, attachment, voice, app-launcher, and model-settings entry points remain in the UI. Action receipts render the reported outcome and show the hostname for opened pages.
 
-Use Node 24, the version used by the desktop release workflow. Run `npm run check`, `npm run test:node`, and `npm run build:desktop-ui`. For a browser-only preview, run Next on loopback and open the local tools route. Live chat needs the local Assistant transport and a configured provider.
+### Running the desktop UI
+
+Use Node 24. Run `npm run dev` to compile the workspace dependencies and launch Electron. For distribution, `npm run build:desktop-ui` produces the bundled Next UI. In both modes Electron starts the local Assistant, launches the UI on loopback, and verifies that it belongs to the current app session before loading the window. Development prefers port 3310. Set `JARVIS_UI_PORT` to choose a preferred port. An occupied port causes the app to use another local port.
+
+The local chat path is the Electron workspace through Next's same-origin `/api/chat` to the local Assistant transport. Electron attaches a session credential only to chat requests made by its current workspace main frame. The proxy authenticates the request and passes it to the current transport. The credential is process-scoped. A separate browser or an earlier desktop session cannot invoke this chat endpoint. Accounts and OAuth use their existing flow.
+
+The proxy preserves streaming and reports HTTP 503 if the local Assistant is unavailable. Cancelling during context loading prevents dispatch on a closed connection. For actions that have already begun, closing the stream does not undo side effects.
+
+For a standalone browser preview, run Next on loopback and open `/tools`. Timer, notes, tasks, and calculations remain available in that browser. Live model chat and native operations require the Electron app and configured providers.
+
+Run `npm run check` and `npm run test:node` for syntax and regression checks.
 
 ## Capability inventory
 
