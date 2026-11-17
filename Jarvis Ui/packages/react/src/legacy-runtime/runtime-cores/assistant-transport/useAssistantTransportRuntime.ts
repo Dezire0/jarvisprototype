@@ -199,8 +199,19 @@ const useAssistantTransportThreadRuntime = <T>(
           ? new AssistantTransportDecoder()
           : new DataStreamDecoder();
 
+      let receivedFinish = false;
+      const decoded = response.body.pipeThrough(decoder);
+      const chunks = options.requireFinish
+        ? decoded.pipeThrough(new TransformStream({
+            transform(chunk, controller) {
+              if (chunk.type === "message-finish") receivedFinish = true;
+              controller.enqueue(chunk);
+            },
+          }))
+        : decoded;
+
       let err: string | undefined;
-      const stream = response.body.pipeThrough(decoder).pipeThrough(
+      const stream = chunks.pipeThrough(
         new AssistantMessageAccumulator({
           initialMessage: createInitialMessage({
             unstable_state:
@@ -229,6 +240,9 @@ const useAssistantTransportThreadRuntime = <T>(
 
       if (err) {
         throw new Error(err);
+      }
+      if (options.requireFinish && !receivedFinish) {
+        throw new Error("The assistant response ended before completion.");
       }
     },
     onFinish: options.onFinish,
@@ -300,6 +314,7 @@ const useAssistantTransportThreadRuntime = <T>(
   // biome-ignore lint/correctness/useHookAtTopLevel: intentional conditional/nested hook usage
   const runtime = useExternalStoreRuntime({
     messages: converted.messages,
+    ...(converted.messageRepository && { messageRepository: converted.messageRepository }),
     state: converted.state,
     isRunning: converted.isRunning,
     adapters: options.adapters,

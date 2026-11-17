@@ -1,13 +1,15 @@
 "use client";
 
-import { createContext, useContext, type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { createAssistantStream } from "assistant-stream";
+import type { ReadonlyJSONObject, ReadonlyJSONValue } from "assistant-stream/utils";
 import { attachmentPrefix, createChatAttachmentAdapter, readAttachmentLabel, type AttachmentError } from "@/lib/chat-attachments";
 import {
   AssistantRuntimeProvider,
   type AssistantTransportCommand,
   type AssistantTransportConnectionMetadata,
+  type AssistantTransportState,
   type RemoteThreadListAdapter,
   useAssistantTransportRuntime,
   useAui,
@@ -40,14 +42,25 @@ export function useTemporaryChat() {
   return history.isTemporary(id, isDraft);
 }
 
-const TransportError = createContext<string | null>(null);
+type TransportNotice = {
+  kind: "cancelled" | "attachment-invalid" | "message-too-large" | "transport-unavailable";
+  text: string;
+  hadAttachments: boolean;
+};
+type SetTransportNotice = (threadId: string, notice: TransportNotice | null) => void;
+const TransportNotices = createContext<{
+  notices: ReadonlyMap<string, TransportNotice>;
+  setNotice: SetTransportNotice;
+} | null>(null);
 const FileError = createContext<{ error: AttachmentError | null; clear: () => void }>({
   error: null,
   clear: () => {},
 });
 
-export function useJarvisTransportError() {
-  return useContext(TransportError);
+export function useJarvisTransportNotice() {
+  const id = useAuiState((state) => state.threadListItem.remoteId ?? state.threadListItem.id);
+  const context = useContext(TransportNotices);
+  return { notice: context?.notices.get(id), dismiss: () => context?.setNotice(id, null) };
 }
 export function useJarvisAttachmentError() {
   return useContext(FileError);
@@ -108,6 +121,8 @@ function createThreadListAdapter(history: ChatHistory): RemoteThreadListAdapter 
     async generateTitle(remoteId, messages) {
       return createAssistantStream((controller) => {
         if (history.isTemporary(remoteId)) return;
+        const last = messages.at(-1);
+        if (last?.role !== "assistant" || last.status.type !== "complete") return;
         const first = messages.find((message) => message.role === "user");
         const name = first?.content
           .filter((part) => part.type === "text").map((part) => part.text).join(" ").trim();
@@ -120,38 +135,32 @@ function createThreadListAdapter(history: ChatHistory): RemoteThreadListAdapter 
   };
 }
 
-function toThreadMessages(state: TransportState): any[] {
+function toThreadMessages(state: TransportState): ThreadMessage[] {
   const messages = Array.isArray(state?.messages) ? state.messages : [];
 
   return messages.map((message) => {
     const createdAt = new Date(message.createdAt || Date.now());
 
-    // Basic common content
-    const content: any[] = [];
-    if (message.text) {
-      content.push({
-        type: "text" as const,
-        text: message.text,
-      });
-    }
+    const textContent = message.text ? [{ type: "text" as const, text: message.text }] : [];
 
     if (message.role === "assistant") {
+      const content: Extract<ThreadMessage, { role: "assistant" }>["content"][number][] = [...textContent];
       if (message.actions && Array.isArray(message.actions)) {
         message.actions.forEach((value, actionIndex) => {
-          if (!value || typeof value !== "object") return;
+          if (!value || typeof value !== "object" || Array.isArray(value)) return;
           const action = value as { tool?: unknown; type?: unknown };
           const toolName =
             typeof action?.tool === "string" && action.tool.trim().length > 0
               ? action.tool.trim()
-              : action.type;
-          const normalizedToolId = String(toolName || action.type || `tool-${actionIndex}`)
+              : String(action.type || `tool-${actionIndex}`);
+          const normalizedToolId = toolName
             .replace(/[^\w.-]+/g, "-")
             .replace(/^-+|-+$/g, "");
           content.push({
             type: "tool-call" as const,
             toolCallId: `call-${normalizedToolId}-${actionIndex}`,
             toolName,
-            args: action,
+            args: value as ReadonlyJSONObject,
             argsText: JSON.stringify(action),
           });
         });
@@ -167,7 +176,10 @@ function toThreadMessages(state: TransportState): any[] {
             ? { type: "running" as const }
             : { type: "complete" as const, reason: "stop" as const },
         metadata: {
-          unstable_state: state,
+          unstable_state: state as unknown as ReadonlyJSONValue,
+          unstable_annotations: [],
+          unstable_data: [],
+          steps: [],
           custom: {
             provider: message.provider || "local",
             details: message.details || null,
@@ -181,7 +193,7 @@ function toThreadMessages(state: TransportState): any[] {
       id: message.id,
       role: "user" as const,
       createdAt,
-      content,
+      content: textContent,
       attachments: (message.attachmentNames ?? []).map((name, index) => ({
         id: message.id + "-file-" + index,
         name,
@@ -199,46 +211,6 @@ function toThreadMessages(state: TransportState): any[] {
   });
 }
 
-function extractCommandText(
-  message: {
-    text?: string;
-    parts?: readonly { type?: string; text?: string }[];
-    content?: unknown;
-  },
-) {
-  if (typeof message.text === "string") {
-    return message.text.trim();
-  }
-
-  if (Array.isArray(message.parts)) {
-    return message.parts
-      .map((part) =>
-        part?.type === "text" && typeof part.text === "string" ? part.text : "",
-      )
-      .filter((part) => part.trim().length > 0 && !part.startsWith(attachmentPrefix))
-      .join(" ")
-      .trim();
-  }
-
-  if (typeof message.content === "string") {
-    return message.content.trim();
-  }
-
-  if (Array.isArray(message.content)) {
-    return message.content
-      .map((part) =>
-        part && typeof part === "object" && "text" in part && typeof (part as { text?: string }).text === "string"
-          ? (part as { text?: string }).text ?? ""
-          : "",
-      )
-      .filter((part) => part.trim().length > 0)
-      .join(" ")
-      .trim();
-  }
-
-  return "";
-}
-
 function createOptimisticMessage(
   command: AssistantTransportCommand,
   index: number,
@@ -247,14 +219,16 @@ function createOptimisticMessage(
     return null;
   }
 
-  const text = extractCommandText(command.message);
+  const text = command.message.parts
+    .flatMap((part) => part.type === "text" && !part.text.startsWith(attachmentPrefix) ? [part.text] : [])
+    .join("\n");
   const attachmentNames = command.message.parts.flatMap((part) => {
     if (part.type === "image") return ["Clipboard image"];
     if (part.type !== "text") return [];
     const label = readAttachmentLabel(part.text);
     return label ? [label] : [];
   });
-  if (!text && !attachmentNames.length) {
+  if (!text.trim() && !attachmentNames.length) {
     return null;
   }
 
@@ -271,108 +245,83 @@ function createOptimisticMessage(
   };
 }
 
-function mergeMessagesWithOptimistic(
-  messages: readonly TransportMessage[],
-  optimisticMessages: readonly TransportMessage[],
-) {
-  const merged = [...messages];
-
-  for (const optimisticMessage of optimisticMessages) {
-    const lastMessage = merged[merged.length - 1];
-
-    if (
-      lastMessage &&
-      lastMessage.role === optimisticMessage.role &&
-      lastMessage.text === optimisticMessage.text
-    ) {
-      continue;
-    }
-
-    merged.push(optimisticMessage);
-  }
-
-  return merged;
-}
-
-function trimCancelledRunMessages(messages: readonly TransportMessage[]) {
-  const next = [...messages];
-  const last = next[next.length - 1];
-
-  if (last?.role === "assistant" && last.status === "running") {
-    next.pop();
-  }
-
-  const previous = next[next.length - 1];
-  if (previous?.role === "user") {
-    next.pop();
-  }
-
-  return next;
-}
-
 function transportConverter(
   state: TransportState,
   connectionMetadata: AssistantTransportConnectionMetadata,
-) {
+): AssistantTransportState {
   const optimisticMessages = connectionMetadata.pendingCommands
     .map((command, index) => createOptimisticMessage(command, index))
     .filter((message): message is TransportMessage => message !== null);
 
   const mergedState =
     optimisticMessages.length > 0
-      ? {
-          ...state,
-          messages: mergeMessagesWithOptimistic(
-            state.messages,
-            optimisticMessages,
-          ),
-        }
+      ? { messages: [...state.messages, ...optimisticMessages] }
       : state;
+  const messages = toThreadMessages(mergedState);
 
   return {
-    messages: toThreadMessages(mergedState),
+    messages,
+    messageRepository: {
+      messages: messages.map((message, index) => ({ message, parentId: messages[index - 1]?.id ?? null })),
+    },
     isRunning:
       connectionMetadata.isSending ||
       Boolean(optimisticMessages.length) ||
       Boolean(mergedState.messages?.some((message) => message.status === "running")),
-    state: mergedState,
-  } as any;
+    state: mergedState as unknown as ReadonlyJSONValue,
+  };
+}
+
+function draftFromCommands(commands: AssistantTransportCommand[]) {
+  for (const [index, command] of commands.entries()) {
+    if (command.type !== "add-message" || command.message.role !== "user") continue;
+    const message = createOptimisticMessage(command, index);
+    if (message) return { text: message.text, hadAttachments: Boolean(message.attachmentReview) };
+  }
+  return { text: "", hadAttachments: false };
+}
+
+function noticeKind(error?: Error): TransportNotice["kind"] {
+  if (!error) return "cancelled";
+  if (error.message.startsWith("Status 422:")) return "attachment-invalid";
+  if (error.message.startsWith("Status 413:")) return "message-too-large";
+  return "transport-unavailable";
 }
 
 function useJarvisTransportRuntime(
   history: ChatHistory,
-  setError: (value: string | null) => void,
+  setNotice: SetTransportNotice,
   setFileError: (value: AttachmentError | null) => void,
 ) {
   const aui = useAui();
   const id = useAuiState((state) => state.threadListItem.remoteId);
+  const attempt = useRef<{ threadId: string; before: TransportState; draft: ReturnType<typeof draftFromCommands> } | null>(null);
   const attachments = useMemo(() => createChatAttachmentAdapter(setFileError), [setFileError]);
   const runtime = useAssistantTransportRuntime<TransportState>({
     initialState: id ? { messages: history.get(id)?.messages ?? [] } : INITIAL_STATE,
     api: CHAT_API_PATH,
+    requireFinish: true,
     headers: {},
     adapters: { attachments },
     prepareSendCommandsRequest: async (body) => {
-      setError(null);
       setFileError(null);
       const thread = aui.threadListItem().getState();
       const threadId = thread.remoteId ?? thread.id;
+      setNotice(threadId, null);
+      attempt.current = { threadId, before: body.state as TransportState, draft: draftFromCommands(body.commands) };
       return { ...body, threadId, memoryContext: buildMemoryContext(history, threadId, thread.status === "new") };
     },
     converter: transportConverter,
-    onCancel: ({ updateState }) => {
-      updateState((state) => ({
-        ...state,
-        messages: trimCancelledRunMessages(state.messages),
-      }));
+    onFinish: () => {
+      attempt.current = null;
     },
-    onError: (error) => {
-      if (error.message.startsWith("Status 422:")) setError("attachment-invalid");
-      else if (error.message.startsWith("Status 413:")) setError("message-too-large");
-      else {
-        console.error("Jarvis transport error:", error);
-        setError("transport-unavailable");
-      }
+    onCancel: ({ commands, error, updateState }) => {
+      const request = attempt.current;
+      if (request) updateState(() => request.before);
+      const thread = aui.threadListItem().getState();
+      const threadId = request?.threadId ?? thread.remoteId ?? thread.id;
+      const draft = request?.draft ?? draftFromCommands(commands);
+      setNotice(threadId, { ...draft, kind: noticeKind(error) });
     },
   });
 
@@ -400,22 +349,31 @@ function ConversationRuntime({ history, failed, children }: {
   failed: boolean;
   children: ReactNode;
 }) {
-  const [error, setError] = useState<string | null>(null);
+  const [notices, setNotices] = useState<ReadonlyMap<string, TransportNotice>>(() => new Map());
+  const setNotice = useCallback<SetTransportNotice>((id, notice) => {
+    setNotices((current) => {
+      if (!notice && !current.has(id)) return current;
+      const next = new Map(current);
+      if (notice) next.set(id, notice);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
   const [fileError, setFileError] = useState<AttachmentError | null>(null);
   const adapter = useMemo(() => createThreadListAdapter(history), [history]);
   const runtime = useRemoteThreadListRuntime({
-    runtimeHook: () => useJarvisTransportRuntime(history, setError, setFileError),
+    runtimeHook: () => useJarvisTransportRuntime(history, setNotice, setFileError),
     adapter,
   });
 
   return (
     <History.Provider value={history}>
       <HistoryError.Provider value={failed}>
-        <TransportError.Provider value={error}>
+        <TransportNotices.Provider value={{ notices, setNotice }}>
           <FileError.Provider value={{ error: fileError, clear: () => setFileError(null) }}>
             <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
           </FileError.Provider>
-        </TransportError.Provider>
+        </TransportNotices.Provider>
       </HistoryError.Provider>
     </History.Provider>
   );
