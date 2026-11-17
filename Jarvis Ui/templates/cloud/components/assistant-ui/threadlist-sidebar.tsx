@@ -8,6 +8,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useChatHistory } from "@/app/jarvis-runtime-provider";
-import { memoryMode, type SidebarHistory } from "@/lib/chat-history";
+import type { SidebarHistory } from "@/lib/chat-history";
 import { LoginModal } from "@/components/jarvis/login-modal";
 import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 import {
@@ -33,6 +34,7 @@ import {
 } from "@/components/jarvis/auth-session";
 import {
   EditIcon,
+  HistoryIcon,
   SearchIcon,
   MoreHorizontalIcon,
   FolderPlusIcon,
@@ -301,6 +303,7 @@ export function ThreadListSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const aui = useAui();
+  const { isMobile, setOpenMobile } = useSidebar();
   const threadsState = useAuiState((state) => state.threads);
   const history = useChatHistory();
   const revision = useSyncExternalStore(history.subscribe, history.getRevision, history.getRevision);
@@ -368,7 +371,7 @@ export function ThreadListSidebar({
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const allThreads = threadsState.threadItems.filter(
-    (item) => item.status === "regular",
+    (item) => item.status === "regular" && !history.isTemporary(item.remoteId ?? item.id),
   );
   const activeThread =
     allThreads.find((thread) => thread.id === threadsState.mainThreadId) ||
@@ -480,7 +483,7 @@ export function ThreadListSidebar({
   }, [history, projects, selectedProjectId, threadMetaById]);
 
   useEffect(() => {
-    if (!activeThreadId || memoryMode() === "temporary") return;
+    if (!activeThreadId) return;
     setThreadMetaById((previous) => {
       if (Object.hasOwn(previous, activeThreadId)) return previous;
       const now = Date.now();
@@ -875,8 +878,10 @@ export function ThreadListSidebar({
     }
   }
 
-  async function startNewChat() {
+  async function startNewChat(temporary = false) {
+    history.setTemporaryDraft(temporary);
     await aui.threads().switchToNewThread();
+    if (isMobile) setOpenMobile(false);
   }
 
   async function switchToThread(threadId: string) {
@@ -1006,8 +1011,8 @@ export function ThreadListSidebar({
           <Input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="예: 업데이트 배너, Web AI, 프로젝트"
-            className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500"
+            aria-label={t("대화 검색어", "Search conversations")}
+            placeholder={t("대화 제목이나 내용", "Conversation title or text")}
           />
           <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
             {searchResults.length > 0 ? (
@@ -1056,10 +1061,10 @@ export function ThreadListSidebar({
                 </button>
               ))
             ) : (
-              <div className="rounded-xl border border-white/10 border-dashed bg-white/5 px-4 py-8 text-center text-sm text-zinc-400">
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                 {deferredSearchQuery
-                  ? "일치하는 대화가 아직 없어요."
-                  : "검색어를 입력하면 저장된 대화를 바로 찾아볼 수 있어요."}
+                  ? t("일치하는 대화가 없습니다.", "No matching conversations.")
+                  : t("검색어를 입력해 저장된 대화를 찾으세요.", "Enter a search term to find saved conversations.")}
               </div>
             )}
           </div>
@@ -1516,6 +1521,15 @@ export function ThreadListSidebar({
             >
               <EditIcon className="size-4.5 text-foreground/85" />
               <span className="font-medium text-[15px]">{t("새 채팅", "New Chat")}</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => void startNewChat(true)}
+              className="jarvis-sidebar-control"
+            >
+              <HistoryIcon className="size-4.5" aria-hidden="true" />
+              {t("임시 채팅", "Temporary Chat")}
             </Button>
  
              <Button

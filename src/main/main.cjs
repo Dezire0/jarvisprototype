@@ -43,7 +43,7 @@ const {
 } = require("./ollama-service.cjs");
 const { registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs");
 const { registerChatHistoryHandlers } = require("./chat-history-store.cjs");
-const { MemoryStore } = require("./memory-store.cjs");
+const { MemoryStore, createAccountMemoryResolver } = require("./memory-store.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
@@ -187,6 +187,7 @@ async function createServices() {
   const credentials = new CredentialStore({ app, safeStorage });
   const memory = new MemoryStore({ app });
   await memory.load();
+  const resolveAccountMemory = createAccountMemoryResolver(app.getPath("userData"));
   const settings = new SettingsStore({ app });
   await settings.load();
 
@@ -270,7 +271,8 @@ async function createServices() {
     onAuthCallback(payload) {
       deliverAuthCallback(payload);
     },
-    createAssistantForThread(threadId) {
+    async createAssistantForThread(threadId, context) {
+      const accountMemory = await resolveAccountMemory(context);
       return new AssistantService({
         automation,
         browser,
@@ -279,7 +281,7 @@ async function createServices() {
         extensions,
         files,
         games,
-        memory,
+        memory: accountMemory,
         obs,
         openClaw,
         screen: screenService,

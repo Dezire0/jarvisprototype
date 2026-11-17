@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 
 const MEMORY_SECTIONS = [
   "identity",
@@ -643,14 +644,11 @@ function normalizeStoreState(input = {}) {
 }
 
 class MemoryStore {
-  constructor({ app }) {
-    this.app = app;
+  constructor({ app, memoryPath = path.join(app.getPath("userData"), "jarvis-memory.json") }) {
+    this.memoryPath = memoryPath;
     this.state = createEmptyStoreState();
     this.cache = this.state.personalMemory;
-  }
-
-  get memoryPath() {
-    return path.join(this.app.getPath("userData"), "jarvis-memory.json");
+    this.pendingWrite = Promise.resolve();
   }
 
   async load() {
@@ -670,12 +668,17 @@ class MemoryStore {
   }
 
   async writeState() {
-    await fs.mkdir(path.dirname(this.memoryPath), {
-      recursive: true
-    });
     this.state.schemaVersion = CURRENT_SCHEMA_VERSION;
     this.cache = this.state.personalMemory;
-    await fs.writeFile(this.memoryPath, JSON.stringify(this.state, null, 2), "utf8");
+    const serialized = JSON.stringify(this.state, null, 2);
+    const write = this.pendingWrite.then(async () => {
+      await fs.mkdir(path.dirname(this.memoryPath), { recursive: true, mode: 0o700 });
+      const temporaryPath = this.memoryPath + ".tmp";
+      await fs.writeFile(temporaryPath, serialized, { encoding: "utf8", mode: 0o600 });
+      await fs.rename(temporaryPath, this.memoryPath);
+    });
+    this.pendingWrite = write.catch(() => {});
+    await write;
   }
 
   async writeCache() {
@@ -1114,11 +1117,33 @@ class MemoryStore {
   }
 }
 
+function normalizeMemoryAccountId(accountId) {
+  return typeof accountId === "string" && accountId.trim() && accountId.length <= 256 ? accountId : "";
+}
+
+function createAccountMemoryResolver(directory) {
+  const stores = new Map();
+  return async ({ accountId, memoryMode }) => {
+    if (memoryMode === "temporary" || !normalizeMemoryAccountId(accountId)) return null;
+    if (!stores.has(accountId)) {
+      const key = createHash("sha256").update(accountId).digest("hex");
+      const store = new MemoryStore({ memoryPath: path.join(directory, "account-memory", key + ".json") });
+      stores.set(accountId, store.load().then(() => store).catch((error) => {
+        stores.delete(accountId);
+        throw error;
+      }));
+    }
+    return stores.get(accountId);
+  };
+}
+
 module.exports = {
   MemoryStore,
+  createAccountMemoryResolver,
   createEmptyMemory,
   createEmptyStoreState,
   formatMemoryForPrompt,
   normalizeMemory,
+  normalizeMemoryAccountId,
   tokenizeSearchText
 };
