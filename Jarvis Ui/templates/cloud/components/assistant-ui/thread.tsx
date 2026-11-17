@@ -12,7 +12,7 @@ import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
-import { useJarvisAttachmentError, useJarvisTransportError } from "@/app/jarvis-runtime-provider";
+import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportError } from "@/app/jarvis-runtime-provider";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -103,6 +103,7 @@ export const Thread: FC<{
 }> = ({ onOpenTools, runLocalCommand, localResult, dismissLocalResult }) => {
   const isEmpty = useAuiState((state) => state.thread.isEmpty);
   const transportError = useJarvisTransportError();
+  const historyError = useChatHistoryError();
   const isKo = prefersKorean();
 
   return (
@@ -129,6 +130,10 @@ export const Thread: FC<{
         >
           {!isEmpty && <ThreadScrollToBottom />}
           <Composer runLocalCommand={runLocalCommand} />
+          {historyError && <p role="alert" className="jarvis-auth-error mt-2">
+            {isKo ? "기기의 대화 기록에 접근하지 못했습니다. 현재 대화에서 필요한 내용을 복사하세요."
+              : "Conversation history is unavailable on this device. Copy anything you need from this conversation."}
+          </p>}
           {localResult && (
             <div className="jarvis-local-result" data-error={localResult.failed || undefined}>
               <div role={localResult.failed ? "alert" : "status"}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode, useMemo, useState } from "react";
+import { createContext, useContext, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { createAssistantStream } from "assistant-stream";
 import { attachmentPrefix, createChatAttachmentAdapter, readAttachmentLabel, type AttachmentError } from "@/lib/chat-attachments";
@@ -10,9 +10,26 @@ import {
   type AssistantTransportConnectionMetadata,
   type RemoteThreadListAdapter,
   useAssistantTransportRuntime,
+  useAuiState,
   useRemoteThreadListRuntime,
   type ThreadMessage,
 } from "@assistant-ui/react";
+
+import { ChatHistory, memoryMode, type TransportMessage, type TransportState } from "@/lib/chat-history";
+import { AUTH_SESSION_CHANGED, readStoredAuthSession } from "@/components/jarvis/auth-session";
+
+const History = createContext<ChatHistory | null>(null);
+const HistoryError = createContext(false);
+
+export function useChatHistory() {
+  const history = useContext(History);
+  if (!history) throw new Error("Conversation history is not ready.");
+  return history;
+}
+
+export function useChatHistoryError() {
+  return useContext(HistoryError);
+}
 
 const TransportError = createContext<string | null>(null);
 const FileError = createContext<{ error: AttachmentError | null; clear: () => void }>({
@@ -27,223 +44,66 @@ export function useJarvisAttachmentError() {
   return useContext(FileError);
 }
 
-type TransportMessage = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  createdAt: string;
-  status?: "running" | "complete";
-  provider?: string;
-  actions?: any[];
-  details?: any;
-  attachmentReview?: boolean;
-  attachmentNames?: string[];
-};
-
-type TransportState = {
-  messages: TransportMessage[];
-};
-
-const INITIAL_STATE: TransportState = {
-  messages: [],
-};
-
-const TRANSPORT_HEADERS = {};
+const INITIAL_STATE: TransportState = { messages: [] };
 const PENDING_MESSAGE_CREATED_AT = new Date(0).toISOString();
 const CHAT_API_PATH = "/api/chat";
-const SIDEBAR_STORAGE_KEY = "jarvis-sidebar-layout-v3";
-const MEMORY_MODE_STORAGE_KEY = "jarvis-memory-mode-v1";
 
-const threadsStore = new Map<
-  string,
-  {
-    remoteId: string;
-    status: "regular" | "archived";
-    title?: string;
-  }
->();
-
-const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
-
-type SidebarProject = {
-  id: string;
-  name: string;
-  createdAt: number;
-};
-
-type StoredThreadMeta = {
-  createdAt: number;
-  updatedAt: number;
-  projectId: string | null;
-};
-
-type StoredSidebarState = {
-  projects: SidebarProject[];
-  threadMetaById: Record<string, StoredThreadMeta>;
-  selectedProjectId: string | null;
-};
-
-function readSidebarState(): StoredSidebarState {
-  if (typeof window === "undefined") {
-    return { projects: [], threadMetaById: {}, selectedProjectId: null };
-  }
-
-  try {
-    const raw = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
-
-    if (!raw) {
-      return { projects: [], threadMetaById: {}, selectedProjectId: null };
-    }
-
-    const parsed = JSON.parse(raw) as Partial<StoredSidebarState>;
-    return {
-      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-      threadMetaById:
-        parsed.threadMetaById && typeof parsed.threadMetaById === "object"
-          ? parsed.threadMetaById
-          : {},
-      selectedProjectId:
-        typeof parsed.selectedProjectId === "string" ? parsed.selectedProjectId : null,
-    };
-  } catch (_error) {
-    return { projects: [], threadMetaById: {}, selectedProjectId: null };
-  }
-}
-
-function buildMemoryContext(threadId: string | null) {
-  const sidebarState = readSidebarState();
-  const threadMeta = threadId ? sidebarState.threadMetaById[threadId] : undefined;
-  const projectId = threadMeta?.projectId ?? sidebarState.selectedProjectId ?? null;
-  const projectName =
-    projectId
-      ? sidebarState.projects.find((project) => project.id === projectId)?.name || null
-      : null;
-  const memoryMode =
-    typeof window !== "undefined" && window.localStorage.getItem(MEMORY_MODE_STORAGE_KEY) === "temporary"
-      ? "temporary"
-      : "persistent";
-  const threadTitle = threadId ? threadsStore.get(threadId)?.title || "" : "";
-
+function buildMemoryContext(history: ChatHistory, threadId: string | null) {
+  const { projects, threadMetaById, selectedProjectId } = history.sidebar;
+  const meta = threadId ? threadMetaById[threadId] : undefined;
+  const projectId = meta ? meta.projectId : selectedProjectId;
   return {
     projectId,
-    projectName,
-    threadTitle,
-    memoryMode,
+    projectName: projects.find((project) => project.id === projectId)?.name || null,
+    threadTitle: threadId ? history.get(threadId)?.title || "" : "",
+    memoryMode: memoryMode(),
   };
 }
 
-async function syncToCloud(threadId: string, title?: string, messages?: readonly any[]) {
-  if (typeof window === "undefined") return;
-  if (messages?.some((message) => message.metadata?.custom?.attachmentReview)) return;
-  const token = window.localStorage.getItem("jarvis_auth_token");
-  if (!token) return;
-
-  try {
-    await fetch(`${API_BASE}/api/chat/sync`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        threadId,
-        title,
-        messages: messages?.map(m => ({
-          id: m.id,
-          role: m.role,
-          content: m.content?.[0]?.text || m.text || ""
-        }))
-      }),
-    });
-  } catch (err) {
-    console.error("Failed to sync to cloud:", err);
+function createThreadListAdapter(history: ChatHistory): RemoteThreadListAdapter {
+  function summarize(thread: { remoteId: string; status: "regular" | "archived"; title?: string }) {
+    return { remoteId: thread.remoteId, status: thread.status, title: thread.title };
   }
+
+  return {
+    async list() {
+      return { threads: history.list().map(summarize) };
+    },
+    async initialize(localId) {
+      history.initialize(localId);
+      return { remoteId: localId, externalId: undefined };
+    },
+    async rename(remoteId, title) {
+      history.revise(remoteId, { title });
+      history.syncTitle(remoteId);
+    },
+    async archive(remoteId) {
+      history.revise(remoteId, { status: "archived" });
+    },
+    async unarchive(remoteId) {
+      history.revise(remoteId, { status: "regular" });
+    },
+    async delete(remoteId) {
+      history.remove(remoteId);
+    },
+    async fetch(remoteId) {
+      const thread = history.get(remoteId);
+      if (!thread) throw new Error("Thread not found");
+      return summarize(thread);
+    },
+    async generateTitle(remoteId, messages) {
+      return createAssistantStream((controller) => {
+        const first = messages.find((message) => message.role === "user");
+        const name = first?.content
+          .filter((part) => part.type === "text").map((part) => part.text).join(" ").trim();
+        const title = history.get(remoteId)?.title || name?.slice(0, 50) ||
+          (first?.attachments?.length ? "File review" : "New Chat");
+        if (first) history.revise(remoteId, { title });
+        controller.appendText(title);
+      });
+    },
+  };
 }
-
-const threadListAdapter: RemoteThreadListAdapter = {
-  async list() {
-    return {
-      threads: Array.from(threadsStore.values()).map((thread) => ({
-        remoteId: thread.remoteId,
-        status: thread.status,
-        title: thread.title,
-      })),
-    };
-  },
-
-  async initialize(localId) {
-    const remoteId = localId;
-
-    threadsStore.set(remoteId, {
-      remoteId,
-      status: "regular",
-    });
-
-    void syncToCloud(remoteId, "New Chat");
-
-    return { remoteId, externalId: undefined };
-  },
-
-  async rename(remoteId, title) {
-    const thread = threadsStore.get(remoteId);
-
-    if (thread) {
-      thread.title = title;
-      void syncToCloud(remoteId, title);
-    }
-  },
-
-  async archive(remoteId) {
-    const thread = threadsStore.get(remoteId);
-
-    if (thread) {
-      thread.status = "archived";
-    }
-  },
-
-  async unarchive(remoteId) {
-    const thread = threadsStore.get(remoteId);
-
-    if (thread) {
-      thread.status = "regular";
-    }
-  },
-
-  async delete(remoteId) {
-    threadsStore.delete(remoteId);
-  },
-
-  async fetch(remoteId) {
-    const thread = threadsStore.get(remoteId);
-
-    if (!thread) {
-      throw new Error("Thread not found");
-    }
-
-    return {
-      remoteId: thread.remoteId,
-      status: thread.status,
-      title: thread.title,
-    };
-  },
-
-  async generateTitle(remoteId, messages) {
-    return createAssistantStream((controller) => {
-      const firstUserMessage = messages.find((message) => message.role === "user");
-      const content = firstUserMessage?.content
-        ?.filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join(" ")
-        .trim();
-
-      const title = content ? content.slice(0, 50) : firstUserMessage?.attachments.length ? "File review" : "New Chat";
-      controller.appendText(title);
-      
-      // Sync title to cloud after generation
-      void syncToCloud(remoteId, title, messages);
-    });
-  },
-};
 
 function toThreadMessages(state: TransportState): any[] {
   const messages = Array.isArray(state?.messages) ? state.messages : [];
@@ -262,7 +122,9 @@ function toThreadMessages(state: TransportState): any[] {
 
     if (message.role === "assistant") {
       if (message.actions && Array.isArray(message.actions)) {
-        message.actions.forEach((action, actionIndex) => {
+        message.actions.forEach((value, actionIndex) => {
+          if (!value || typeof value !== "object") return;
+          const action = value as { tool?: unknown; type?: unknown };
           const toolName =
             typeof action?.tool === "string" && action.tool.trim().length > 0
               ? action.tool.trim()
@@ -463,30 +325,24 @@ function transportConverter(
 }
 
 function useJarvisTransportRuntime(
+  history: ChatHistory,
   setError: (value: string | null) => void,
   setFileError: (value: AttachmentError | null) => void,
 ) {
-  const token = typeof window !== "undefined" ? window.localStorage.getItem("jarvis_auth_token") : null;
-  const headers = useMemo(() => {
-    return {
-      ...TRANSPORT_HEADERS,
-      Authorization: token ? `Bearer ${token}` : "",
-    };
-  }, [token]);
+  const id = useAuiState((state) => state.threadListItem.remoteId);
+  const skipHistory = useRef(false);
   const attachments = useMemo(() => createChatAttachmentAdapter(setFileError), [setFileError]);
-
-  return useAssistantTransportRuntime<TransportState>({
-    initialState: INITIAL_STATE,
+  const runtime = useAssistantTransportRuntime<TransportState>({
+    initialState: id ? { messages: history.get(id)?.messages ?? [] } : INITIAL_STATE,
     api: CHAT_API_PATH,
-    headers,
+    headers: {},
     adapters: { attachments },
     prepareSendCommandsRequest: async (body) => {
       setError(null);
       setFileError(null);
-      return {
-        ...body,
-        memoryContext: buildMemoryContext(typeof body.threadId === "string" ? body.threadId : null),
-      };
+      const context = buildMemoryContext(history, typeof body.threadId === "string" ? body.threadId : null);
+      if (context.memoryMode === "temporary") skipHistory.current = true;
+      return { ...body, memoryContext: context };
     },
     converter: transportConverter,
     onCancel: ({ updateState }) => {
@@ -496,29 +352,94 @@ function useJarvisTransportRuntime(
       }));
     },
     onError: (error) => {
-      console.error("Jarvis transport error:", error);
       if (error.message.startsWith("Status 422:")) setError("attachment-invalid");
       else if (error.message.startsWith("Status 413:")) setError("message-too-large");
-      else setError("transport-unavailable");
+      else {
+        console.error("Jarvis transport error:", error);
+        setError("transport-unavailable");
+      }
     },
   });
+
+  useEffect(() => {
+    if (!id) return;
+    const thread = runtime.thread;
+    let seen: TransportMessage[] | undefined;
+    function checkpoint() {
+      const state = thread.getState();
+      const messages = (state.state as TransportState | null)?.messages;
+      if (!skipHistory.current && !state.isRunning && Array.isArray(messages) && messages.length &&
+          messages !== seen && messages.at(-1)?.status !== "running") {
+        seen = messages;
+        history.checkpoint(id!, messages);
+      }
+    }
+    return thread.subscribe(checkpoint);
+  }, [runtime, history, id]);
+
+  return runtime;
 }
 
-export function JarvisRuntimeProvider({
-  children,
-}: Readonly<{ children: ReactNode }>) {
+function ConversationRuntime({ history, failed, children }: {
+  history: ChatHistory;
+  failed: boolean;
+  children: ReactNode;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<AttachmentError | null>(null);
+  const adapter = useMemo(() => createThreadListAdapter(history), [history]);
   const runtime = useRemoteThreadListRuntime({
-    runtimeHook: () => useJarvisTransportRuntime(setError, setFileError),
-    adapter: threadListAdapter,
+    runtimeHook: () => useJarvisTransportRuntime(history, setError, setFileError),
+    adapter,
   });
 
   return (
-    <TransportError.Provider value={error}>
-      <FileError.Provider value={{ error: fileError, clear: () => setFileError(null) }}>
-        <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
-      </FileError.Provider>
-    </TransportError.Provider>
+    <History.Provider value={history}>
+      <HistoryError.Provider value={failed}>
+        <TransportError.Provider value={error}>
+          <FileError.Provider value={{ error: fileError, clear: () => setFileError(null) }}>
+            <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+          </FileError.Provider>
+        </TransportError.Provider>
+      </HistoryError.Provider>
+    </History.Provider>
   );
+}
+
+export function JarvisRuntimeProvider({ children }: { children: ReactNode }) {
+  const [history, setHistory] = useState<ChatHistory | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let currentId: string | null = null;
+    let generation = 0;
+    function open() {
+      const session = readStoredAuthSession();
+      const id = session.token && session.user?.id ? session.user.id : null;
+      if (currentId === id) return;
+      currentId = id;
+      const request = ++generation;
+      setHistory(null);
+      if (!id) return;
+      void ChatHistory.open(id, (error) => {
+        if (request === generation) setFailed(error);
+      }).then((opened) => {
+        if (request === generation) setHistory(opened);
+      });
+    }
+    open();
+    window.addEventListener(AUTH_SESSION_CHANGED, open);
+    return () => {
+      generation++;
+      window.removeEventListener(AUTH_SESSION_CHANGED, open);
+    };
+  }, []);
+
+  if (!history) return <p role="status" className="mx-auto mt-12 text-sm text-muted-foreground">
+    {typeof navigator !== "undefined" && navigator.language.startsWith("ko") ? "대화를 불러오는 중…" : "Loading conversations…"}
+  </p>;
+
+  return <ConversationRuntime key={history.accountId} history={history} failed={failed}>
+    {children}
+  </ConversationRuntime>;
 }
