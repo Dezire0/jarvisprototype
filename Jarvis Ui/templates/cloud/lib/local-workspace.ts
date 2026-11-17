@@ -19,6 +19,10 @@ export type ActivityKind = keyof typeof activityLabels;
 type Activity = { id: string; at: number; kind: ActivityKind };
 export type Workspace = { timer: Timer; tasks: Task[]; notes: Entry[]; speakResults: boolean; activity: Activity[] };
 export type Result = { title: string; detail?: string; href?: string; failed?: boolean };
+export type ComposerCommandHandler = (text: string, options: {
+  hasAttachmentsOrQuote: boolean;
+  allowSpeech: boolean;
+}) => "chat" | "retry" | "local";
 
 export const emptyWorkspace: Workspace = {
   timer: { seconds: 25 * 60, remaining: 25 * 60, endsAt: null },
@@ -118,14 +122,18 @@ export type LocalCommand =
   | { kind: "complete"; position: number }
   | { kind: "task" | "note" | "calculate" | "shortcut" | "search"; text: string };
 
+function localCommandText(input: string) {
+  return input.trim().replace(/^(?:(?:hey\s+)?jarvis|자비스)(?:[,:\s]+|$)/i, "");
+}
+
 export function parseLocalCommand(input: string): LocalCommand | null {
-  const raw = input.trim().replace(/^(?:(?:hey\s+)?jarvis|자비스)(?:[,:\s]+|$)/i, "");
+  const raw = localCommandText(input);
   if (/^(help|commands|capabilities|what can you do\??|도움말|명령어|명령)$/i.test(raw)) return { kind: "help" };
   if (/^(time|what time is it\??|current time\??|몇 시|지금 몇 시|시간)$/i.test(raw)) return { kind: "time" };
   if (/^(date|what is the date\??|today|오늘 날짜|날짜)$/i.test(raw)) return { kind: "date" };
   if (/^(run diagnostics|diagnostics|scan|scan system|system status|status|시스템|진단)$/i.test(raw)) return { kind: "diagnostics" };
   if (/^(weather|check weather|날씨|현재 날씨)$/i.test(raw)) return { kind: "weather" };
-  if (/^(pause timer|stop timer|타이머 (정지|멈춰))$/i.test(raw)) return { kind: "pause" };
+  if (/^(pause timer|stop timer|타이머 (일시 정지|정지|멈춰(?:줘)?))$/i.test(raw)) return { kind: "pause" };
   if (/^(resume timer|start timer|타이머 시작)$/i.test(raw)) return { kind: "resume" };
   if (/^(reset timer|타이머 초기화)$/i.test(raw)) return { kind: "reset" };
   if (/^(list tasks|show tasks|objectives|할 ?일|작업 목록)$/i.test(raw)) return { kind: "tasks" };
@@ -160,6 +168,29 @@ export function parseLocalCommand(input: string): LocalCommand | null {
     return { kind: "timer", seconds: parseDuration(raw) };
   }
   return null;
+}
+
+export function resolveComposerCommand(input: string, hasAttachmentsOrQuote: boolean): Exclude<LocalCommand, { kind: "weather" }> | null {
+  const raw = localCommandText(input);
+  if (hasAttachmentsOrQuote || raw.length > 600 || /[\r\n]/.test(raw)) return null;
+  const command = parseLocalCommand(input);
+
+  switch (command?.kind) {
+    case "timer":
+      return /\d|^(?:focus|pomodoro|집중)$/i.test(raw) ? command : null;
+    case "pause":
+    case "resume":
+    case "reset":
+    case "task":
+    case "complete":
+      return command;
+    case "calculate":
+      return /\d/.test(command.text) ? command : null;
+    case "note":
+      return /^(?:note\s*:|save note\s|메모(?:\s|:))/i.test(raw) ? command : null;
+    default:
+      return null;
+  }
 }
 
 // The Protocol arithmetic grammar, with bounded input and no expression evaluation.

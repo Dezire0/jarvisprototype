@@ -6,6 +6,8 @@ The desktop workspace opens with the conversation composer, voice controls, and 
 
 Open `/tools` in a running desktop UI or select **Local tools**. The command field responds to Ctrl+K or Command+K.
 
+The conversation composer also recognizes structured timer, task, note and calculator commands. The label **Runs on this device** identifies the route before submission. Press Enter or use the arrow to run the command and view the result under the input. Select **Send to chat** to send the same text to the Assistant instead. A message with an attachment or quote follows the chat route. Voice input uses the same command routing. Try `10분 타이머 맞춰줘`, `note: Read the agenda`, `add task Review the draft`, or `calculate 16 * 3`.
+
 | Task | Examples |
 | --- | --- |
 | Start a timer or focus session | `10분 타이머 맞춰줘`, `timer 10 minutes`, `focus 25` |

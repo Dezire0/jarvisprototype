@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useAui, useAuiState } from "@assistant-ui/react";
+import type { ComposerCommandHandler } from "@/lib/local-workspace";
 
 type VoiceStatus =
   | "idle"
@@ -132,7 +133,8 @@ function resolveRecognitionLanguage() {
 
 export function JarvisVoiceProvider({
   children,
-}: PropsWithChildren) {
+  runLocalCommand,
+}: PropsWithChildren<{ runLocalCommand?: ComposerCommandHandler }>) {
   const aui = useAui();
   const isThreadRunning = useAuiState((state) => state.thread.isRunning);
   const [supported, setSupported] = useState(false);
@@ -205,19 +207,19 @@ export function JarvisVoiceProvider({
   }, []);
 
   useEffect(() => {
-    if (!continuous || isThreadRunning || !shouldResumeRef.current) {
+    if (!continuous || isThreadRunning || status !== "idle" || !shouldResumeRef.current) {
       return;
     }
 
-    shouldResumeRef.current = false;
     const restartTimer = window.setTimeout(() => {
+      shouldResumeRef.current = false;
       startRecognition(true);
     }, 420);
 
     return () => {
       window.clearTimeout(restartTimer);
     };
-  }, [continuous, isThreadRunning]);
+  }, [continuous, isThreadRunning, status]);
 
   function hasConfiguredAssistantStt() {
     return canUseAssistantSttBridge() && sttProviderLabel.startsWith("cloud-stt:");
@@ -293,8 +295,15 @@ export function JarvisVoiceProvider({
     setError("");
     setStatus("idle");
     shouldResumeRef.current = keepContinuous;
-    aui.composer().setText(normalized);
-    aui.composer().send();
+    const composer = aui.composer();
+    const { attachments, quote } = composer.getState();
+    const destination = runLocalCommand?.(normalized, {
+      hasAttachmentsOrQuote: Boolean(attachments.length || quote),
+      allowSpeech: !keepContinuous,
+    });
+    if (destination === "local") return;
+    composer.setText(normalized);
+    if (destination !== "retry") composer.send();
   }
 
   async function transcribeRecorderAudio(chunks: Blob[], mimeType: string, language: string) {
@@ -535,7 +544,6 @@ export function JarvisVoiceProvider({
 
       if (preview) {
         setTranscript(preview);
-        aui.composer().setText(preview);
       }
 
       if (finalTranscript.trim()) {

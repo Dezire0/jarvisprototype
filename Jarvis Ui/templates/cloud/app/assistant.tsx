@@ -9,15 +9,20 @@ import { ThreadListSidebar } from "@/components/assistant-ui/threadlist-sidebar"
 import { JarvisExtensionsProvider } from "@/components/jarvis/extensions-provider";
 import { JarvisVoiceProvider } from "@/components/jarvis/voice-provider";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
-import { LocalTools, type ToolSection } from "@/components/jarvis/local-tools";
+import { LocalTools, speakLocalResult, type ToolSection } from "@/components/jarvis/local-tools";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
+import { useLocalWorkspace } from "@/lib/use-local-workspace";
 import { WrenchIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { JarvisRuntimeProvider } from "./jarvis-runtime-provider";
 
 export const Assistant = () => {
   const [tools, setTools] = useState<{ section?: ToolSection } | null>(null);
+  const [localResult, setLocalResult] = useState<Result | null>(null);
   const toolsTrigger = useRef<HTMLElement | null>(null);
+  const localRun = useRef(0);
+  const local = useLocalWorkspace();
   const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
   const toolsLabel = isKo ? "로컬 도구" : "Local tools";
 
@@ -26,11 +31,52 @@ export const Assistant = () => {
     setTools({ section });
   }
 
+  const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    const command = resolveComposerCommand(text, hasAttachmentsOrQuote);
+    if (!command) return "chat";
+    const run = ++localRun.current;
+    if (!local.workspaceReady) {
+      setLocalResult({
+        title: isKo ? "로컬 도구를 불러오는 중입니다." : "Local tools are still loading.",
+        detail: isKo ? "잠시 후 다시 실행하세요." : "Try again in a moment.",
+        failed: true,
+      });
+      return "retry";
+    }
+
+    const locale = navigator.language || "en";
+    const current = local.latestWorkspace();
+    const { workspace, result } = runLocalCommand(command, current, Date.now(), crypto.randomUUID(), locale);
+    function finish(saved: boolean) {
+      if (run !== localRun.current) return;
+      const outcome = saved ? result : {
+        title: isKo ? "기기에 저장하지 못했습니다" : "Couldn’t save on this device",
+        detail: result.detail,
+        failed: true,
+      };
+      setLocalResult(outcome);
+      if (saved && allowSpeech && workspace.speakResults && !result.failed) speakLocalResult(result.title, locale);
+    }
+
+    if (workspace === current) {
+      finish(true);
+    } else {
+      setLocalResult({ title: isKo ? "기기에 저장하는 중…" : "Saving on this device…" });
+      void local.saveWorkspace(workspace, current).then(finish);
+    }
+    return "local";
+  };
+
+  function dismissLocalResult() {
+    localRun.current++;
+    setLocalResult(null);
+  }
+
   return (
     <JarvisRuntimeProvider>
       <JarvisExtensionsProvider>
         <SidebarProvider defaultOpen={false}>
-          <JarvisVoiceProvider>
+          <JarvisVoiceProvider runLocalCommand={runComposerCommand}>
             <div className="aui-app-shell flex h-dvh w-full bg-background text-foreground">
               <ThreadListSidebar />
               <main className="aui-app-main relative flex min-w-0 flex-1 flex-col">
@@ -49,7 +95,12 @@ export const Assistant = () => {
                   </div>
                 </header>
                 <div className="min-h-0 flex-1 overflow-hidden">
-                  <Thread onOpenTools={openTools} />
+                  <Thread
+                    onOpenTools={openTools}
+                    runLocalCommand={runComposerCommand}
+                    localResult={localResult}
+                    dismissLocalResult={dismissLocalResult}
+                  />
                 </div>
               </main>
             </div>
@@ -63,7 +114,7 @@ export const Assistant = () => {
                 }}
               >
                 <DialogTitle className="jarvis-tools-dialog-title">{toolsLabel}</DialogTitle>
-                <LocalTools embedded initialSection={tools?.section} />
+                <LocalTools local={local} embedded initialSection={tools?.section} />
               </DialogContent>
             </Dialog>
           </JarvisVoiceProvider>
