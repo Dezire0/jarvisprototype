@@ -297,6 +297,12 @@ export function JarvisVoiceProvider({
     shouldResumeRef.current = keepContinuous;
     const composer = aui.composer();
     const { attachments, quote } = composer.getState();
+    if (attachments.length) {
+      shouldResumeRef.current = false;
+      setContinuous(false);
+      composer.setText(normalized);
+      return;
+    }
     const destination = runLocalCommand?.(normalized, {
       hasAttachmentsOrQuote: Boolean(attachments.length || quote),
       allowSpeech: !keepContinuous,

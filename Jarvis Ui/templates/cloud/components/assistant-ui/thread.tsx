@@ -12,7 +12,7 @@ import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
-import { useJarvisTransportError } from "@/app/jarvis-runtime-provider";
+import { useJarvisAttachmentError, useJarvisTransportError } from "@/app/jarvis-runtime-provider";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -142,7 +142,11 @@ export const Thread: FC<{
             </div>
           )}
           {transportError && <p role="alert" className="jarvis-auth-error mt-2">
-            {isKo ? "어시스턴트에 연결하지 못했습니다. Jarvis 데스크톱을 열고 다시 시도하세요." : "Couldn’t reach the assistant. Open Jarvis Desktop and try again."}
+            {transportError === "attachment-invalid"
+              ? (isKo ? "첨부 파일이 손상됐거나 파일 제한을 초과했습니다." : "An attachment is invalid or exceeds the file limits.")
+              : transportError === "message-too-large"
+                ? (isKo ? "메시지가 너무 큽니다. 내용을 줄이거나 일부 파일을 제거하세요." : "This message is too large. Shorten it or remove a file.")
+              : (isKo ? "어시스턴트에 연결하지 못했습니다. Jarvis 데스크톱을 열고 다시 시도하세요." : "Couldn’t reach the assistant. Open Jarvis Desktop and try again.")}
           </p>}
           {isEmpty && (
             <div className="jarvis-start-actions" role="group" aria-label={isKo ? "로컬 도구" : "Local tools"}>
@@ -198,6 +202,10 @@ const ThreadScrollToBottom: FC = () => {
 const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCommand }) => {
   const aui = useAui();
   const text = useAuiState((state) => state.composer.text);
+  const { error: fileError, clear: clearFileError } = useJarvisAttachmentError();
+  const hasFiles = useAuiState((state) => state.composer.attachments.length > 0);
+  const fileLoading = useAuiState((state) => state.composer.attachments.some((file) => file.status.type === "running"));
+  const fileUnreadable = useAuiState((state) => state.composer.attachments.some((file) => file.status.type === "incomplete"));
   const hasAttachmentsOrQuote = useAuiState((state) => Boolean(
     state.composer.attachments.length || state.composer.quote,
   ));
@@ -214,6 +222,13 @@ const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCom
   } = useJarvisVoice();
 
   const isKo = prefersKorean();
+  const fileIssue = fileError === "format"
+    ? (isKo ? "텍스트 문서와 PNG, JPEG, WebP 이미지를 첨부할 수 있습니다." : "Attach a text document or a PNG, JPEG, or WebP image.")
+    : fileError === "limit"
+      ? (isKo ? "한 번에 파일 4개, 총 4MB까지 첨부할 수 있습니다. 이미지는 2MB, 텍스트는 64KB까지입니다." : "Attach up to 4 files and 4 MB total. Images can be up to 2 MB and text files up to 64 KB.")
+      : fileError === "read"
+        ? (isKo ? "파일을 읽지 못했습니다. 문제가 있는 파일을 제거하고 다시 선택하세요." : "Couldn’t read the file. Remove it and choose the file again.")
+        : "";
   const voiceSummary = error || (status === "listening"
     ? (transcript || (isKo ? "듣는 중" : "Listening"))
     : status === "processing"
@@ -223,6 +238,10 @@ const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCom
   function routeSubmission(event: { preventDefault(): void }) {
     const composer = aui.composer();
     const { text, attachments, quote } = composer.getState();
+    if (attachments.some((file) => file.status.type !== "complete" && file.status.type !== "requires-action")) {
+      event.preventDefault();
+      return;
+    }
     const destination = runLocalCommand(text, {
       hasAttachmentsOrQuote: Boolean(attachments.length || quote),
       allowSpeech: !continuous && status !== "listening" && status !== "processing",
@@ -235,12 +254,13 @@ const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCom
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col"
       onSubmit={routeSubmission}>
-      <ComposerPrimitive.AttachmentDropzone asChild>
+      <ComposerPrimitive.AttachmentDropzone asChild onDropCapture={clearFileError}>
         <div
           data-slot="composer-shell"
           className="jarvis-composer flex w-full flex-col data-[dragging=true]:border-dashed data-[dragging=true]:border-ring"
         >
           <ComposerAttachments />
+          {fileIssue && <p className="jarvis-auth-error px-2 py-1" role="alert">{fileIssue}</p>}
           <ComposerPrimitive.Input
             placeholder={isKo ? "메시지 또는 명령 입력" : "Write a message or command"}
             className="aui-composer-input max-h-40 min-h-12 w-full resize-none bg-transparent px-2 py-2 text-base text-foreground outline-none placeholder:text-muted-foreground"
@@ -248,6 +268,11 @@ const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCom
             autoFocus
             aria-label={isKo ? "메시지 입력" : "Message input"}
           />
+          {hasFiles && <p className="jarvis-composer-destination" role="status">
+            {fileLoading
+              ? (isKo ? "파일을 읽는 중…" : "Reading files…")
+              : (isKo ? "전송하면 설정한 모델이 파일을 읽습니다." : "Sending shares these files with the configured model.")}
+          </p>}
           {localCommand && (
             <div className="jarvis-composer-destination">
               <span role="status">{isKo ? "기기에서 실행" : "Runs on this device"}</span>
@@ -271,6 +296,8 @@ const Composer: FC<{ runLocalCommand: ComposerCommandHandler }> = ({ runLocalCom
               toggleContinuous={toggleContinuous}
               onBeforeSend={routeSubmission}
               isLocalCommand={Boolean(localCommand)}
+              fileBlocked={fileLoading || fileUnreadable}
+              onChooseFile={clearFileError}
             />
           </div>
         </div>
@@ -288,7 +315,11 @@ const ComposerAction: FC<{
   toggleContinuous: () => void;
   onBeforeSend: (event: { preventDefault(): void }) => void;
   isLocalCommand: boolean;
-}> = ({ supported, status, continuous, startOnce, stop, toggleContinuous, onBeforeSend, isLocalCommand }) => {
+  fileBlocked: boolean;
+  onChooseFile: () => void;
+}> = ({
+  supported, status, continuous, startOnce, stop, toggleContinuous, onBeforeSend, isLocalCommand, fileBlocked, onChooseFile,
+}) => {
   const aui = useAui();
   const messages = useAuiState((state) => state.thread.messages);
   const isKo = prefersKorean();
@@ -327,7 +358,7 @@ const ComposerAction: FC<{
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center gap-2">
-      <ComposerAddAttachment />
+      <ComposerAddAttachment onChoose={onChooseFile} />
       <TooltipIconButton
         tooltip={continuous ? "Stop continuous voice" : "Start continuous voice"}
         side="bottom"
@@ -371,6 +402,7 @@ const ComposerAction: FC<{
             className="aui-composer-send jarvis-send size-9 rounded-full"
             aria-label={sendLabel}
             onClick={onBeforeSend}
+            disabled={fileBlocked}
           >
             <ArrowUpIcon className="aui-composer-send-icon size-4 [&_path]:stroke-1.8" />
           </TooltipIconButton>
@@ -817,6 +849,7 @@ function ExecutionReceipt({ args, fallback }: { args: unknown; fallback: React.R
 }
 
 const AssistantMessage: FC = () => {
+  const attachmentReview = useAuiState((state) => state.message.metadata.custom?.attachmentReview === true);
   return (
     <MessagePrimitive.Root
       className="aui-assistant-message-root relative mx-auto grid w-full max-w-(--thread-max-width) grid-cols-[auto_1fr] items-start gap-3 py-4"
@@ -832,7 +865,9 @@ const AssistantMessage: FC = () => {
           <MessagePrimitive.Parts>
             {({ part }) => {
               if (part.type === "text") {
-                return <MarkdownText />;
+                return attachmentReview
+                  ? <p className="whitespace-pre-wrap">{part.text}</p>
+                  : <MarkdownText />;
               }
               if (part.type === "reasoning") {
                 return <Reasoning {...part} />;

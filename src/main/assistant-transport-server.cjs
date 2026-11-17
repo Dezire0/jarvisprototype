@@ -1,5 +1,7 @@
 const http = require("node:http");
 const { SESSION_HEADER, isDesktopSessionToken, matchesDesktopToken } = require("./desktop-session.cjs");
+const { normalizeFileName, parseAssistantInput } = require("./assistant/chat-attachments.cjs");
+const { maxFiles } = require("./assistant/attachment-contract.json");
 
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 
@@ -167,31 +169,14 @@ function normalizeState(rawState = {}) {
         createdAt: typeof message.createdAt === "string" ? message.createdAt : new Date().toISOString(),
         status: message.status === "running" ? "running" : "complete",
         provider: typeof message.provider === "string" ? message.provider : "",
+        attachmentReview: message.attachmentReview === true,
+        attachmentNames: Array.isArray(message.attachmentNames)
+          ? message.attachmentNames.slice(0, maxFiles).map(normalizeFileName).filter(Boolean)
+          : [],
         actions: Array.isArray(message.actions) ? message.actions : [],
         details: message.details && typeof message.details === "object" ? message.details : null
       }))
   };
-}
-
-function extractUserText(commands = []) {
-  for (const command of commands) {
-    if (command?.type !== "add-message" || command?.message?.role !== "user") {
-      continue;
-    }
-
-    const parts = Array.isArray(command.message.parts) ? command.message.parts : [];
-    const text = parts
-      .filter((part) => part?.type === "text" && typeof part.text === "string")
-      .map((part) => part.text)
-      .join("\n")
-      .trim();
-
-    if (text) {
-      return text;
-    }
-  }
-
-  return "";
 }
 
 function normalizeMemoryContext(rawContext = {}, threadId = "") {
@@ -324,11 +309,19 @@ function createAssistantTransportServer({
     }
 
     const threadId = typeof payload?.threadId === "string" && payload.threadId.trim() ? payload.threadId.trim() : "default-thread";
+    let input;
+    try {
+      input = parseAssistantInput(payload.commands || []);
+    } catch {
+      respondError(res, 422, "The attachment is invalid or exceeds the file limit.");
+      return;
+    }
     const state = normalizeState(payload?.state);
-    const userText = extractUserText(payload?.commands);
+    const { text: userText, attachments } = input;
+    const attachmentReview = attachments.length > 0;
     const memoryContext = normalizeMemoryContext(payload?.memoryContext, threadId);
 
-    if (!userText) {
+    if (!userText && !attachmentReview) {
       res.writeHead(200, STREAM_HEADERS);
       writeStateSet(res, state);
       writeFinish(res);
@@ -338,6 +331,12 @@ function createAssistantTransportServer({
 
     if (disconnected()) return;
     const assistant = resolveAssistant(threadId);
+    const attachmentAbort = attachmentReview ? new AbortController() : null;
+    if (attachmentAbort) {
+      res.once("close", () => {
+        if (!res.writableEnded) attachmentAbort.abort();
+      });
+    }
     const assistantMessage = {
       id: createId("assistant"),
       role: "assistant",
@@ -345,8 +344,9 @@ function createAssistantTransportServer({
       createdAt: new Date().toISOString(),
       status: "running",
       provider: "",
+      attachmentReview,
       actions: [],
-      details: buildRunningMessageDetails(userText)
+      details: attachmentReview ? null : buildRunningMessageDetails(userText)
     };
     const nextState = {
       messages: [
@@ -358,6 +358,8 @@ function createAssistantTransportServer({
           createdAt: new Date().toISOString(),
           status: "complete",
           provider: "",
+          attachmentReview,
+          attachmentNames: attachments.map((file) => file.name),
           details: null
         },
         assistantMessage
@@ -369,15 +371,17 @@ function createAssistantTransportServer({
     writeStateSet(res, nextState);
 
     try {
-      if (typeof assistant?.setSessionContext === "function") {
+      if (!attachmentReview && typeof assistant?.setSessionContext === "function") {
         await assistant.setSessionContext({
           ...memoryContext,
-          stateMessages: state.messages
+          stateMessages: state.messages.filter((message) => !message.attachmentReview)
         });
       }
 
       if (disconnected()) return;
-      const result = await assistant.handleInput(userText);
+      const result = attachmentReview
+        ? await assistant.handleAttachmentInput(userText, attachments, { signal: attachmentAbort.signal })
+        : await assistant.handleInput(userText);
       if (disconnected()) return;
       const reply = typeof result?.reply === "string" ? result.reply : "";
       const provider = typeof result?.provider === "string" ? result.provider : "local";
@@ -393,12 +397,14 @@ function createAssistantTransportServer({
       if (disconnected()) return;
       writeStateField(res, assistantMessageIndex, "status", "complete");
       writeStateField(res, assistantMessageIndex, "provider", provider);
-      writeStateField(res, assistantMessageIndex, "actions", result.actions || []);
-      writeStateField(res, assistantMessageIndex, "details", result.details || null);
+      writeStateField(res, assistantMessageIndex, "actions", attachmentReview ? [] : result.actions || []);
+      writeStateField(res, assistantMessageIndex, "details", attachmentReview ? null : result.details || null);
       writeFinish(res);
     } catch (error) {
       if (disconnected()) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = attachmentReview
+        ? "The model could not review the attached files."
+        : error instanceof Error ? error.message : String(error);
       writeStateAppendText(res, assistantMessageIndex, message);
       writeStateField(res, assistantMessageIndex, "status", "complete");
       writeStateField(res, assistantMessageIndex, "provider", "local-error");

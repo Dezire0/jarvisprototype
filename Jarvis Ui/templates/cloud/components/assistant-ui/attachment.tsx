@@ -1,6 +1,6 @@
 "use client";
 
-import { type PropsWithChildren, useEffect, useState, type FC } from "react";
+import { type ChangeEvent, type PropsWithChildren, useEffect, useRef, useState, type FC } from "react";
 import { XIcon, PlusIcon, FileText } from "lucide-react";
 import {
   AttachmentPrimitive,
@@ -11,18 +11,13 @@ import {
 } from "@assistant-ui/react";
 import { useShallow } from "zustand/shallow";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   Dialog,
   DialogTitle,
   DialogContent,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { attachmentFileTypes } from "@/lib/chat-attachments";
 import { cn } from "@/lib/utils";
 
 const useFileSrc = (file: File | undefined) => {
@@ -81,11 +76,7 @@ const AttachmentPreview: FC<AttachmentPreviewProps> = ({ src }) => {
   );
 };
 
-const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
-  const src = useAttachmentSrc();
-
-  if (!src) return children;
-
+const AttachmentPreviewDialog: FC<PropsWithChildren<AttachmentPreviewProps>> = ({ children, src }) => {
   return (
     <Dialog>
       <DialogTrigger
@@ -94,7 +85,7 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
       >
         {children}
       </DialogTrigger>
-      <DialogContent className="aui-attachment-preview-dialog-content p-2 sm:max-w-3xl [&>button]:rounded-full [&>button]:bg-foreground/60 [&>button]:p-1 [&>button]:opacity-100 [&>button]:ring-0! [&_svg]:text-background [&>button]:hover:[&_svg]:text-destructive">
+      <DialogContent aria-describedby={undefined} className="aui-attachment-preview-dialog-content p-2 sm:max-w-3xl [&>button]:rounded-full [&>button]:bg-foreground/60 [&>button]:p-1 [&>button]:opacity-100 [&>button]:ring-0! [&_svg]:text-background [&>button]:hover:[&_svg]:text-destructive">
         <DialogTitle className="aui-sr-only sr-only">
           Image Attachment Preview
         </DialogTitle>
@@ -106,87 +97,45 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
   );
 };
 
-const AttachmentThumb: FC = () => {
-  const src = useAttachmentSrc();
-
-  return (
-    <Avatar className="aui-attachment-tile-avatar h-full w-full rounded-none">
-      <AvatarImage
-        src={src}
-        alt="Attachment preview"
-        className="aui-attachment-tile-image object-cover"
-      />
-      <AvatarFallback>
-        <FileText className="aui-attachment-tile-fallback-icon size-8 text-muted-foreground" />
-      </AvatarFallback>
-    </Avatar>
-  );
-};
-
 const AttachmentUI: FC = () => {
   const aui = useAui();
   const isComposer = aui.attachment.source !== "message";
-
-  const isImage = useAuiState((s) => s.attachment.type === "image");
-  const typeLabel = useAuiState((s) => {
-    const type = s.attachment.type;
-    switch (type) {
-      case "image":
-        return "Image";
-      case "document":
-        return "Document";
-      case "file":
-        return "File";
-      default:
-        return type;
-    }
-  });
-
-  return (
-    <Tooltip>
-      <AttachmentPrimitive.Root
-        className={cn(
-          "aui-attachment-root relative",
-          isImage && "aui-attachment-root-composer only:*:first:size-24",
-        )}
-      >
-        <AttachmentPreviewDialog>
-          <TooltipTrigger asChild>
-            <div
-              className="aui-attachment-tile size-14 cursor-pointer overflow-hidden rounded-[calc(var(--composer-radius)-var(--composer-padding))] border bg-muted transition-opacity hover:opacity-75"
-              role="button"
-              aria-label={`${typeLabel} attachment`}
-            >
-              <AttachmentThumb />
-            </div>
-          </TooltipTrigger>
-        </AttachmentPreviewDialog>
-        {isComposer && <AttachmentRemove />}
-      </AttachmentPrimitive.Root>
-      <TooltipContent side="top">
-        <AttachmentPrimitive.Name />
-      </TooltipContent>
-    </Tooltip>
+  const name = useAuiState((s) => s.attachment.name);
+  const src = useAttachmentSrc();
+  const korean = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
+  const label = (
+    <>
+      <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="min-w-0 truncate" title={name}>{name}</span>
+    </>
   );
-};
 
-const AttachmentRemove: FC = () => {
   return (
-    <AttachmentPrimitive.Remove asChild>
-      <TooltipIconButton
-        tooltip="Remove file"
-        className="aui-attachment-tile-remove absolute top-1.5 right-1.5 size-3.5 rounded-full bg-white text-muted-foreground opacity-100 shadow-sm hover:bg-white! [&_svg]:text-black hover:[&_svg]:text-destructive"
-        side="top"
-      >
-        <XIcon className="aui-attachment-remove-icon size-3 dark:stroke-[2.5px]" />
-      </TooltipIconButton>
-    </AttachmentPrimitive.Remove>
+    <AttachmentPrimitive.Root className="jarvis-file-chip">
+      {src ? (
+        <AttachmentPreviewDialog src={src}>
+          <button type="button" className="jarvis-file-label"
+            aria-label={(korean ? "미리보기 " : "Preview ") + name}>
+            {label}
+          </button>
+        </AttachmentPreviewDialog>
+      ) : <span className="jarvis-file-label">{label}</span>}
+      {isComposer && (
+        <AttachmentPrimitive.Remove asChild>
+          <TooltipIconButton type="button" tooltip={korean ? "파일 제거" : "Remove file"}
+            aria-label={(korean ? "파일 제거 " : "Remove file ") + name}
+            className="size-7 shrink-0 rounded-md text-muted-foreground">
+            <XIcon size={14} />
+          </TooltipIconButton>
+        </AttachmentPrimitive.Remove>
+      )}
+    </AttachmentPrimitive.Root>
   );
 };
 
 export const UserMessageAttachments: FC = () => {
   return (
-    <div className="aui-user-message-attachments-end col-span-full col-start-1 row-start-1 flex w-full flex-row justify-end gap-2">
+    <div className="aui-user-message-attachments-end col-span-full col-start-1 row-start-1 flex w-full flex-wrap justify-end gap-2 empty:hidden">
       <MessagePrimitive.Attachments>
         {() => <AttachmentUI />}
       </MessagePrimitive.Attachments>
@@ -196,7 +145,7 @@ export const UserMessageAttachments: FC = () => {
 
 export const ComposerAttachments: FC = () => {
   return (
-    <div className="aui-composer-attachments flex w-full flex-row items-center gap-2 overflow-x-auto empty:hidden">
+    <div className="aui-composer-attachments flex w-full flex-wrap items-center gap-2 p-1.5 empty:hidden">
       <ComposerPrimitive.Attachments>
         {() => <AttachmentUI />}
       </ComposerPrimitive.Attachments>
@@ -204,19 +153,42 @@ export const ComposerAttachments: FC = () => {
   );
 };
 
-export const ComposerAddAttachment: FC = () => {
+export const ComposerAddAttachment: FC<{ onChoose?: () => void }> = ({ onChoose }) => {
+  const aui = useAui();
+  const input = useRef<HTMLInputElement>(null);
+  const supported = useAuiState((state) => state.thread.capabilities.attachments);
+
+  async function addFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    for (const file of files) {
+      try {
+        await aui.composer().addAttachment(file);
+      } catch {
+        // The adapter reports the rejection beside the composer.
+      }
+    }
+  }
+
   return (
-    <ComposerPrimitive.AddAttachment asChild>
+    <>
+      <input ref={input} type="file" hidden multiple accept={attachmentFileTypes} onChange={addFiles} />
       <TooltipIconButton
+        type="button"
         tooltip="Add Attachment"
         side="bottom"
         variant="ghost"
         size="icon"
         className="aui-composer-add-attachment size-8 rounded-full p-1 font-semibold text-xs hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30"
         aria-label="Add Attachment"
+        disabled={!supported}
+        onClick={() => {
+          onChoose?.();
+          input.current?.click();
+        }}
       >
         <PlusIcon className="aui-attachment-add-icon size-5 stroke-[1.5px]" />
       </TooltipIconButton>
-    </ComposerPrimitive.AddAttachment>
+    </>
   );
 };
