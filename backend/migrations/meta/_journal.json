@@ -8,6 +8,20 @@
       "when": 1776736002946,
       "tag": "0000_milky_rockslide",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794953069739,
+      "tag": "0001_add_gemini_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794953104448,
+      "tag": "0002_restore_user_profile",
+      "breakpoints": true
     }
   ]
 }

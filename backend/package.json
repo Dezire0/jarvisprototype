@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "wrangler dev",
+    "check": "tsc --noEmit",
+    "test:auth": "node --test tests/auth.test.cjs",
     "generate": "drizzle-kit generate",
     "migrate": "wrangler d1 migrations apply jarvis-d1 --local"
   },

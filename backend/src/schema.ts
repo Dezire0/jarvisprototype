@@ -6,6 +6,7 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash"),
   name: text("name"),
+  geminiApiKeyEncrypted: text("gemini_api_key_encrypted"),
   // Plan: "free" | "pro"
   plan: text("plan").notNull().default("free"),
   // Daily rate limiting
