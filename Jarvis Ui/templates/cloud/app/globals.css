@@ -356,6 +356,14 @@
 }
 
 .jarvis-local-result[data-error] { border-color: var(--destructive); }
+.jarvis-activity summary { cursor: pointer; font-weight: 600; }
+.jarvis-activity li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .25rem .75rem;
+  margin-block: .5rem;
+}
 .jarvis-result-detail {
   color: var(--muted-foreground);
   line-height: 1.55;

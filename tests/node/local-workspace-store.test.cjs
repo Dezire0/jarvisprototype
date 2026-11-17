@@ -69,4 +69,11 @@ test("workspace handlers reject another window and child frames for both desktop
   assert.equal(await load({ sender: contents, senderFrame: mainFrame }), data);
   assert.throws(() => load({ sender: {}, senderFrame: mainFrame }), /desktop window/);
   assert.throws(() => save({ sender: contents, senderFrame: { url: mainFrame.url } }, data), /desktop window/);
+  const diagnostics = handlers.get("assistant:read-host-diagnostics");
+  assert.throws(() => diagnostics({ sender: {}, senderFrame: mainFrame }), /desktop window/);
+  assert.throws(() => diagnostics({ sender: contents, senderFrame: { url: mainFrame.url } }), /desktop window/);
+  const readings = await diagnostics({ sender: contents, senderFrame: mainFrame });
+  for (const value of Object.values(readings)) {
+    assert.ok(value === null || Number.isInteger(value) && value >= 0 && value <= 100);
+  }
 });

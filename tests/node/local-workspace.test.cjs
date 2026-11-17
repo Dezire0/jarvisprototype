@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
   calculate, emptyWorkspace, formatTimer, parseLocalCommand, readWorkspace,
-  remainingSeconds, runLocalCommand,
+  recordActivity, remainingSeconds, runLocalCommand,
 } = require("../../Jarvis Ui/templates/cloud/lib/local-workspace.ts");
 
 const NOW = Date.UTC(2026, 10, 17, 20);
@@ -78,4 +78,25 @@ test("spoken-result preferences persist without changing the timer or entries", 
   assert.equal(restored.speakResults, true);
   assert.equal(execute("음성 꺼", restored).workspace.speakResults, false);
   assert.equal(execute("clear result", restored).workspace.speakResults, true);
+});
+
+test("activity is bounded, preserves legacy data, and retains only action metadata", () => {
+  const { activity: _activity, ...legacy } = emptyWorkspace;
+  const restored = readWorkspace(JSON.stringify(legacy));
+  assert.deepEqual(restored.activity, []);
+  assert.deepEqual(restored.timer, legacy.timer);
+
+  let next = execute("note Private note content", restored).workspace;
+  assert.deepEqual(next.activity, [{ id: "test-id", at: NOW, kind: "note" }]);
+  for (let index = 0; index < 38; index++) {
+    next = recordActivity(next, "timer", NOW + index, String(index));
+  }
+  assert.equal(next.activity.length, 35);
+  assert.equal(next.activity[0].id, "37");
+  assert.equal(next.activity.at(-1).id, "3");
+  assert.deepEqual(next.notes, [{ id: "test-id", text: "Private note content" }]);
+  const original = next.activity;
+  const invalid = { id: "test", at: NOW, kind: "unknown", text: "Never retain this" };
+  next = readWorkspace(JSON.stringify({ ...next, activity: [invalid, ...original] }));
+  assert.deepEqual(next.activity, original);
 });

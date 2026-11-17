@@ -24,6 +24,7 @@ declare global {
         text?: string;
       }>;
       loadLocalWorkspace?: () => Promise<string | null>;
+      readHostDiagnostics?: () => Promise<{ cpuPercent: number | null; memoryPercent: number | null }>;
       saveLocalWorkspace?: (serialized: string) => Promise<void>;
       invokeTool: (tool: string, payload?: Record<string, unknown>) => Promise<unknown>;
       onUpdateStatus: (callback: (payload: unknown) => void) => (() => void) | void;
