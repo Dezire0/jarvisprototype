@@ -24,6 +24,8 @@ declare global {
         text?: string;
       }>;
       loadLocalWorkspace?: () => Promise<string | null>;
+      loadChatHistory?: (accountId: string) => Promise<string | null>;
+      saveChatHistory?: (accountId: string, serialized: string) => Promise<void>;
       readHostDiagnostics?: () => Promise<{ cpuPercent: number | null; memoryPercent: number | null }>;
       saveLocalWorkspace?: (serialized: string) => Promise<void>;
       invokeTool: (tool: string, payload?: Record<string, unknown>) => Promise<unknown>;
