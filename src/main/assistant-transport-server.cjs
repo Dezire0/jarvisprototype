@@ -1,18 +1,17 @@
 const http = require("node:http");
+const { SESSION_HEADER, isDesktopSessionToken, matchesDesktopToken } = require("./desktop-session.cjs");
+
+const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.JARVIS_ASSISTANT_PORT || 8010);
 const STREAM_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
   "Cache-Control": "no-cache",
   Connection: "keep-alive",
   "Content-Type": "text/plain; charset=utf-8",
   "x-vercel-ai-data-stream": "v1"
 };
 const JSON_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
   "Content-Type": "application/json; charset=utf-8"
 };
 
@@ -121,27 +120,38 @@ function buildRunningMessageDetails(text = "") {
 
 function readJson(req) {
   return new Promise((resolve, reject) => {
-    let body = "";
-
+    const chunks = [];
+    let bytes = 0;
     req.on("data", (chunk) => {
-      body += chunk.toString("utf8");
-    });
-
-    req.on("end", () => {
-      if (!body.trim()) {
-        resolve({});
+      bytes += chunk.length;
+      if (bytes > MAX_REQUEST_BYTES) {
+        chunks.length = 0;
+        reject(Object.assign(new Error("The request is too large."), { status: 413 }));
         return;
       }
-
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (bytes > MAX_REQUEST_BYTES) return;
       try {
-        resolve(JSON.parse(body));
-      } catch (error) {
-        reject(error);
+        const payload = JSON.parse(Buffer.concat(chunks, bytes).toString("utf8"));
+        if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+            (payload.commands !== undefined && !Array.isArray(payload.commands))) {
+          throw new Error("Invalid request.");
+        }
+        resolve(payload);
+      } catch {
+        reject(new Error("Invalid JSON request."));
       }
     });
-
     req.on("error", reject);
+    req.on("aborted", () => reject(new Error("The request was stopped.")));
   });
+}
+
+function respondError(res, status, error) {
+  res.writeHead(status, { ...JSON_HEADERS, "Cache-Control": "no-store" });
+  res.end(JSON.stringify({ ok: false, error }));
 }
 
 function normalizeState(rawState = {}) {
@@ -240,10 +250,6 @@ function writeFinish(res) {
   });
 }
 
-function writeError(res, message) {
-  writeChunk(res, "3", String(message || "Unknown assistant transport error."));
-}
-
 function writeAuthCallbackPage(res) {
   res.writeHead(200, {
     "Access-Control-Allow-Origin": "*",
@@ -289,32 +295,35 @@ function createThreadAssistantResolver(createAssistantForThread) {
 function createAssistantTransportServer({
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
+  sessionToken,
   createAssistantForThread,
   onAuthCallback,
   allowDynamicPort = true
 }) {
+  if (!isDesktopSessionToken(sessionToken)) throw new Error("A desktop session token is required.");
+  if (host !== DEFAULT_HOST) throw new Error("The assistant transport must listen on the local loopback address.");
   if (typeof createAssistantForThread !== "function") {
     throw new Error("createAssistantForThread is required.");
   }
 
   const resolveAssistant = createThreadAssistantResolver(createAssistantForThread);
   let server = null;
-  let activePort = Number(port) || DEFAULT_PORT;
+  let activePort = Number(port);
 
   async function handleAssistantRequest(req, res) {
+    const disconnected = () => res.destroyed || req.socket.destroyed;
     let payload;
 
     try {
       payload = await readJson(req);
     } catch (error) {
-      res.writeHead(400, STREAM_HEADERS);
-      writeError(res, `Invalid JSON payload: ${error.message}`);
-      res.end();
+      if (!disconnected()) {
+        respondError(res, error.status === 413 ? 413 : 400, error.status === 413 ? error.message : "Invalid JSON request.");
+      }
       return;
     }
 
     const threadId = typeof payload?.threadId === "string" && payload.threadId.trim() ? payload.threadId.trim() : "default-thread";
-    const assistant = resolveAssistant(threadId);
     const state = normalizeState(payload?.state);
     const userText = extractUserText(payload?.commands);
     const memoryContext = normalizeMemoryContext(payload?.memoryContext, threadId);
@@ -327,6 +336,8 @@ function createAssistantTransportServer({
       return;
     }
 
+    if (disconnected()) return;
+    const assistant = resolveAssistant(threadId);
     const assistantMessage = {
       id: createId("assistant"),
       role: "assistant",
@@ -365,23 +376,28 @@ function createAssistantTransportServer({
         });
       }
 
+      if (disconnected()) return;
       const result = await assistant.handleInput(userText);
+      if (disconnected()) return;
       const reply = typeof result?.reply === "string" ? result.reply : "";
       const provider = typeof result?.provider === "string" ? result.provider : "local";
 
       for (const piece of chunkText(reply)) {
+        if (disconnected()) return;
         if (piece) {
           writeStateAppendText(res, assistantMessageIndex, piece);
           await delay(2);
         }
       }
 
+      if (disconnected()) return;
       writeStateField(res, assistantMessageIndex, "status", "complete");
       writeStateField(res, assistantMessageIndex, "provider", provider);
       writeStateField(res, assistantMessageIndex, "actions", result.actions || []);
       writeStateField(res, assistantMessageIndex, "details", result.details || null);
       writeFinish(res);
     } catch (error) {
+      if (disconnected()) return;
       const message = error instanceof Error ? error.message : String(error);
       writeStateAppendText(res, assistantMessageIndex, message);
       writeStateField(res, assistantMessageIndex, "status", "complete");
@@ -393,16 +409,6 @@ function createAssistantTransportServer({
   }
 
   const requestListener = async (req, res) => {
-    if (req.method === "OPTIONS") {
-      res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-      });
-      res.end();
-      return;
-    }
-
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, JSON_HEADERS);
       res.end(
@@ -410,7 +416,7 @@ function createAssistantTransportServer({
           ok: true,
           service: "assistant-transport",
           host,
-          port
+          port: activePort
         })
       );
       return;
@@ -444,6 +450,15 @@ function createAssistantTransportServer({
     }
 
     if (req.method === "POST" && req.url === "/assistant") {
+      if (!matchesDesktopToken(sessionToken, req.headers[SESSION_HEADER])) {
+        return respondError(res, 401, "A valid desktop session is required.");
+      }
+      if (req.headers["content-type"]?.split(";")[0].trim().toLowerCase() !== "application/json") {
+        return respondError(res, 415, "JSON is required.");
+      }
+      if (Number(req.headers["content-length"]) > MAX_REQUEST_BYTES) {
+        return respondError(res, 413, "The request is too large.");
+      }
       await handleAssistantRequest(req, res);
       return;
     }
@@ -464,11 +479,11 @@ function createAssistantTransportServer({
         return Promise.resolve();
       }
 
-      server = http.createServer((req, res) => {
-        Promise.resolve(requestListener(req, res)).catch((error) => {
-          res.writeHead(500, STREAM_HEADERS);
-          writeError(res, error instanceof Error ? error.message : String(error));
-          res.end();
+      server = http.createServer({ requestTimeout: 30000, headersTimeout: 10000 }, (req, res) => {
+        Promise.resolve(requestListener(req, res)).catch(() => {
+          if (res.destroyed) return;
+          if (res.headersSent) res.end();
+          else respondError(res, 500, "The assistant could not process this request.");
         });
       });
 

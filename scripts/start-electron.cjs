@@ -1,272 +1,48 @@
 const path = require("node:path");
-const net = require("node:net");
 const { spawn } = require("node:child_process");
 const electronBinary = require("electron");
 const { loadProjectEnv } = require("../src/main/project-env.cjs");
 
-loadProjectEnv({
-  rootDir: path.join(__dirname, "..")
-});
+loadProjectEnv({ rootDir: path.join(__dirname, "..") });
 
-const jarvisUiRoot = path.join(__dirname, "..", "Jarvis Ui");
 const desktopUiMode = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").trim().toLowerCase();
-const DESKTOP_UI_HOST = "127.0.0.1";
-const DEFAULT_DESKTOP_UI_PORT = 3310;
-
-function wait(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-async function isReusableDesktopUiUrl(url) {
-  if (!url) {
-    return false;
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      signal: AbortSignal.timeout(3000)
-    });
-
-    if (!response.ok) {
-      return false;
-    }
-
-    const html = await response.text();
-    return /Jarvis Desktop|Jarvis 컴퓨터 작업 동의|Continue with Email|Secure Login/i.test(html);
-  } catch (_error) {
-    return false;
-  }
-}
-
-function allocatePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(port);
-      });
-    });
-  });
-}
-
-function isPortAvailable(port, host = DESKTOP_UI_HOST) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-
-    server.once("error", () => {
-      resolve(false);
-    });
-    server.listen(port, host, () => {
-      server.close(() => {
-        resolve(true);
-      });
-    });
-  });
-}
-
-async function resolveDesktopUiUrl() {
-  const configuredUrl = String(process.env.JARVIS_UI_URL || "").trim();
-
-  if (configuredUrl) {
-    return configuredUrl;
-  }
-
-  const preferredPort = Number(process.env.JARVIS_UI_PORT) || DEFAULT_DESKTOP_UI_PORT;
-  const preferredUrl = `http://${DESKTOP_UI_HOST}:${preferredPort}`;
-
-  if (await isPortAvailable(preferredPort)) {
-    return preferredUrl;
-  }
-
-  if (await isReusableDesktopUiUrl(preferredUrl)) {
-    return preferredUrl;
-  }
-
-  const fallbackPort = await allocatePort();
-  return `http://${DESKTOP_UI_HOST}:${fallbackPort}`;
-}
-
-async function waitForUrl(url, timeoutMs = 120000) {
-  const startedAt = Date.now();
-  let lastError = null;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const response = await fetch(url, {
-        method: "GET"
-      });
-
-      if (response.ok) {
-        return;
-      }
-
-      lastError = new Error(`Unexpected status ${response.status}`);
-    } catch (error) {
-      lastError = error;
-    }
-
-    await wait(1000);
-  }
-
-  throw lastError || new Error(`Timed out waiting for ${url}`);
-}
+const jarvisUiRoot = path.join(__dirname, "..", "Jarvis Ui");
 
 function runCommand(command, args, env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: "inherit",
-      env
+    const child = spawn(command, args, { stdio: "inherit", env });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(command + " dependencies build failed with exit code " + code));
     });
-
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`${command} ${args.join(" ")} failed with exit code ${code}`));
-    });
-
-    child.on("error", reject);
   });
 }
 
 async function main() {
-  const assistantPort = Number(process.env.JARVIS_ASSISTANT_PORT) || await allocatePort();
-  const desktopUiUrl = await resolveDesktopUiUrl();
-  const transportApiUrl =
-    process.env.JARVIS_TRANSPORT_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    `http://127.0.0.1:${assistantPort}/assistant`;
-  const authCallbackUrl =
-    process.env.NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL ||
-    `http://127.0.0.1:${assistantPort}/auth/callback`;
-  const sharedEnv = {
-    ...process.env,
-    JARVIS_ASSISTANT_PORT: String(assistantPort),
-    JARVIS_TRANSPORT_URL: transportApiUrl,
-    NEXT_PUBLIC_API_URL: transportApiUrl,
-    NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL: authCallbackUrl,
-    JARVIS_DESKTOP_UI_MODE: desktopUiMode || "next",
-    NEXT_PUBLIC_JARVIS_SITE_MODE: "app",
-    NEXT_TELEMETRY_DISABLED: "1"
-  };
-
-  const env = {
-    ...sharedEnv
-  };
-
-  let uiServer = null;
-
-  if (desktopUiMode === "next") {
-    const reuseExistingUiServer = await isReusableDesktopUiUrl(desktopUiUrl);
-
-    if (!reuseExistingUiServer) {
-      await runCommand(
-        "corepack",
-        [
-          "pnpm",
-          "--dir",
-          jarvisUiRoot,
-          "-r",
-          "--filter",
-          "assistant-ui-starter-cloud...",
-          "build"
-        ],
-        sharedEnv
-      );
-
-      uiServer = spawn(
-        "corepack",
-        [
-          "pnpm",
-          "--dir",
-          jarvisUiRoot,
-          "--filter",
-          "assistant-ui-starter-cloud",
-          "exec",
-          "next",
-          "dev",
-          "--webpack",
-          "--hostname",
-          "127.0.0.1",
-          "--port",
-          new URL(desktopUiUrl).port || "3310"
-        ],
-        {
-          stdio: "inherit",
-          env: sharedEnv
-        }
-      );
-
-      let didExitEarly = false;
-
-      uiServer.once("exit", (code) => {
-        didExitEarly = true;
-
-        if (code && code !== 0) {
-          process.exit(code);
-        }
-      });
-
-      try {
-        await waitForUrl(desktopUiUrl);
-      } catch (error) {
-        if (!didExitEarly) {
-          uiServer.kill("SIGTERM");
-        }
-
-        throw error;
-      }
-    }
-
-    env.JARVIS_UI_URL = desktopUiUrl;
-  } else {
-    delete env.JARVIS_UI_URL;
-  }
-
+  const env = { ...process.env, JARVIS_DESKTOP_UI_MODE: desktopUiMode };
   delete env.ELECTRON_RUN_AS_NODE;
 
-  const child = spawn(electronBinary, ["."], {
-    stdio: "inherit",
-    env
-  });
+  if (desktopUiMode === "next") {
+    await runCommand(
+      "corepack",
+      ["pnpm", "--dir", jarvisUiRoot, "-r", "--filter", "assistant-ui-starter-cloud^...", "build"],
+      env
+    );
+  }
 
-  const shutdown = () => {
-    if (uiServer && !uiServer.killed) {
-      uiServer.kill("SIGTERM");
-    }
-  };
-
-  child.on("exit", (code) => {
-    shutdown();
-    process.exit(code ?? 0);
+  const child = spawn(electronBinary, ["."], { stdio: "inherit", env });
+  child.once("exit", (code) => process.exit(code ?? 0));
+  child.once("error", (error) => {
+    console.error(error);
+    process.exitCode = 1;
   });
-
-  process.on("SIGINT", () => {
-    shutdown();
-    child.kill("SIGTERM");
-  });
-
-  process.on("SIGTERM", () => {
-    shutdown();
-    child.kill("SIGTERM");
-  });
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => child.kill(signal));
+  }
 }
 
 main().catch((error) => {
   console.error(error);
-  process.exit(1);
+  process.exitCode = 1;
 });

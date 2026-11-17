@@ -30,6 +30,7 @@ const {
 } = require("./automation-error-utils.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
+const { createDesktopSessionToken, attachDesktopChatHeader } = require("./desktop-session.cjs");
 const { DesktopUiServer } = require("./desktop-ui-server.cjs");
 const { ExtensionsService } = require("./extensions-service.cjs");
 const { FileService } = require("./file-service.cjs");
@@ -61,7 +62,7 @@ let services;
 let assistant;
 let assistantTransportServer;
 let desktopUiServer;
-let desktopUiUrl = String(process.env.JARVIS_UI_URL || "").trim();
+const desktopSessionToken = createDesktopSessionToken();
 let updaterService;
 let popupStateCache = null;
 let popupDragState = null;
@@ -264,6 +265,7 @@ async function createServices() {
 
   assistantTransportServer = createAssistantTransportServer({
     port: Number(process.env.JARVIS_ASSISTANT_PORT || 8010),
+    sessionToken: desktopSessionToken,
     onAuthCallback(payload) {
       deliverAuthCallback(payload);
     },
@@ -288,29 +290,25 @@ async function createServices() {
   });
 
   await assistantTransportServer.start();
-  process.env.JARVIS_TRANSPORT_URL = assistantTransportServer.url;
-  process.env.NEXT_PUBLIC_API_URL = assistantTransportServer.url;
-  process.env.NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL = assistantTransportServer.authCallbackUrl;
 }
 
 async function ensureDesktopUiServer() {
-  if (DESKTOP_UI_MODE !== "next") {
-    desktopUiUrl = "";
-    return desktopUiUrl;
-  }
+  if (DESKTOP_UI_MODE !== "next") return;
 
   if (!desktopUiServer) {
-    desktopUiServer = new DesktopUiServer({ app });
+    desktopUiServer = new DesktopUiServer({
+      app,
+      sessionToken: desktopSessionToken,
+      transportUrl: assistantTransportServer.url,
+      authCallbackUrl: assistantTransportServer.authCallbackUrl
+    });
   }
 
   try {
-    desktopUiUrl = await desktopUiServer.start();
+    await desktopUiServer.start();
   } catch (error) {
-    console.error("Could not start bundled desktop UI server:", error);
-    desktopUiUrl = String(process.env.JARVIS_UI_URL || "").trim();
+    console.error("Could not start the desktop UI server:", error);
   }
-
-  return desktopUiUrl;
 }
 
 function getDesktopUiUrl() {
@@ -318,7 +316,7 @@ function getDesktopUiUrl() {
     return "";
   }
 
-  return desktopUiUrl || String(process.env.JARVIS_UI_URL || "").trim();
+  return desktopUiServer?.url || "";
 }
 
 function buildApplicationMenu() {
@@ -594,6 +592,12 @@ function createSettingsWindow() {
   const desktopUrl = getDesktopUiUrl();
 
   if (DESKTOP_UI_MODE === "next" && desktopUrl) {
+    attachDesktopChatHeader(
+      settingsWindow.webContents,
+      desktopUrl,
+      desktopSessionToken,
+      () => getDesktopUiUrl() === desktopUrl
+    );
     settingsWindow.loadURL(desktopUrl).catch(() => {
       console.error("Desktop UI URL load failed, falling back to local renderer.");
       settingsWindow?.loadFile(path.join(__dirname, "../renderer/index.html"));
@@ -603,40 +607,19 @@ function createSettingsWindow() {
   }
 
   settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url) {
-      return {
-        action: "deny"
-      };
-    }
-
-    shell.openExternal(url).catch(() => {});
-    return {
-      action: "deny"
-    };
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
+    return { action: "deny" };
   });
 
-  settingsWindow.webContents.on("will-navigate", (event, url) => {
-    const desktopOrigin = desktopUrl
-      ? new URL(desktopUrl).origin
-      : "";
-
-    const targetOrigin = (() => {
-      try {
-        return new URL(url).origin;
-      } catch (_error) {
-        return "";
-      }
-    })();
-
-    if (desktopOrigin && targetOrigin === desktopOrigin) {
-      return;
-    }
-
-    if (url && /^https?:\/\//i.test(url)) {
-      event.preventDefault();
-      shell.openExternal(url).catch(() => {});
-    }
-  });
+  const desktopOrigin = desktopUrl ? new URL(desktopUrl).origin : "";
+  function handleNavigation(event, url) {
+    if (desktopOrigin && getDesktopUiUrl() === desktopUrl &&
+        URL.canParse(url) && new URL(url).origin === desktopOrigin) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
+  }
+  settingsWindow.webContents.on("will-navigate", handleNavigation);
+  settingsWindow.webContents.on("will-redirect", handleNavigation);
 
   settingsWindow.on("closed", () => {
     settingsWindow = null;

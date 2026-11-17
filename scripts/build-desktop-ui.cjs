@@ -8,7 +8,6 @@ const repoRoot = path.join(__dirname, "..");
 const jarvisUiRoot = path.join(repoRoot, "Jarvis Ui");
 const templateRoot = path.join(jarvisUiRoot, "templates", "cloud");
 const outputRoot = path.join(repoRoot, "build", "desktop-ui");
-const defaultApiUrl = "http://127.0.0.1:8010/assistant";
 
 loadProjectEnv({
   rootDir: repoRoot
@@ -195,10 +194,10 @@ async function copyStandaloneRuntimeModules(sourceNodeModulesRoot, targetNodeMod
 async function main() {
   const buildEnv = {
     ...process.env,
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || defaultApiUrl,
     NEXT_PUBLIC_JARVIS_SITE_MODE: "app",
     NEXT_TELEMETRY_DISABLED: "1"
   };
+  delete buildEnv.JARVIS_DESKTOP_SESSION_TOKEN;
 
   await runCommand(
     resolveCorepackCommand(),
