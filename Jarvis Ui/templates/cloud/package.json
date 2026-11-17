@@ -27,6 +27,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.8.0",
     "next": "^16.2.3",
+    "pdfjs-dist": "6.5.438",
     "radix-ui": "^1.4.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

@@ -4,6 +4,7 @@
   "maxTotalBytes": 4194304,
   "maxImageBytes": 2097152,
   "maxTextBytes": 65536,
+  "maxPdfPages": 40,
   "maxNameLength": 180,
   "textExtensions": ["txt", "md", "csv", "json", "html", "xml", "css"],
   "imageExtensions": {

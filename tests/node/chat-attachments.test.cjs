@@ -10,6 +10,10 @@ const { setExternalLlmSettingsProvider } = require("../../src/main/ollama-servic
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+cP6UAAAAASUVORK5CYII=";
 const document = { kind: "text", name: "회의.txt", text: "Only the model should see this file text." };
 const image = { kind: "image", name: "pixel.png", mimeType: "image/png", data: png };
+const pdf = {
+  kind: "pdf", name: "보고서.PDF", pageCount: 3,
+  pages: [{ page: 1, text: "Owner: Mina Park" }, { page: 3, text: "출시 일정" }]
+};
 const file = (attachment) => ({ type: "text", text: contract.prefix + JSON.stringify(attachment) });
 const text = (value) => ({ type: "text", text: value });
 const commands = (...parts) => [{ type: "add-message", message: { role: "user", parts } }];
@@ -29,6 +33,27 @@ test("the shared file contract bounds and validates text and raster image data",
     assert.throws(() => parseAssistantInput(commands(bad)), /attachment/);
   }
   assert.throws(() => parseAssistantInput(commands(...Array.from({ length: contract.maxFiles + 1 }, () => file(image)))), /message limit/);
+});
+
+test("PDF payloads keep original page numbers and strip raw file bytes", () => {
+  const parsed = parseAssistantInput(commands(file({ ...pdf, data: "unused-binary" })));
+  assert.deepEqual(parsed.attachments.map(({ size, ...value }) => value), [pdf]);
+  assert.equal(parsed.attachments[0].size, Buffer.byteLength("Owner: Mina Park출시 일정"));
+
+  for (const invalid of [
+    { ...pdf, pageCount: contract.maxPdfPages + 1 },
+    { ...pdf, pageCount: 2 },
+    { ...pdf, pageCount: 3.5 },
+    { ...pdf, name: "report.docx" },
+    { ...pdf, pages: [] },
+    { ...pdf, pages: pdf.pages.toReversed() },
+    { ...pdf, pages: [pdf.pages[0], pdf.pages[0]] },
+    { ...pdf, pages: [{ page: 1, text: " " }] },
+    { ...pdf, pages: [null] },
+    { ...pdf, pages: [{ page: 1, text: "가".repeat(12000) }, { page: 2, text: "나".repeat(12000) }] },
+  ]) {
+    assert.throws(() => parseAssistantInput(commands(file(invalid))), /attachment/);
+  }
 });
 
 test("authenticated file-only turns bypass the automation path and stream labels without file bytes", async (t) => {
@@ -58,17 +83,19 @@ test("authenticated file-only turns bypass the automation path and stream labels
   await invalid.text();
   assert.equal(reviewed.length, 0);
 
-  const response = await post(file(document), file(image));
+  const response = await post(file(document), file(image), file(pdf));
   assert.equal(response.status, 200);
   const wire = await response.text();
   assert.match(wire, /회의\.txt/);
   assert.match(wire, /pixel\.png/);
+  assert.match(wire, /보고서\.PDF/);
   assert.match(wire, /Review complete/);
   assert.equal(wire.includes(png), false);
   assert.equal(wire.includes(document.text), false);
+  assert.equal(wire.includes(pdf.pages[0].text), false);
   assert.equal(wire.includes("must-not-stream"), false);
   assert.equal(reviewed[0].input, "");
-  assert.deepEqual(reviewed[0].attachments.map(({ size, ...value }) => value), [document, image]);
+  assert.deepEqual(reviewed[0].attachments.map(({ size, ...value }) => value), [document, image, pdf]);
   assert.ok(reviewed[0].signal instanceof AbortSignal);
 });
 
@@ -135,10 +162,16 @@ test("attachment review sends each direct-model format and never executes reply 
   };
   for (const provider of ["ollama", "openai-compatible", "groq", "gemini"]) {
     setExternalLlmSettingsProvider(() => ({ ...settings, provider }));
-    const result = await assistant.handleAttachmentInput(input, [document, image]);
+    const result = await assistant.handleAttachmentInput(input, [document, image, pdf]);
     assert.equal(result.reply, replyText, provider);
     assert.deepEqual(result.actions, []);
     assert.match(result.provider, new RegExp("^" + provider + ":"));
+    const prompt = provider === "gemini" ? request.body.contents.at(-1).parts[0].text
+      : provider === "ollama" ? request.body.messages.at(-1).content
+      : request.body.messages.at(-1).content[0].text;
+    assert.deepEqual(JSON.parse(prompt).documents[1], {
+      name: pdf.name, pageCount: pdf.pageCount, pages: pdf.pages
+    }, provider);
     if (provider === "gemini") {
       const parts = request.body.contents.at(-1).parts;
       assert.deepEqual(parts[1], { inlineData: { mimeType: "image/png", data: png } });

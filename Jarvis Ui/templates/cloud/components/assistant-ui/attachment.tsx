@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
-import { attachmentFileTypes } from "@/lib/chat-attachments";
+import { attachmentFileTypes, type PendingFileAttachment } from "@/lib/chat-attachments";
 import { cn } from "@/lib/utils";
 
 const useFileSrc = (file: File | undefined) => {
@@ -101,12 +101,22 @@ const AttachmentUI: FC = () => {
   const aui = useAui();
   const isComposer = aui.attachment.source !== "message";
   const name = useAuiState((s) => s.attachment.name);
+  const coverage = useAuiState((s) => (s.attachment as PendingFileAttachment).pdfCoverage);
   const src = useAttachmentSrc();
   const korean = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
   const label = (
     <>
       <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="min-w-0 truncate" title={name}>{name}</span>
+      <span className="min-w-0">
+        <span className="block truncate" title={name}>{name}</span>
+        {isComposer && coverage && (
+          <span className="block text-xs text-muted-foreground">
+            {korean
+              ? `${coverage.total}쪽 중 ${coverage.readable}쪽에 텍스트 있음`
+              : `Text on ${coverage.readable} of ${coverage.total} pages`}
+          </span>
+        )}
+      </span>
     </>
   );
 

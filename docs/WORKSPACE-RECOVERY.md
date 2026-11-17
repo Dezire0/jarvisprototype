@@ -56,7 +56,9 @@ The desktop transport shows one message timeline. Chat supports copying assistan
 
 Use **Add Attachment** or drop files into the conversation composer. The composer shows a filename for each selected file. You can preview an image or remove a file before pressing send. Voice input places the transcription in the draft when attachments are present so you can review the submission.
 
-Supported files are UTF-8 TXT, Markdown, CSV, JSON, HTML, XML and CSS, plus PNG, JPEG and WebP. The limits are four files and 4 MiB total, with up to 64 KiB for each text file and 2 MiB for each image. HTML, XML and CSS are read as text.
+Supported files are selectable-text PDF, UTF-8 TXT, Markdown, CSV, JSON, HTML, XML and CSS, plus PNG, JPEG and WebP. The limits are four files and 4 MiB total, with up to 64 KiB for each text file and 2 MiB for each image. HTML, XML and CSS are read as text.
+
+Jarvis reads PDFs on the device with a bundled PDF.js worker. A PDF can contain up to 40 pages and 64 KiB of extracted text. The attachment shows how many pages have text. On send, the model receives the filename, original page numbers, and extracted text. Image-only pages and page layout are excluded. If the entire file is image-only or requires a password, Jarvis asks for a selectable-text or unlocked copy.
 
 Sending provides the files to the configured direct model. Jarvis supports the Ollama, Gemini, Groq and OpenAI-compatible API paths for file review. The model must support images to review an image. A file review returns text and has no access to computer actions. The live conversation keeps filenames and the answer. File bytes stay out of subsequent chat requests and background chat synchronization. Reattach a file when a later request needs its contents.
 
@@ -74,7 +76,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks.
 | Protocol weather, spoken responses and appearance | Local tools and theme controls | Wired. Permission-based weather and real speech output require manual verification |
 | Protocol telemetry, diagnostics and event stream | Local tools and Electron host diagnostics | On-demand host CPU and memory and recent local tool changes are available |
 | Chat, projects, local/cloud history and model settings | Next workspace and Assistant transport | Existing entry points retained. Chat stream, receipt and unavailable-transport flows checked against a local test assistant |
-| File attachments | Composer, local transport, direct model APIs | Text documents and raster images use a bounded model-only review turn |
+| File attachments | Composer, local transport, direct model APIs | Selectable PDF text, other text documents and raster images use a bounded model-only review turn |
 | macOS/Windows/Linux app operations and browser actions | Electron services and browser runtime | Existing routes retained. Native permissions and real apps/sites require manual verification |
 | Voice recognition, continuous mode and TTS | Voice provider, Electron STT/TTS, Friday | Existing controls retained. Real microphone and provider verification remains open, including [#4](https://github.com/Dezire0/jarvisprototype/issues/4) |
 | Files, OCR, screen briefing, OBS, music, game and project-generation actions | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |

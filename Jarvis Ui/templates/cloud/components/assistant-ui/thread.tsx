@@ -20,6 +20,7 @@ import {
   BranchPickerPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
+  MessagePartPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
   useAui,
@@ -265,6 +266,7 @@ const Composer: FC<{
   const text = useAuiState((state) => state.composer.text);
   const { error: fileError, clear: clearFileError } = useJarvisAttachmentError();
   const hasFiles = useAuiState((state) => state.composer.attachments.length > 0);
+  const hasPdf = useAuiState((state) => state.composer.attachments.some((file) => file.type === "pdf"));
   const fileLoading = useAuiState((state) => state.composer.attachments.some((file) => file.status.type === "running"));
   const fileUnreadable = useAuiState((state) => state.composer.attachments.some((file) => file.status.type === "incomplete"));
   const hasAttachmentsOrQuote = useAuiState((state) => Boolean(
@@ -283,13 +285,23 @@ const Composer: FC<{
   } = useJarvisVoice();
 
   const isKo = prefersKorean();
-  const fileIssue = fileError === "format"
-    ? (isKo ? "텍스트 문서와 PNG, JPEG, WebP 이미지를 첨부할 수 있습니다." : "Attach a text document or a PNG, JPEG, or WebP image.")
-    : fileError === "limit"
-      ? (isKo ? "한 번에 파일 4개, 총 4MB까지 첨부할 수 있습니다. 이미지는 2MB, 텍스트는 64KB까지입니다." : "Attach up to 4 files and 4 MB total. Images can be up to 2 MB and text files up to 64 KB.")
-      : fileError === "read"
-        ? (isKo ? "파일을 읽지 못했습니다. 문제가 있는 파일을 제거하고 다시 선택하세요." : "Couldn’t read the file. Remove it and choose the file again.")
-        : "";
+  const fileIssues = {
+    format: isKo ? "텍스트 문서, PDF, PNG·JPEG·WebP 이미지를 첨부할 수 있습니다."
+      : "Attach a text document, a PDF, or a PNG, JPEG, or WebP image.",
+    limit: isKo ? "파일은 한 번에 4개, 총 4MiB까지 첨부할 수 있습니다. 이미지 한도는 2MiB, 텍스트 파일 한도는 64KiB입니다."
+      : "Attach up to 4 files and 4 MiB total. Image files can be up to 2 MiB and text files up to 64 KiB.",
+    read: isKo ? "파일을 읽지 못했습니다. 파일을 제거하고 다시 선택하세요."
+      : "Couldn’t read the file. Remove it and choose the file again.",
+    "pdf-password": isKo ? "암호로 보호된 PDF입니다. 잠금이 해제된 사본을 선택하세요."
+      : "This PDF is password-protected. Choose an unlocked copy.",
+    "pdf-no-text": isKo ? "선택할 수 있는 텍스트가 없는 PDF입니다. 텍스트가 포함된 사본을 선택하세요."
+      : "This PDF has no selectable text. Choose a text-based copy.",
+    "pdf-limit": isKo ? "PDF는 40쪽, 추출한 텍스트는 64KiB까지 읽을 수 있습니다. 필요한 페이지를 골라 첨부하세요."
+      : "PDFs can have up to 40 pages and 64 KiB of extracted text. Attach the pages you need.",
+    "pdf-timeout": isKo ? "PDF 읽기 시간이 초과됐습니다. 더 작은 파일을 선택하세요."
+      : "Reading this PDF timed out. Choose a smaller file.",
+  };
+  const fileIssue = fileError ? fileIssues[fileError] : "";
   const voiceSummary = error || (status === "listening"
     ? (transcript || (isKo ? "듣는 중" : "Listening"))
     : status === "processing"
@@ -330,10 +342,13 @@ const Composer: FC<{
             autoFocus
             aria-label={isKo ? "메시지 입력" : "Message input"}
           />
-          {hasFiles && <p className="jarvis-composer-destination" role="status">
+          {hasFiles && !fileUnreadable && <p className="jarvis-composer-destination" role="status">
             {fileLoading
-              ? (isKo ? "파일을 읽는 중…" : "Reading files…")
-              : (isKo ? "전송하면 설정한 모델이 파일을 읽습니다." : "Sending shares these files with the configured model.")}
+              ? (isKo ? "기기에서 파일을 읽는 중…" : "Reading files on this device…")
+              : hasPdf
+                ? (isKo ? "설정한 모델에는 PDF에서 추출한 텍스트와 페이지 번호를 보냅니다."
+                  : "Sending shares extracted PDF text and page numbers with the configured model.")
+                : (isKo ? "전송하면 설정한 모델이 파일을 읽습니다." : "Sending shares these files with the configured model.")}
           </p>}
           {localCommand && (
             <div className="jarvis-composer-destination">
@@ -423,7 +438,7 @@ const ComposerAction: FC<{
         <MicIcon className="size-4" />
       </TooltipIconButton>
       <AuiIf condition={(state) => !state.thread.isRunning}>
-        <ComposerPrimitive.Send asChild>
+        <ComposerPrimitive.Send asChild disabled={fileBlocked}>
           <TooltipIconButton
             tooltip={sendLabel}
             side="bottom"
@@ -433,7 +448,6 @@ const ComposerAction: FC<{
             className="aui-composer-send jarvis-send size-9 rounded-full"
             aria-label={sendLabel}
             onClick={onBeforeSend}
-            disabled={fileBlocked}
           >
             <ArrowUpIcon className="aui-composer-send-icon size-4 [&_path]:stroke-1.8" />
           </TooltipIconButton>
@@ -898,7 +912,7 @@ const AssistantMessage: FC = () => {
             {({ part }) => {
               if (part.type === "text") {
                 return attachmentReview
-                  ? <p className="whitespace-pre-wrap">{part.text}</p>
+                  ? <MessagePartPrimitive.Text component="p" smooth={false} className="whitespace-pre-wrap" />
                   : <MarkdownText />;
               }
               if (part.type === "reasoning") {
