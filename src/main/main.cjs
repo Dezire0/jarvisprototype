@@ -5,14 +5,17 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const electronBinary = require("electron");
 const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell, protocol } = electronBinary;
+const { configureDesktopProfile } = require("./desktop-profile.cjs");
+const isolatedProfile = configureDesktopProfile(app);
 
-// Register jarvis-desktop protocol
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient("jarvis-desktop", process.execPath, [path.resolve(process.argv[1])]);
+if (!isolatedProfile) {
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient("jarvis-desktop", process.execPath, [path.resolve(process.argv[1])]);
+    }
+  } else {
+    app.setAsDefaultProtocolClient("jarvis-desktop");
   }
-} else {
-  app.setAsDefaultProtocolClient("jarvis-desktop");
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -24,10 +27,6 @@ if (!hasSingleInstanceLock) {
 const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
 const { BrowserService } = require("./browser-service.cjs");
-const {
-  MACOS_AUTOMATION_PERMISSION_DIALOG_DETAIL,
-  MACOS_AUTOMATION_PERMISSION_MESSAGE
-} = require("./automation-error-utils.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
 const { createDesktopSessionToken, attachDesktopChatHeader } = require("./desktop-session.cjs");
@@ -54,7 +53,6 @@ const { TtsService } = require("./tts-service.cjs");
 const { UpdaterService } = require("./updater-service.cjs");
 
 const piiManager = require("./pii-manager.cjs");
-const osAutomation = require("./os-automation.cjs");
 const notificationMonitor = require("./notification-monitor.cjs");
 
 let popupWindow;
@@ -184,7 +182,15 @@ async function captureLivePreviewSnapshot() {
 }
 
 async function createServices() {
-  const credentials = new CredentialStore({ app, safeStorage });
+  const credentials = new CredentialStore({
+    app,
+    safeStorage,
+    ...(isolatedProfile && {
+      sharedVaultDir: path.join(app.getPath("userData"), "credentials"),
+      keychainService: "friday-jarvis-prototype:" + isolatedProfile,
+      legacyKeychainService: null
+    })
+  });
   const memory = new MemoryStore({ app });
   await memory.load();
   const resolveAccountMemory = createAccountMemoryResolver(app.getPath("userData"));
@@ -204,7 +210,8 @@ async function createServices() {
   await extensions.load();
   const browser = new BrowserService({
     userDataDir: app.getPath("userData"),
-    credentialStore: credentials
+    credentialStore: credentials,
+    allowSharedProfiles: !isolatedProfile
   });
   const openClaw = new OpenClawService({
     workspaceRoot: process.cwd()
@@ -323,10 +330,10 @@ function getDesktopUiUrl() {
 }
 
 function buildApplicationMenu() {
-  const updateMenuItem = {
+  const updateItems = isolatedProfile ? [] : [{
     label: "Check for Updates...",
     click: () => updaterService?.checkForUpdates("manual")
-  };
+  }];
   const template = [];
 
   if (process.platform === "darwin") {
@@ -335,8 +342,7 @@ function buildApplicationMenu() {
       submenu: [
         { role: "about" },
         { type: "separator" },
-        updateMenuItem,
-        { type: "separator" },
+        ...updateItems,
         { role: "services" },
         { type: "separator" },
         { role: "hide" },
@@ -350,12 +356,13 @@ function buildApplicationMenu() {
     template.push({
       label: "File",
       submenu: [
-        updateMenuItem,
-        { type: "separator" },
+        ...updateItems,
         { role: "quit" }
       ]
     });
   }
+
+  template.push({ role: "editMenu" });
 
   const windowSubmenu = [
     {
@@ -389,7 +396,13 @@ function buildApplicationMenu() {
         label: `Version ${app.getVersion()}`,
         enabled: false
       },
-      updateMenuItem
+      ...updateItems,
+      ...(process.platform === "darwin" ? [{
+        label: "Accessibility Settings…",
+        click: () => {
+          shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility").catch(() => {});
+        }
+      }] : [])
     ]
   });
 
@@ -463,6 +476,7 @@ async function resolvePopupBounds(windowWidth, windowHeight) {
 
 // Deep Link Handling
 function handleDeepLink(url) {
+  if (isolatedProfile) return;
   try {
     const parsedUrl = new URL(url);
     if (parsedUrl.protocol === "jarvis-desktop:") {
@@ -555,42 +569,22 @@ async function createPopupWindow() {
 
 function createSettingsWindow() {
   console.log("Creating Jarvis Desktop window...");
+  const workArea = screen.getPrimaryDisplay().workAreaSize;
   settingsWindow = new BrowserWindow({
-    width: 1480,
-    height: 960,
-    minWidth: 1180,
-    minHeight: 780,
+    width: Math.min(1180, workArea.width),
+    height: Math.min(800, workArea.height),
+    minWidth: Math.min(420, workArea.width),
+    minHeight: Math.min(560, workArea.height),
     show: true,
     backgroundColor: "#07131a",
     autoHideMenuBar: true,
-    title: "Jarvis Desktop v1.8.9",
+    title: "Jarvis Desktop",
     webPreferences: {
       preload: path.join(__dirname, "../preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
-
-  // macOS에서 복사/붙여넣기 단축키 활성화
-  if (process.platform === "darwin") {
-    const { Menu } = require("electron");
-    const template = [
-      {
-        label: "Edit",
-        submenu: [
-          { role: "undo" },
-          { role: "redo" },
-          { type: "separator" },
-          { role: "cut" },
-          { role: "copy" },
-          { role: "paste" },
-          { role: "selectall" }
-        ]
-      }
-    ];
-    const menu = Menu.buildFromTemplate(template);
-    Menu.setApplicationMenu(menu);
-  }
 
   const desktopUrl = getDesktopUiUrl();
 
@@ -1125,41 +1119,31 @@ app.whenReady().then(async () => {
 
   await createServices();
 
-  if (process.platform === "darwin" && !osAutomation.checkPermissions()) {
-    dialog.showMessageBox({
-      type: "info",
-      title: "Accessibility Permission Required",
-      message: MACOS_AUTOMATION_PERMISSION_MESSAGE,
-      detail: MACOS_AUTOMATION_PERMISSION_DIALOG_DETAIL,
-      buttons: ["Open System Settings", "Later"],
-      defaultId: 0
-    }).then(({ response }) => {
-      if (response === 0) {
-        shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
-      }
-    });
-  }
   await ensureDesktopUiServer();
-  updaterService = new UpdaterService({ app });
-  await updaterService.init();
+  if (!isolatedProfile) {
+    updaterService = new UpdaterService({ app });
+    await updaterService.init();
+  }
   buildApplicationMenu();
   if (POPUP_ENABLED) {
     await createPopupWindow();
   }
   createSettingsWindow();
   openSettingsWindow();
-  globalShortcut.register("CommandOrControl+Shift+Space", () => {
-    if (POPUP_ENABLED) {
-      showPopup("listening");
-      return;
-    }
-
-    openSettingsWindow();
-  });
-  globalShortcut.register("CommandOrControl+,", openSettingsWindow);
-  globalShortcut.register("F4", () => {
-    toggleAssistantMuted("shortcut");
-  });
+  if (!isolatedProfile) {
+    globalShortcut.register("CommandOrControl+Shift+Space", () => {
+      if (POPUP_ENABLED) {
+        showPopup("listening");
+        return;
+      }
+      openSettingsWindow();
+    });
+    globalShortcut.register("CommandOrControl+,", openSettingsWindow);
+    globalShortcut.register("F4", () => toggleAssistantMuted("shortcut"));
+    setTimeout(() => {
+      updaterService.checkForUpdates("startup").catch(() => {});
+    }, 15_000);
+  }
 
   app.on("activate", async () => {
     if (!settingsWindow) {
@@ -1169,9 +1153,6 @@ app.whenReady().then(async () => {
     openSettingsWindow();
   });
 
-  setTimeout(() => {
-    updaterService?.checkForUpdates("startup").catch(() => {});
-  }, 15_000);
 }).catch((error) => {
   console.error("Jarvis Desktop failed to initialize:", error);
 });
@@ -1366,7 +1347,7 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
   }));
 
   return {
-    shortcut: POPUP_ENABLED
+    shortcut: isolatedProfile ? "" : POPUP_ENABLED
       ? "Cmd/Ctrl + Shift + Space · 빠른 패널 / Cmd/Ctrl + , · Jarvis 앱 / F4 · 자비스 음성 음소거"
       : "Cmd/Ctrl + Shift + Space · Jarvis 앱 열기 / Cmd/Ctrl + , · Jarvis 앱 / F4 · 자비스 음성 음소거",
     capabilities: {
@@ -1396,7 +1377,7 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
     },
     mute: {
       muted: assistantMuted,
-      hotkey: "F4"
+      hotkey: isolatedProfile ? "" : "F4"
     }
   };
 });

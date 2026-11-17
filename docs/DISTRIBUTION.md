@@ -43,6 +43,19 @@ npm run release
 
 Artifacts are written to `release/`.
 
+### Local macOS review
+
+Local builds use ad hoc signing when no signing identity is configured. Build without publishing or notarizing, then launch the Apple Silicon bundle in a named profile.
+
+```bash
+JARVIS_SKIP_NOTARIZE=1 npm run package:dir -- --publish never
+npm run open:app -- "release/mac-arm64/Jarvis Desktop.app" --jarvis-profile=review
+```
+
+The profile uses its own application data directory under `~/Library/Application Support/Jarvis Desktop Profiles`. It uses separate saved sign-in and browser data, and does not register the default OAuth protocol, system shortcuts or the updater. This profile still runs on your Mac and uses its permissions for actions you choose. Use the regular launch for default profile sign-in integrations and update checks.
+
+Choose **Local tools** from the first screen to try the built-in timer, tasks and notes. The app opens without checking Accessibility at launch. To grant the OS permission for computer control, use **Help → Accessibility Settings…**. The app's own computer-control consent appears before the signed-in chat.
+
 Important update rule:
 
 - a GitHub commit by itself does not update apps that are already installed

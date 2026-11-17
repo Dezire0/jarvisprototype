@@ -18,8 +18,11 @@ function main() {
   const appPath = resolveAppPath();
   const childEnv = { ...process.env };
   delete childEnv.ELECTRON_RUN_AS_NODE;
+  const appArgs = process.argv.slice(3);
+  const openArgs = ["-na", appPath];
+  if (appArgs.length) openArgs.push("--args", ...appArgs);
 
-  const result = spawnSync("open", ["-na", appPath], {
+  const result = spawnSync("open", openArgs, {
     stdio: "inherit",
     env: childEnv
   });
