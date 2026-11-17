@@ -2,168 +2,150 @@ const fs = require("node:fs/promises");
 const net = require("node:net");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { setTimeout: sleep } = require("node:timers/promises");
+const {
+  createDesktopSessionToken,
+  desktopUiProof,
+  isDesktopSessionToken,
+  matchesDesktopToken
+} = require("./desktop-session.cjs");
 
-function wait(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
+const HOST = "127.0.0.1";
 
-async function pathExists(targetPath) {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch (_error) {
-    return false;
-  }
-}
-
-function allocatePort() {
+function allocatePort(preferredPort = 0) {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
-
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(port);
-      });
+    server.once("error", reject);
+    server.listen(preferredPort, HOST, () => {
+      const { port } = server.address();
+      server.close((error) => error ? reject(error) : resolve(port));
     });
   });
 }
 
-async function waitForUrl(url, timeoutMs = 120000) {
-  const startedAt = Date.now();
-  let lastError = null;
+async function waitForDesktopUi(url, token, signal) {
+  const deadline = Date.now() + 120000;
+  const challenge = createDesktopSessionToken();
+  const expectedProof = desktopUiProof(token, challenge);
 
-  while (Date.now() - startedAt < timeoutMs) {
+  while (!signal.aborted && Date.now() < deadline) {
     try {
-      const response = await fetch(url, {
-        method: "GET"
+      const response = await fetch(url + "/api/chat?challenge=" + challenge, {
+        redirect: "error",
+        signal: AbortSignal.any([signal, AbortSignal.timeout(2500)])
       });
-
-      if (response.ok) {
+      if (response.status === 204 && matchesDesktopToken(expectedProof, response.headers.get("x-jarvis-ui-proof"))) {
         return;
       }
-
-      lastError = new Error(`Unexpected status ${response.status}`);
-    } catch (error) {
-      lastError = error;
+      await response.body?.cancel();
+    } catch {
+      // The child may still be starting or compiling the route.
     }
-
-    await wait(1000);
+    if (!signal.aborted) await sleep(250, undefined, { signal });
   }
 
-  throw lastError || new Error(`Timed out waiting for ${url}`);
+  throw new Error("The desktop UI did not establish its session.");
 }
 
 class DesktopUiServer {
-  constructor({ app }) {
+  constructor({ app, sessionToken, transportUrl, authCallbackUrl, resourcesPath = process.resourcesPath }) {
+    if (!isDesktopSessionToken(sessionToken)) throw new Error("A desktop session token is required.");
     this.app = app;
+    this.sessionToken = sessionToken;
+    this.transportUrl = transportUrl;
+    this.authCallbackUrl = authCallbackUrl;
+    this.resourcesPath = resourcesPath;
     this.child = null;
-    this.url = String(process.env.JARVIS_UI_URL || "").trim();
-  }
-
-  getBundledUiRoot() {
-    return path.join(process.resourcesPath, "desktop-ui");
+    this.url = "";
   }
 
   getBundledAppRoot() {
-    return path.join(this.getBundledUiRoot(), "templates", "cloud");
-  }
-
-  async canStartBundledServer() {
-    if (!this.app.isPackaged || this.url) {
-      return false;
-    }
-
-    return pathExists(path.join(this.getBundledAppRoot(), "server.js"));
-  }
-
-  getUrl() {
-    return this.url;
+    return path.join(this.resourcesPath, "desktop-ui", "templates", "cloud");
   }
 
   async start() {
-    if (this.url) {
-      return this.url;
+    if (this.url) return this.url;
+
+    const bundled = this.app.isPackaged;
+    const uiRoot = bundled
+      ? this.getBundledAppRoot()
+      : path.resolve(__dirname, "..", "..", "Jarvis Ui", "templates", "cloud");
+    const entry = bundled
+      ? path.join(uiRoot, "server.js")
+      : require.resolve("next/dist/bin/next", { paths: [uiRoot] });
+    await fs.access(entry);
+
+    const preferredPort = Number(process.env.JARVIS_UI_PORT || (bundled ? 0 : 3310));
+    let port;
+    try {
+      port = await allocatePort(preferredPort);
+    } catch (error) {
+      if (error?.code !== "EADDRINUSE") throw error;
+      port = await allocatePort();
     }
-
-    if (!(await this.canStartBundledServer())) {
-      return "";
-    }
-
-    const uiRoot = this.getBundledAppRoot();
-    const serverEntry = path.join(uiRoot, "server.js");
-    const port = Number(process.env.JARVIS_UI_PORT) || await allocatePort();
-    const host = "127.0.0.1";
-    const targetUrl = `http://${host}:${port}`;
-
-    this.child = spawn(process.execPath, [serverEntry], {
+    const targetUrl = "http://" + HOST + ":" + port;
+    const args = bundled ? [entry] : [entry, "dev", "--webpack", "--hostname", HOST, "--port", String(port)];
+    const child = spawn(process.execPath, args, {
       cwd: uiRoot,
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",
-        NODE_ENV: "production",
-        HOSTNAME: host,
+        NODE_ENV: bundled ? "production" : "development",
+        HOSTNAME: HOST,
         PORT: String(port),
-        JARVIS_TRANSPORT_URL:
-          process.env.JARVIS_TRANSPORT_URL ||
-          process.env.NEXT_PUBLIC_API_URL ||
-          "http://127.0.0.1:8010/assistant",
-        NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8010/assistant"
+        NEXT_PUBLIC_JARVIS_SITE_MODE: "app",
+        NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL: this.authCallbackUrl,
+        NEXT_TELEMETRY_DISABLED: "1",
+        JARVIS_UI_ORIGIN: targetUrl,
+        JARVIS_TRANSPORT_URL: this.transportUrl,
+        JARVIS_DESKTOP_SESSION_TOKEN: this.sessionToken
       },
-      stdio: "pipe"
+      stdio: ["ignore", "pipe", "pipe"]
     });
 
-    this.child.stdout.on("data", (chunk) => {
-      process.stdout.write(`[desktop-ui] ${chunk}`);
-    });
-    this.child.stderr.on("data", (chunk) => {
-      process.stderr.write(`[desktop-ui] ${chunk}`);
-    });
-    this.child.once("exit", () => {
-      this.child = null;
-      this.url = "";
+    this.child = child;
+    const controller = new AbortController();
+    child.stdout.on("data", (chunk) => process.stdout.write("[desktop-ui] " + chunk));
+    child.stderr.on("data", (chunk) => process.stderr.write("[desktop-ui] " + chunk));
+
+    const childEnded = new Promise((_resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", () => {
+        if (this.child === child) {
+          this.child = null;
+          this.url = "";
+        }
+        reject(new Error("The desktop UI process exited."));
+      });
     });
 
     try {
-      await waitForUrl(targetUrl);
+      await Promise.race([waitForDesktopUi(targetUrl, this.sessionToken, controller.signal), childEnded]);
       this.url = targetUrl;
       return this.url;
     } catch (error) {
       await this.stop();
       throw error;
+    } finally {
+      controller.abort();
     }
   }
 
   async stop() {
-    if (!this.child) {
-      return;
-    }
-
     const child = this.child;
     this.child = null;
     this.url = "";
+    if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
 
     await new Promise((resolve) => {
-      child.once("exit", () => resolve());
+      const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
       child.kill("SIGTERM");
-      setTimeout(() => {
-        if (!child.killed) {
-          child.kill("SIGKILL");
-        }
-      }, 5000);
     });
   }
 }
 
-module.exports = {
-  DesktopUiServer
-};
+module.exports = { DesktopUiServer };
