@@ -7,6 +7,17 @@ test("BrowserService extends the shared base browser runtime", () => {
   assert.equal(Object.getPrototypeOf(BrowserService.prototype), BaseBrowserService.prototype);
 });
 
+test("isolated browser launch attempts stay within the selected app profile", async () => {
+  const service = new BrowserService({
+    userDataDir: "/tmp/jarvis-browser-review",
+    credentialStore: {},
+    allowSharedProfiles: false
+  });
+  const attempts = await service.resolvePreferredLaunchAttempts();
+  assert.deepEqual(attempts.map(({ mode }) => mode), ["jarvis-profile", "testing-fallback"]);
+  assert.ok(attempts.every(({ userDataDir }) => userDataDir.startsWith("/tmp/jarvis-browser-review/")));
+});
+
 test("BrowserService exposes deterministic browser plan support helpers", () => {
   const service = new BrowserService({
     userDataDir: "/tmp/jarvis-browser-service-support-test",

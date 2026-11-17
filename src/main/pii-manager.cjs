@@ -1,9 +1,12 @@
-const { safeStorage } = require("electron");
+const { app, safeStorage } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { PROFILE_SWITCH } = require("./desktop-profile.cjs");
 
-const PII_STORE_PATH = path.join(os.homedir(), ".jarvis_pii_store.json");
+const PII_STORE_PATH = app?.commandLine?.hasSwitch(PROFILE_SWITCH)
+  ? path.join(app.getPath("userData"), "jarvis-pii.json")
+  : path.join(os.homedir(), ".jarvis_pii_store.json");
 
 /**
  * PIIManager securely stores and retrieves Personal Identifiable Information

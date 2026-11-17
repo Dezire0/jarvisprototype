@@ -21,7 +21,7 @@ if (typeof document !== "undefined") {
 }
 
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -130,13 +130,6 @@ export function OnboardingGate() {
       ],
     },
   } as const;
-  const withComputerConsent = (content: ReactNode) => (
-    <>
-      {content}
-      <ComputerConsentGate />
-    </>
-  );
-
   function syncSelectedPlan(user?: Partial<AuthUser> | null) {
     setSelectedPlan(selectInitialPlan(user || {}));
   }
@@ -365,18 +358,18 @@ export function OnboardingGate() {
   }
 
   if (step === "loading") {
-    return withComputerConsent(
+    return (
       <div className="flex h-dvh w-full items-center justify-center bg-background"><LoaderCircleIcon className="size-6 animate-spin text-muted-foreground" /></div>
     );
   }
 
   if (step === "ready") {
-    return withComputerConsent(<Assistant />);
+    return <ComputerConsentGate><Assistant /></ComputerConsentGate>;
   }
 
   // ─── Step 1: Auth (Login/Register) ───
   if (step === "auth") {
-    return withComputerConsent(
+    return (
       <div className="jarvis-auth-shell">
         <header className="jarvis-toolbar">
           <span className="font-semibold">Jarvis</span>
@@ -437,7 +430,7 @@ export function OnboardingGate() {
   }
 
   // ─── Step 2: Setup (Plan Selection) ───
-  return withComputerConsent(
+  return (
     <div className="flex min-h-dvh w-full items-center justify-center bg-background py-12 text-foreground">
       <div className="w-full max-w-5xl px-6">
         <div className="mb-12 text-center">

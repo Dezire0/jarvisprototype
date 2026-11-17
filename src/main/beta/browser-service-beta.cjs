@@ -278,10 +278,11 @@ function detectPageAnomalies(url, title, text) {
 // ─── BrowserService v2 ──────────────────────────────────────────────────────
 
 class BaseBrowserService {
-  constructor({ userDataDir, credentialStore }) {
+  constructor({ userDataDir, credentialStore, allowSharedProfiles = true }) {
     this.savedProfileDir = path.join(userDataDir, "browser-profile");
     this.testingProfileDir = path.join(userDataDir, "playwright-profile");
     this.credentialStore = credentialStore;
+    this.allowSharedProfiles = allowSharedProfiles;
     this.context = null;
     this.page = null;
     this.launchProfile = { label: "playwright fallback", mode: "testing-fallback" };
@@ -315,7 +316,7 @@ class BaseBrowserService {
     const systemChromeRoot = platform() === "darwin"
       ? path.join(homedir(), "Library/Application Support/Google/Chrome") : "";
 
-    if (configuredProfilePath && (await pathExists(configuredProfilePath))) {
+    if (this.allowSharedProfiles && configuredProfilePath && (await pathExists(configuredProfilePath))) {
       const userDataDir = looksLikeChromeProfileDirectory(configuredProfilePath)
         ? path.dirname(configuredProfilePath) : configuredProfilePath;
       const profileDirectory = looksLikeChromeProfileDirectory(configuredProfilePath)
@@ -323,7 +324,7 @@ class BaseBrowserService {
       attempts.push(this.buildLaunchAttempt({ label: "configured Chrome profile", mode: "configured-profile", userDataDir, channel: "chrome", profileDirectory }));
     }
 
-    if (systemChromeRoot && (await pathExists(systemChromeRoot))) {
+    if (this.allowSharedProfiles && systemChromeRoot && (await pathExists(systemChromeRoot))) {
       const profileDirectory = await resolveChromeProfileDirectory(systemChromeRoot);
       attempts.push(this.buildLaunchAttempt({
         label: "mirrored Google Chrome profile", mode: "mirrored-system-profile",
