@@ -64,6 +64,12 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   installUpdate() {
     return ipcRenderer.invoke("assistant:install-update");
   },
+  loadLocalWorkspace() {
+    return ipcRenderer.invoke("assistant:load-local-workspace");
+  },
+  saveLocalWorkspace(serialized) {
+    return ipcRenderer.invoke("assistant:save-local-workspace", serialized);
+  },
   invokeTool(tool, payload = {}) {
     return ipcRenderer.invoke("assistant:invoke-tool", {
       tool,

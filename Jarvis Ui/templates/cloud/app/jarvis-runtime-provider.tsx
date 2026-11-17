@@ -1,6 +1,7 @@
 "use client";
 
-import { type ReactNode, useMemo } from "react";
+import { createContext, useContext, type ReactNode, useMemo, useState } from "react";
+
 import { createAssistantStream } from "assistant-stream";
 import {
   AssistantRuntimeProvider,
@@ -12,6 +13,11 @@ import {
   type ThreadMessage,
 } from "@assistant-ui/react";
 
+const TransportError = createContext<string | null>(null);
+
+export function useJarvisTransportError() {
+  return useContext(TransportError);
+}
 type TransportMessage = {
   id: string;
   role: "user" | "assistant";
@@ -428,7 +434,7 @@ function transportConverter(
   } as any;
 }
 
-function useJarvisTransportRuntime() {
+function useJarvisTransportRuntime(setError: (value: string | null) => void) {
   const token = typeof window !== "undefined" ? window.localStorage.getItem("jarvis_auth_token") : null;
   const headers = useMemo(() => {
     return {
@@ -441,10 +447,13 @@ function useJarvisTransportRuntime() {
     initialState: INITIAL_STATE,
     api: CHAT_API_PATH,
     headers,
-    prepareSendCommandsRequest: async (body) => ({
-      ...body,
-      memoryContext: buildMemoryContext(typeof body.threadId === "string" ? body.threadId : null),
-    }),
+    prepareSendCommandsRequest: async (body) => {
+      setError(null);
+      return {
+        ...body,
+        memoryContext: buildMemoryContext(typeof body.threadId === "string" ? body.threadId : null),
+      };
+    },
     converter: transportConverter,
     onCancel: ({ updateState }) => {
       updateState((state) => ({
@@ -454,6 +463,7 @@ function useJarvisTransportRuntime() {
     },
     onError: (error) => {
       console.error("Jarvis transport error:", error);
+      setError("transport-unavailable");
     },
   });
 }
@@ -461,10 +471,15 @@ function useJarvisTransportRuntime() {
 export function JarvisRuntimeProvider({
   children,
 }: Readonly<{ children: ReactNode }>) {
+  const [error, setError] = useState<string | null>(null);
   const runtime = useRemoteThreadListRuntime({
-    runtimeHook: useJarvisTransportRuntime,
+    runtimeHook: () => useJarvisTransportRuntime(setError),
     adapter: threadListAdapter,
   });
 
-  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+  return (
+    <TransportError.Provider value={error}>
+      <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+    </TransportError.Provider>
+  );
 }
