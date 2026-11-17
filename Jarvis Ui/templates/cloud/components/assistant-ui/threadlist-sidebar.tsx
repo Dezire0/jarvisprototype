@@ -1,7 +1,7 @@
 "use client";
 
 import type * as React from "react";
-import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import {
   Sidebar,
@@ -20,6 +20,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useChatHistory } from "@/app/jarvis-runtime-provider";
+import { memoryMode, type SidebarHistory } from "@/lib/chat-history";
 import { LoginModal } from "@/components/jarvis/login-modal";
 import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 import {
@@ -48,8 +50,6 @@ import {
 } from "lucide-react";
 
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
-const SIDEBAR_STORAGE_KEY = "jarvis-sidebar-layout-v3";
-const LOCAL_INDEX_STORAGE_KEY = "jarvis-thread-search-index-v1";
 const PINNED_APP_NAMES = [
   "Google Chrome",
   "Visual Studio Code",
@@ -61,31 +61,8 @@ const PINNED_APP_NAMES = [
   "Finder",
 ];
 
-type SidebarProject = {
-  id: string;
-  name: string;
-  createdAt: number;
-};
-
-type StoredThreadMeta = {
-  createdAt: number;
-  updatedAt: number;
-  projectId: string | null;
-};
-
-type StoredSidebarState = {
-  projects: SidebarProject[];
-  threadMetaById: Record<string, StoredThreadMeta>;
-  selectedProjectId: string | null;
-};
-
-type LocalThreadSnapshot = {
-  threadId: string;
-  title: string;
-  text: string;
-  snippet: string;
-  updatedAt: number;
-};
+type SidebarProject = SidebarHistory["projects"][number];
+type StoredThreadMeta = SidebarHistory["threadMetaById"][string];
 
 type CloudThread = {
   id: string;
@@ -290,73 +267,6 @@ function getConversationConnectionState(settings?: ConversationModelSettingsView
   return { connected: false, label: "API", model: "" };
 }
 
-function readSidebarState(): StoredSidebarState {
-  if (typeof window === "undefined") {
-    return { projects: [], threadMetaById: {}, selectedProjectId: null };
-  }
-
-  try {
-    const raw = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    if (!raw) {
-      return { projects: [], threadMetaById: {}, selectedProjectId: null };
-    }
-
-    const parsed = JSON.parse(raw);
-    return {
-      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-      threadMetaById: parsed.threadMetaById || {},
-      selectedProjectId: parsed.selectedProjectId || null,
-    };
-  } catch {
-    return { projects: [], threadMetaById: {}, selectedProjectId: null };
-  }
-}
-
-function readLocalThreadIndex(): Record<string, LocalThreadSnapshot> {
-  if (typeof window === "undefined") {
-    return {};
-  }
-
-  try {
-    const raw = window.localStorage.getItem(LOCAL_INDEX_STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
-    return JSON.parse(raw) || {};
-  } catch {
-    return {};
-  }
-}
-
-function extractMessageText(value: unknown): string {
-  if (!value) {
-    return "";
-  }
-
-  if (typeof value === "string") {
-    return value.trim();
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(extractMessageText).filter(Boolean).join(" ").trim();
-  }
-
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    if (typeof record.text === "string") {
-      return record.text.trim();
-    }
-    if ("content" in record) {
-      return extractMessageText(record.content);
-    }
-    if ("parts" in record) {
-      return extractMessageText(record.parts);
-    }
-  }
-
-  return "";
-}
-
 function buildSnippet(text: string, maxLength = 120) {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -392,21 +302,14 @@ export function ThreadListSidebar({
 }: React.ComponentProps<typeof Sidebar>) {
   const aui = useAui();
   const threadsState = useAuiState((state) => state.threads);
-  const activeThreadMessages = useAuiState((state) => state.thread.messages);
+  const history = useChatHistory();
+  const revision = useSyncExternalStore(history.subscribe, history.getRevision, history.getRevision);
 
-  const [projects, setProjects] = useState<SidebarProject[]>([]);
-  const [threadMetaById, setThreadMetaById] = useState<
-    Record<string, StoredThreadMeta>
-  >({});
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    null,
-  );
-  const [localThreadIndex, setLocalThreadIndex] = useState<
-    Record<string, LocalThreadSnapshot>
-  >({});
+  const [projects, setProjects] = useState<SidebarProject[]>(() => history.sidebar.projects);
+  const [threadMetaById, setThreadMetaById] = useState<Record<string, StoredThreadMeta>>(() => history.sidebar.threadMetaById);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => history.sidebar.selectedProjectId);
   const [loginOpen, setLoginOpen] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [cloudThreads, setCloudThreads] = useState<CloudThread[]>([]);
   const [cloudSearchIndex, setCloudSearchIndex] = useState<
     Record<string, CloudSearchEntry>
   >({});
@@ -432,7 +335,9 @@ export function ThreadListSidebar({
   const [launcherLoading, setLauncherLoading] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileDraftName, setProfileDraftName] = useState("");
-  const [profileAutoSync, setProfileAutoSync] = useState(true);
+  const [profileAutoSync, setProfileAutoSync] = useState(history.cloudSync);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaveError, setProfileSaveError] = useState(false);
   const [profilePreferWebAi, setProfilePreferWebAi] = useState(true);
   const [profileLanguage, setProfileLanguage] = useState<"auto" | "ko" | "en">("auto");
   const [conversationSettings, setConversationSettings] =
@@ -468,17 +373,7 @@ export function ThreadListSidebar({
   const activeThread =
     allThreads.find((thread) => thread.id === threadsState.mainThreadId) ||
     null;
-  const activeThreadId = activeThread?.id || null;
-  const activeThreadTitle = activeThread?.title || "새 채팅";
-  const activeThreadText = useMemo(
-    () =>
-      activeThreadMessages
-        .map((message) => extractMessageText(message))
-        .filter(Boolean)
-        .join(" ")
-        .trim(),
-    [activeThreadMessages],
-  );
+  const activeThreadId = activeThread?.remoteId ?? activeThread?.id ?? null;
   const openaiModelOptions = useMemo(
     () => withSelectedModelOption(OPENAI_MODEL_OPTIONS, openaiModel),
     [openaiModel],
@@ -530,12 +425,6 @@ export function ThreadListSidebar({
   }, [connectedWebModelProvider, webModel, webModelOptions]);
 
   useEffect(() => {
-    const stored = readSidebarState();
-    setProjects(stored.projects);
-    setThreadMetaById(stored.threadMetaById);
-    setSelectedProjectId(stored.selectedProjectId);
-    setLocalThreadIndex(readLocalThreadIndex());
-
     void (async () => {
       const session = await restoreAuthSession();
       if (session.user) {
@@ -543,13 +432,12 @@ export function ThreadListSidebar({
         setProfileDraftName(
           session.user.name || session.user.email.split("@")[0] || "",
         );
-        setProfileAutoSync(session.user.settings?.autoSync ?? true);
+        setProfileAutoSync(history.cloudSync);
         setProfilePreferWebAi(session.user.settings?.preferWebAi ?? true);
         setProfileLanguage(session.user.settings?.language || "auto");
       }
-      if (session.token) {
-        void hydrateCloudIndex(session.token);
-      }
+      const cloudToken = history.cloudToken();
+      if (cloudToken) void hydrateCloudIndex(cloudToken);
     })();
 
     void checkWebAiStatus(true);
@@ -588,94 +476,35 @@ export function ThreadListSidebar({
   }, [webAiModalOpen]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      SIDEBAR_STORAGE_KEY,
-      JSON.stringify({
-        projects,
-        threadMetaById,
-        selectedProjectId,
-      } satisfies StoredSidebarState),
-    );
-  }, [projects, selectedProjectId, threadMetaById]);
+    history.setSidebar({ projects, selectedProjectId, threadMetaById });
+  }, [history, projects, selectedProjectId, threadMetaById]);
 
   useEffect(() => {
-    if (!activeThreadId || typeof window === "undefined") {
-      return;
-    }
-
-    const now = Date.now();
-    const nextSnapshot: LocalThreadSnapshot = {
-      threadId: activeThreadId,
-      title: activeThreadTitle,
-      text: activeThreadText,
-      snippet: buildSnippet(activeThreadText),
-      updatedAt: now,
-    };
-
-    setLocalThreadIndex((prev) => {
-      const current = prev[activeThreadId];
-      if (
-        current &&
-        current.title === nextSnapshot.title &&
-        current.text === nextSnapshot.text &&
-        current.snippet === nextSnapshot.snippet
-      ) {
-        return prev;
-      }
-
-      const next = {
-        ...prev,
-        [activeThreadId]: nextSnapshot,
-      };
-      window.localStorage.setItem(
-        LOCAL_INDEX_STORAGE_KEY,
-        JSON.stringify(next),
-      );
-      return next;
+    if (!activeThreadId || memoryMode() === "temporary") return;
+    setThreadMetaById((previous) => {
+      if (Object.hasOwn(previous, activeThreadId)) return previous;
+      const now = Date.now();
+      return { ...previous, [activeThreadId]: { createdAt: now, updatedAt: now, projectId: selectedProjectId } };
     });
-
-    setThreadMetaById((prev) => {
-      const current = prev[activeThreadId];
-      const nextMeta: StoredThreadMeta = {
-        createdAt: current?.createdAt || now,
-        updatedAt: now,
-        projectId: current?.projectId ?? selectedProjectId ?? null,
-      };
-
-      if (
-        current &&
-        current.createdAt === nextMeta.createdAt &&
-        current.updatedAt === nextMeta.updatedAt &&
-        current.projectId === nextMeta.projectId
-      ) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        [activeThreadId]: nextMeta,
-      };
-    });
-  }, [activeThreadId, activeThreadText, activeThreadTitle, selectedProjectId]);
+  }, [activeThreadId, selectedProjectId]);
 
   const displayThreads = useMemo(() => {
     const filtered = selectedProjectId
       ? allThreads.filter(
           (thread) =>
-            threadMetaById[thread.id]?.projectId === selectedProjectId,
+            threadMetaById[thread.remoteId ?? thread.id]?.projectId === selectedProjectId,
         )
       : allThreads;
 
     return filtered
       .slice()
       .sort((left, right) => {
-        const leftUpdated = threadMetaById[left.id]?.updatedAt || 0;
-        const rightUpdated = threadMetaById[right.id]?.updatedAt || 0;
+        const leftUpdated = history.get(left.remoteId ?? left.id)?.updatedAt || threadMetaById[left.remoteId ?? left.id]?.updatedAt || 0;
+        const rightUpdated = history.get(right.remoteId ?? right.id)?.updatedAt || threadMetaById[right.remoteId ?? right.id]?.updatedAt || 0;
         return rightUpdated - leftUpdated;
       })
       .slice(0, 12);
-  }, [allThreads, selectedProjectId, threadMetaById]);
+  }, [allThreads, history, revision, selectedProjectId, threadMetaById]);
 
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) || null;
@@ -704,23 +533,20 @@ export function ThreadListSidebar({
       return [];
     }
 
-    const localEntries = Object.values(localThreadIndex).map((entry) => ({
-      id: `local-${entry.threadId}`,
-      source: "local" as const,
-      threadId: entry.threadId,
-      title: entry.title || "새 채팅",
-      snippet: entry.snippet,
-      score: scoreSearch(query, entry.text, entry.title),
-    }));
-
-    const cloudEntries = Object.values(cloudSearchIndex).map((entry) => ({
-      id: `cloud-${entry.threadId}`,
-      source: "cloud" as const,
-      threadId: entry.threadId,
-      title: entry.title,
-      snippet: entry.snippet,
-      score: scoreSearch(query, entry.text, entry.title),
-    }));
+    const localEntries = history.localThreads().map((entry) => {
+      const title = entry.title || "New Chat";
+      const text = entry.messages.map((message) => message.text).join(" ");
+      return {
+        id: `local-${entry.remoteId}`, source: "local" as const, threadId: entry.remoteId,
+        title, snippet: buildSnippet(text), score: scoreSearch(query, text, title),
+      };
+    });
+    const cloudEntries = Object.values(cloudSearchIndex)
+      .filter((entry) => !history.get(entry.threadId))
+      .map((entry) => ({
+        id: `cloud-${entry.threadId}`, source: "cloud" as const, threadId: entry.threadId,
+        title: entry.title, snippet: entry.snippet, score: scoreSearch(query, entry.text, entry.title),
+      }));
 
     return [...localEntries, ...cloudEntries]
       .filter((entry) => entry.score > 0)
@@ -730,7 +556,7 @@ export function ThreadListSidebar({
           right.snippet.length - left.snippet.length,
       )
       .slice(0, 16);
-  }, [cloudSearchIndex, deferredSearchQuery, localThreadIndex]);
+  }, [cloudSearchIndex, deferredSearchQuery, history, revision]);
 
   async function fetchCloudThreads(token: string) {
     const response = await fetch(`${API_BASE}/api/chat/threads`, {
@@ -752,8 +578,9 @@ export function ThreadListSidebar({
   }
 
   async function fetchCloudThreadMessages(threadId: string, token: string) {
+    if (token !== history.cloudToken()) return [];
     const response = await fetch(
-      `${API_BASE}/api/chat/threads/${threadId}/messages`,
+      `${API_BASE}/api/chat/threads/${encodeURIComponent(threadId)}/messages`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -773,9 +600,10 @@ export function ThreadListSidebar({
   }
 
   async function hydrateCloudIndex(token: string) {
+    if (token !== history.cloudToken()) return;
     try {
       const threads = await fetchCloudThreads(token);
-      setCloudThreads(threads);
+      if (token !== history.cloudToken()) return;
 
       const entries = await Promise.all(
         threads.slice(0, 20).map(async (thread) => {
@@ -802,7 +630,7 @@ export function ThreadListSidebar({
         }),
       );
 
-      setCloudSearchIndex(Object.fromEntries(entries));
+      if (token === history.cloudToken()) setCloudSearchIndex(Object.fromEntries(entries));
     } catch {
       setCloudSearchIndex({});
     }
@@ -993,22 +821,27 @@ export function ThreadListSidebar({
   function handleLoginSuccess(user: AuthUser, token: string) {
     setAuthUser(user);
     setProfileDraftName(user.name || user.email.split("@")[0] || "");
-    setProfileAutoSync(user.settings?.autoSync ?? true);
+    setProfileAutoSync(history.cloudSync);
     setProfilePreferWebAi(user.settings?.preferWebAi ?? true);
-    void persistAuthSession(token, user); // 세션 영구 저장
-    void hydrateCloudIndex(token);
+    void persistAuthSession(token, user).then(() => hydrateCloudIndex(token));
   }
 
   async function handleLogout() {
     setAuthUser(null);
-    setCloudThreads([]);
     setCloudSearchIndex({});
     setProfileOpen(false);
     await clearAuthSession();
   }
 
   async function handleSaveProfile() {
-    if (!authUser) {
+    if (!authUser || profileSaving) return;
+    setProfileSaving(true);
+    setProfileSaveError(false);
+    const saved = await history.setCloudSync(profileAutoSync);
+    if (!saved) {
+      setCloudSearchIndex({});
+      setProfileSaveError(true);
+      setProfileSaving(false);
       return;
     }
 
@@ -1019,23 +852,27 @@ export function ThreadListSidebar({
         authUser.email.split("@")[0] ||
         "Jarvis User",
       settings: {
+        ...authUser.settings,
         autoSync: profileAutoSync,
         preferWebAi: profilePreferWebAi,
         language: profileLanguage,
       },
     };
 
-    setAuthUser(nextUser);
-    await updateStoredAuthUser(nextUser);
+    try {
+      setAuthUser(nextUser);
+      await updateStoredAuthUser(nextUser);
+      const cloudToken = history.cloudToken();
+      if (cloudToken) void hydrateCloudIndex(cloudToken);
+      else setCloudSearchIndex({});
 
-    // Sync to Electron Settings
-    if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
-      await (window as any).assistantAPI.invokeTool("settings:update", {
-        preferredLanguage: profileLanguage,
-      });
+      await window.assistantAPI?.invokeTool("settings:update", { preferredLanguage: profileLanguage });
+      setProfileOpen(false);
+    } catch {
+      setProfileSaveError(true);
+    } finally {
+      setProfileSaving(false);
     }
-
-    setProfileOpen(false);
   }
 
   async function startNewChat() {
@@ -1108,7 +945,7 @@ export function ThreadListSidebar({
   const userDisplayName =
     authUser?.name?.trim() || authUser?.email?.split("@")[0] || t("로그인이 필요합니다", "Login Required");
   const userSubLabel = authUser
-    ? authUser.settings?.autoSync
+    ? history.cloudSync
       ? t("동기화 설정 켜짐", "Sync enabled in settings")
       : t("로컬 프로필", "Local Profile")
     : t("플러스 멤버십", "Plus Membership");
@@ -1182,6 +1019,15 @@ export function ThreadListSidebar({
                     if (result.source === "local") {
                       void switchToThread(result.threadId);
                       setSearchOpen(false);
+                    } else {
+                      const entry = cloudSearchIndex[result.threadId];
+                      if (entry) void history.importCloud(entry.threadId, entry.title, entry.updatedAt)
+                        .then(async (imported) => {
+                          if (imported) {
+                            await switchToThread(entry.threadId);
+                            setSearchOpen(false);
+                          }
+                        }).catch(() => {});
                     }
                   }}
                   className={cn(
@@ -1270,9 +1116,9 @@ export function ThreadListSidebar({
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
         <DialogContent className="border-border bg-background text-foreground sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>프로필 편집</DialogTitle>
+            <DialogTitle>{t("프로필 편집", "Edit profile")}</DialogTitle>
             <DialogDescription className="text-zinc-400">
-              표시 이름과 기본 동작을 저장해 다음 실행에서도 그대로 유지해요.
+              {t("다음 실행에도 이 계정의 설정을 사용합니다.", "These preferences are saved for this account on this device.")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1293,7 +1139,7 @@ export function ThreadListSidebar({
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
               <label className="flex items-center justify-between gap-3 text-sm">
-                <span>클라우드 대화 동기화 유지</span>
+                <span>{t("클라우드 대화 동기화", "Cloud conversation sync")}</span>
                 <input
                   type="checkbox"
                   checked={profileAutoSync}
@@ -1304,7 +1150,7 @@ export function ThreadListSidebar({
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
               <label className="flex items-center justify-between gap-3 text-sm">
-                <span>가능하면 자동 선택 사용</span>
+                <span>{t("가능하면 자동 선택 사용", "Use automatic model selection")}</span>
                 <input
                   type="checkbox"
                   checked={profilePreferWebAi}
@@ -1316,15 +1162,19 @@ export function ThreadListSidebar({
               </label>
             </div>
           </div>
+          {profileSaveError && <p className="jarvis-auth-error" role="alert">
+            {t("설정을 저장하지 못했습니다. 다시 시도하세요.", "Preferences couldn’t be saved. Try again.")}
+          </p>}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setProfileOpen(false)}>
-              닫기
+            <Button variant="outline" onClick={() => setProfileOpen(false)} disabled={profileSaving}>
+              {t("닫기", "Close")}
             </Button>
             <Button
               className="bg-white text-black hover:bg-zinc-200"
               onClick={() => void handleSaveProfile()}
+              disabled={profileSaving}
             >
-              저장
+              {t("저장", "Save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1795,7 +1645,8 @@ export function ThreadListSidebar({
                   setProfileDraftName(
                     authUser.name || authUser.email.split("@")[0] || "",
                   );
-                  setProfileAutoSync(authUser.settings?.autoSync ?? true);
+                  setProfileAutoSync(history.cloudSync);
+                  setProfileSaveError(false);
                   setProfilePreferWebAi(authUser.settings?.preferWebAi ?? true);
                   setProfileOpen(true);
                 } else {

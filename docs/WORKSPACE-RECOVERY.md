@@ -28,6 +28,14 @@ Timer deadlines, tasks, notes, and spoken-result preferences use the desktop app
 
 The account and computer-control flows continue to gate the conversation workspace and native integrations. Existing thread, project, attachment, voice, app-launcher, and model-settings entry points remain in the UI. Action receipts render the reported outcome and show the hostname for opened pages.
 
+### Conversation history
+
+Sign in to the same account after reopening Jarvis to see saved conversations in the sidebar. Select a conversation to continue it, or find it through local search. Jarvis saves completed turns, thread titles and project grouping in the Electron app data directory under the signed-in account's namespace. The browser preview uses that account's storage at the current origin.
+
+The saved transcript includes file names and replies. File contents, open prompts, live previews and raw action payloads are excluded from the history file. A temporary-mode turn stays in the current workspace. Older flattened searches and assistant memory are kept in their existing stores.
+
+Cloud sync starts off in this version. Open the profile and save your cloud sync choice to apply it to this account on this device. The setting survives signing in again. When enabled, cloud search can open a selected conversation and save a local copy. Background sync excludes file review conversations and temporary turns.
+
 ### Running the desktop UI
 
 Use Node 24. Run `npm run dev` to compile the workspace dependencies and launch Electron. For distribution, `npm run build:desktop-ui` produces the bundled Next UI. In both modes Electron starts the local Assistant, launches the UI on loopback, and verifies that it belongs to the current app session before loading the window. Development prefers port 3310. Set `JARVIS_UI_PORT` to choose a preferred port. An occupied port causes the app to use another local port.

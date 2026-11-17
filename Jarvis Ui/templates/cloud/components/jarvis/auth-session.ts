@@ -3,6 +3,7 @@
 const AUTH_TOKEN_KEY = "jarvis_auth_token";
 const AUTH_USER_KEY = "jarvis_auth_user";
 const AUTH_REMEMBER_KEY = "jarvis_auth_remember";
+export const AUTH_SESSION_CHANGED = "jarvis:auth-session-changed";
 
 export type AuthSettings = {
   autoSync?: boolean;
@@ -47,7 +48,7 @@ function readStorageSession(storage: Storage | undefined): StoredAuthSession {
   }
 }
 
-function readLocalSession(): StoredAuthSession {
+export function readStoredAuthSession(): StoredAuthSession {
   if (typeof window === "undefined") {
     return { token: null, user: null };
   }
@@ -81,7 +82,7 @@ export function setAuthRemembered(remember: boolean) {
 }
 
 export async function restoreAuthSession(): Promise<StoredAuthSession> {
-  const local = readLocalSession();
+  const local = readStoredAuthSession();
   if (local.token && local.user) {
     return local;
   }
@@ -139,6 +140,7 @@ export async function persistAuthSession(
   otherStorage.removeItem(AUTH_TOKEN_KEY);
   otherStorage.removeItem(AUTH_USER_KEY);
   setAuthRemembered(remember);
+  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED));
 
   try {
     if (remember) {
@@ -165,6 +167,7 @@ export async function updateStoredAuthUser(user: AuthUser) {
   const targetStorage = sessionStorageToken ? window.sessionStorage : window.localStorage;
 
   targetStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED));
 
   if (!token) {
     return;
@@ -191,6 +194,7 @@ export async function clearAuthSession() {
   window.localStorage.removeItem(AUTH_USER_KEY);
   window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
   window.sessionStorage.removeItem(AUTH_USER_KEY);
+  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED));
 
   try {
     await (window as any).assistantAPI?.invokeTool("auth:session-clear");

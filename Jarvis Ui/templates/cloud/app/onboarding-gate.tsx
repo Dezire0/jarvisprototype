@@ -32,7 +32,9 @@ import {
   CheckIcon,
 } from "lucide-react";
 import {
+  AUTH_SESSION_CHANGED,
   clearAuthSession,
+  readStoredAuthSession,
   restoreAuthSession,
   persistAuthSession,
   isAuthRemembered,
@@ -167,6 +169,14 @@ export function OnboardingGate() {
   }, []);
 
   useEffect(() => {
+    function sessionChanged() {
+      if (!readStoredAuthSession().token) setStep((current) => current === "ready" ? "auth" : current);
+    }
+    window.addEventListener(AUTH_SESSION_CHANGED, sessionChanged);
+    return () => window.removeEventListener(AUTH_SESSION_CHANGED, sessionChanged);
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       try {
         const CURRENT_VERSION = "1.8.9";
@@ -280,7 +290,7 @@ export function OnboardingGate() {
         ...user,
         plan: user.plan,
         settings: {
-          autoSync: true,
+          autoSync: false,
           preferWebAi: true,
           language: "auto",
           planConfirmed: false,

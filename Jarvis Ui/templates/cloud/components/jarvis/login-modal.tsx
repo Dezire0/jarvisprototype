@@ -64,7 +64,7 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
         ...data.user,
         name: data.user?.name || data.user?.email?.split("@")[0],
         settings: {
-          autoSync: true,
+          autoSync: false,
           preferWebAi: true,
           language: "auto",
           ...(data.user?.settings || {}),
@@ -132,7 +132,7 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
           ...loginData.user,
           name: loginData.user?.name || name.trim() || email.split("@")[0],
           settings: {
-            autoSync: true,
+            autoSync: false,
             preferWebAi: true,
             language: "auto",
           },
@@ -144,7 +144,7 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
           ...data.user,
           name: data.user?.name || email.split("@")[0],
           settings: {
-            autoSync: true,
+            autoSync: false,
             preferWebAi: true,
             language: "auto",
           },

@@ -67,6 +67,12 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   loadLocalWorkspace() {
     return ipcRenderer.invoke("assistant:load-local-workspace");
   },
+  loadChatHistory(accountId) {
+    return ipcRenderer.invoke("assistant:load-chat-history", accountId);
+  },
+  saveChatHistory(accountId, serialized) {
+    return ipcRenderer.invoke("assistant:save-chat-history", accountId, serialized);
+  },
   saveLocalWorkspace(serialized) {
     return ipcRenderer.invoke("assistant:save-local-workspace", serialized);
   },

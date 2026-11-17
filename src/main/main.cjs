@@ -42,6 +42,7 @@ const {
   setExternalLlmSettingsProvider
 } = require("./ollama-service.cjs");
 const { registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs");
+const { registerChatHistoryHandlers } = require("./chat-history-store.cjs");
 const { MemoryStore } = require("./memory-store.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
@@ -1283,6 +1284,13 @@ ipcMain.handle("assistant:save-conversation-model-settings", async (_event, payl
 });
 
 registerLocalWorkspaceHandlers({
+  ipcMain,
+  getWindow: () => settingsWindow,
+  getDesktopUiUrl,
+  getUserDataDirectory: () => app.getPath("userData"),
+});
+
+registerChatHistoryHandlers({
   ipcMain,
   getWindow: () => settingsWindow,
   getDesktopUiUrl,
