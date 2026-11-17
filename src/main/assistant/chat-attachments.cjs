@@ -21,6 +21,27 @@ function readImage(mimeType, data) {
   return matches[mimeType] ? { data, mimeType, size: bytes.length } : null;
 }
 
+function readPdfPages(value) {
+  const { pageCount, pages } = value;
+  if (!Number.isSafeInteger(pageCount) || pageCount < 1 || pageCount > contract.maxPdfPages ||
+      !Array.isArray(pages) || !pages.length || pages.length > pageCount) return null;
+
+  let size = 0;
+  let previousPage = 0;
+  const readablePages = [];
+  for (const entry of pages) {
+    const { page, text } = entry ?? {};
+    if (!Number.isSafeInteger(page) || page <= previousPage || page > pageCount ||
+        typeof text !== "string" || !text.trim() || text.includes("\0")) return null;
+    size += Buffer.byteLength(text, "utf8");
+    if (size > contract.maxTextBytes) return null;
+    readablePages.push({ page, text });
+    previousPage = page;
+  }
+
+  return { pageCount, pages: readablePages, size };
+}
+
 function readFilePart(value) {
   const name = normalizeFileName(value?.name);
   if (!name) return null;
@@ -36,6 +57,11 @@ function readFilePart(value) {
       contract.imageExtensions[extension] === value.mimeType) {
     const image = readImage(value.mimeType, value.data);
     return image ? { kind: "image", name, ...image } : null;
+  }
+
+  if (value.kind === "pdf" && extension === "pdf") {
+    const document = readPdfPages(value);
+    return document ? { kind: "pdf", name, ...document } : null;
   }
   return null;
 }
