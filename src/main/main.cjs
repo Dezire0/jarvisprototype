@@ -40,6 +40,7 @@ const {
   setExternalApiKeyProvider,
   setExternalLlmSettingsProvider
 } = require("./ollama-service.cjs");
+const { registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs");
 const { MemoryStore } = require("./memory-store.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
@@ -1296,6 +1297,13 @@ ipcMain.handle("assistant:save-conversation-model-settings", async (_event, payl
   return {
     settings
   };
+});
+
+registerLocalWorkspaceHandlers({
+  ipcMain,
+  getWindow: () => settingsWindow,
+  getDesktopUiUrl,
+  getUserDataDirectory: () => app.getPath("userData"),
 });
 
 ipcMain.handle("assistant:get-gemini-status", async () => {

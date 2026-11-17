@@ -40,6 +40,8 @@ import {
   type AuthUser,
 } from "@/components/jarvis/auth-session";
 import { ComputerConsentGate } from "@/components/jarvis/computer-consent-gate";
+import { ThemeToggle } from "@/components/jarvis/theme-toggle";
+import { LocalToolsLink } from "@/components/jarvis/local-tools-link";
 import { Assistant } from "./assistant";
 const {
   markPlanConfirmed,
@@ -354,7 +356,7 @@ export function OnboardingGate() {
 
   if (step === "loading") {
     return withComputerConsent(
-      <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]"><LoaderCircleIcon className="size-6 animate-spin text-white/40" /></div>
+      <div className="flex h-dvh w-full items-center justify-center bg-background"><LoaderCircleIcon className="size-6 animate-spin text-muted-foreground" /></div>
     );
   }
 
@@ -365,42 +367,48 @@ export function OnboardingGate() {
   // ─── Step 1: Auth (Login/Register) ───
   if (step === "auth") {
     return withComputerConsent(
-      <div className="flex h-dvh w-full items-center justify-center bg-[#0a0a0a]">
-        <div className="w-full max-w-sm px-6">
-          <div className="mb-8 flex flex-col items-center gap-3">
-            <div className="flex size-14 items-center justify-center rounded-[22px] border border-white/10 bg-white/5">
-              <SparklesIcon className="size-6 text-white" />
-            </div>
-            <h1 className="text-2xl font-semibold text-white">Jarvis</h1>
-            <p className="text-sm text-zinc-400">{mode === "login" ? t("로그인", "Sign In") : t("회원가입", "Sign Up")}</p>
+      <div className="jarvis-auth-shell">
+        <header className="jarvis-toolbar">
+          <span className="font-semibold">Jarvis</span>
+          <div className="flex items-center gap-1">
+            <LocalToolsLink />
+            <ThemeToggle />
           </div>
+        </header>
+        <div className="jarvis-auth-panel">
+          <h1 className="mb-5">{mode === "login" ? t("로그인", "Sign in") : t("회원가입", "Create account")}</h1>
           <form onSubmit={handleAuth} className="flex flex-col gap-3">
             {mode === "register" && (
-              <Input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("이름", "Name")} className="h-11 rounded-xl bg-white/5 text-white" />
+              <label className="jarvis-auth-field">
+                {t("이름", "Name")}
+                <Input type="text" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className="h-11" />
+              </label>
             )}
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("이메일", "Email")} required className="h-11 rounded-xl bg-white/5 text-white" />
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("비밀번호", "Password")} required className="h-11 rounded-xl bg-white/5 text-white" />
-            {authError && <p className="text-xs text-red-400">{authError}</p>}
-            <label className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
+            <label className="jarvis-auth-field">
+              {t("이메일", "Email")}
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required className="h-11" />
+            </label>
+            <label className="jarvis-auth-field">
+              {t("비밀번호", "Password")}
+              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === "login" ? "current-password" : "new-password"} required className="h-11" />
+            </label>
+            {authError && <p role="alert" className="jarvis-auth-error">{authError}</p>}
+            <label className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
               <input
                 type="checkbox"
                 checked={rememberLogin}
                 onChange={(e) => void handleRememberLoginChange(e.target.checked)}
-                className="size-3.5 rounded border border-white/15 bg-white/5 accent-white"
+                className="size-4 accent-primary"
               />
               <span>{t("자동 로그인", "Auto login")}</span>
             </label>
-            <Button disabled={authLoading} className="h-11 rounded-xl bg-white text-black font-medium transition-all active:scale-95">{authLoading ? <LoaderCircleIcon className="animate-spin" /> : t("이메일로 계속하기", "Continue with Email")}</Button>
+            <Button disabled={authLoading} className="jarvis-send h-11 font-medium active:scale-[.98]">{authLoading ? <LoaderCircleIcon className="animate-spin" /> : t("이메일로 계속하기", "Continue with Email")}</Button>
             
-            <div className="relative my-2">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-white/5"></span></div>
-              <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-[#0a0a0a] px-2 text-zinc-500">{t("또는", "OR")}</span></div>
-            </div>
-
             <Button 
               type="button"
               variant="outline"
-              className="h-11 rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all active:scale-95 flex gap-2"
+              className="h-11 gap-2 active:scale-[.98]"
               onClick={() => void handleGoogleLogin()}
             >
               <svg className="size-4" viewBox="0 0 24 24">
@@ -412,7 +420,7 @@ export function OnboardingGate() {
               {t("Google 계정으로 로그인", "Sign in with Google")}
             </Button>
           </form>
-          <button onClick={() => setMode(mode === "login" ? "register" : "login")} className="mt-4 w-full text-xs text-zinc-500 underline">{mode === "login" ? t("계정이 없으신가요? 회원가입", "No account? Register") : t("이미 계정이 있나요? 로그인", "Already have account? Login")}</button>
+          <button onClick={() => setMode(mode === "login" ? "register" : "login")} className="mt-4 min-h-10 w-full rounded-md text-sm text-muted-foreground underline underline-offset-4">{mode === "login" ? t("계정이 없으신가요? 회원가입", "No account? Register") : t("이미 계정이 있나요? 로그인", "Already have account? Login")}</button>
         </div>
       </div>
     );
@@ -420,16 +428,13 @@ export function OnboardingGate() {
 
   // ─── Step 2: Setup (Plan Selection) ───
   return withComputerConsent(
-    <div className="flex min-h-dvh w-full items-center justify-center bg-[#0a0a0a] py-12 text-white">
+    <div className="flex min-h-dvh w-full items-center justify-center bg-background py-12 text-foreground">
       <div className="w-full max-w-5xl px-6">
         <div className="mb-12 text-center">
-          <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">
-            {t("로그인 완료", "Login Complete")}
-          </p>
           <h2 className="mt-4 text-4xl font-bold tracking-tight">
             {t("플랜을 선택하고 시작하세요", "Choose your plan and continue")}
           </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
+          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
             {t(
               "로그인만으로는 아직 채팅을 시작할 수 없어요. 먼저 무료 또는 유료 플랜을 선택해야 API가 활성화됩니다.",
               "Signing in is not enough yet. Pick Free or Paid first so API access can be enabled."
@@ -447,10 +452,10 @@ export function OnboardingGate() {
                 type="button"
                 key={planKey}
                 onClick={() => setSelectedPlan(planKey)}
-                className={`rounded-[32px] border p-8 text-left transition-all duration-300 ${
+                className={`rounded-2xl border p-6 text-left transition-colors ${
                   isActive
-                    ? "border-white bg-white/[0.05] shadow-[0_0_40px_rgba(255,255,255,0.08)]"
-                    : "border-white/10 bg-white/[0.02] hover:border-white/25"
+                    ? "border-[var(--jarvis-focus)] bg-card"
+                    : "border-border bg-card hover:border-[var(--jarvis-control-border)]"
                 }`}
               >
                 <div className="flex items-start justify-between gap-4">
@@ -459,20 +464,20 @@ export function OnboardingGate() {
                       {plan.title}
                     </p>
                     <h3 className="mt-3 text-4xl font-semibold">{plan.price}</h3>
-                    <p className="mt-4 text-sm leading-6 text-zinc-300">{plan.summary}</p>
+                    <p className="mt-4 text-sm leading-6 text-muted-foreground">{plan.summary}</p>
                   </div>
                   <div
                     className={`rounded-full border px-3 py-1 text-xs font-medium ${
                       isActive
                         ? "border-white/60 bg-white text-black"
-                        : "border-white/15 text-zinc-400"
+                        : "border-white/15 text-muted-foreground"
                     }`}
                   >
                     {isActive ? t("선택됨", "Selected") : t("선택", "Select")}
                   </div>
                 </div>
 
-                <div className="mt-8 flex flex-col gap-4 text-sm text-zinc-400">
+                <div className="mt-8 flex flex-col gap-4 text-sm text-muted-foreground">
                   {plan.features.map((feature) => (
                     <div key={feature} className="flex items-start gap-3">
                       <CheckIcon className={`mt-0.5 size-4 ${isActive ? "text-white" : "text-zinc-500"}`} />
@@ -498,7 +503,7 @@ export function OnboardingGate() {
               <p className="text-sm font-semibold text-white">
                 {t("현재 선택한 플랜", "Selected plan")}: {selectedPlanLabel}
               </p>
-              <p className="mt-2 text-sm leading-6 text-zinc-400">{currentPlan.details}</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{currentPlan.details}</p>
               <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
                 <ArrowRightIcon className="size-4" />
                 <span>
