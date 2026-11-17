@@ -1,4 +1,4 @@
-import type { ThreadMessage } from "@assistant-ui/core";
+import type { ExportedMessageRepository, ThreadMessage } from "@assistant-ui/core";
 import type { ReadonlyJSONValue } from "assistant-stream/utils";
 import type {
   AttachmentAdapter,
@@ -57,6 +57,8 @@ export type AssistantTransportCommand =
 // State types
 export type AssistantTransportState = {
   readonly messages: readonly ThreadMessage[];
+  /** An authoritative snapshot. Messages omitted from it are removed. */
+  readonly messageRepository?: ExportedMessageRepository;
   readonly state?: ReadonlyJSONValue;
   readonly isRunning: boolean;
 };
@@ -108,6 +110,8 @@ export type AssistantTransportOptions<T> = {
   api: string;
   resumeApi?: string;
   protocol?: AssistantTransportProtocol;
+  /** Fail a run if the response ends without an explicit finish chunk. */
+  requireFinish?: boolean;
   converter: AssistantTransportStateConverter<T>;
   headers: HeadersValue | (() => Promise<HeadersValue>);
   body?: object | (() => Promise<object | undefined>);
