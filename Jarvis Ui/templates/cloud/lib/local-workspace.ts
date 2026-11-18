@@ -1,10 +1,11 @@
-export type Timer = { seconds: number; remaining: number; endsAt: number | null };
+export type Timer = { seconds: number; remaining: number; endsAt: number | null; completedAt?: number };
 export type Entry = { id: string; text: string };
 export type Task = Entry & { done: boolean };
 export const activityLabels = {
   timer: ["타이머 시작", "Timer started"],
   pause: ["타이머 일시 정지", "Timer paused"],
   reset: ["타이머 초기화", "Timer reset"],
+  "timer-complete": ["타이머 완료", "Timer finished"],
   task: ["할 일 추가", "Task added"],
   complete: ["할 일 완료", "Task completed"],
   reopen: ["할 일 다시 열기", "Task reopened"],
@@ -60,6 +61,16 @@ export function recordActivity(workspace: Workspace, kind: ActivityKind, at: num
   return { ...workspace, activity: [{ id, at, kind }, ...workspace.activity].slice(0, MAX_ACTIVITY) };
 }
 
+export function completeExpiredTimer(workspace: Workspace, deadline: number, now: number): Workspace {
+  const { timer } = workspace;
+  if (timer.endsAt !== deadline || now < deadline) return workspace;
+
+  return recordActivity({
+    ...workspace,
+    timer: { seconds: timer.seconds, remaining: 0, endsAt: null, completedAt: deadline },
+  }, "timer-complete", deadline, `timer-complete-${deadline}`);
+}
+
 function readActivity(saved: unknown): Activity[] {
   if (!Array.isArray(saved)) return [];
   const activity: Activity[] = [];
@@ -99,9 +110,17 @@ export function readWorkspace(value: string | null): Workspace {
     const validTimer = timer &&
       Number.isInteger(timer.seconds) && timer.seconds >= 1 && timer.seconds <= MAX_DURATION &&
       Number.isInteger(timer.remaining) && timer.remaining >= 0 && timer.remaining <= timer.seconds &&
-      (timer.endsAt === null || Number.isFinite(timer.endsAt));
+      (timer.endsAt === null || (Number.isFinite(timer.endsAt) && timer.endsAt >= 0 && timer.endsAt <= 8.64e15));
+    const completedAt = timer?.completedAt;
+    const validCompletion = timer?.endsAt === null && timer?.remaining === 0 &&
+      typeof completedAt === "number" && Number.isFinite(completedAt) && completedAt >= 0 && completedAt <= 8.64e15;
     return {
-      timer: validTimer ? timer : emptyWorkspace.timer,
+      timer: validTimer ? {
+        seconds: timer.seconds,
+        remaining: timer.remaining,
+        endsAt: timer.endsAt,
+        ...(validCompletion ? { completedAt } : {}),
+      } : emptyWorkspace.timer,
       tasks: Array.isArray(saved?.tasks)
         ? saved.tasks.filter((task) => validEntry(task) && typeof (task as Task).done === "boolean")
         : [],
@@ -313,7 +332,7 @@ export function runLocalCommand(
         return finish({ title: t("실행 중인 타이머가 없습니다", "No timer is running"), failed: true });
       }
       return finish({ title: t("타이머 일시 정지", "Timer paused"), detail: formatTimer(remaining) }, {
-        ...workspace, timer: { ...timer, remaining, endsAt: null },
+        ...workspace, timer: { seconds: timer.seconds, remaining, endsAt: null },
       });
     }
     case "resume": {
@@ -323,12 +342,12 @@ export function runLocalCommand(
       }
       const seconds = remaining || timer.seconds;
       return finish({ title: t("타이머 시작", "Timer started"), detail: formatTimer(seconds) }, {
-        ...workspace, timer: { ...timer, remaining: seconds, endsAt: now + seconds * 1000 },
+        ...workspace, timer: { seconds: timer.seconds, remaining: seconds, endsAt: now + seconds * 1000 },
       });
     }
     case "reset":
       return finish({ title: t("타이머 초기화", "Timer reset"), detail: formatTimer(timer.seconds) }, {
-        ...workspace, timer: { ...timer, remaining: timer.seconds, endsAt: null },
+        ...workspace, timer: { seconds: timer.seconds, remaining: timer.seconds, endsAt: null },
       });
     case "tasks":
       return finish({

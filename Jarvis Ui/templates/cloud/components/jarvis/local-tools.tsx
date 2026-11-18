@@ -7,6 +7,7 @@ import {
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
+import { speakLocalResult } from "@/lib/local-speech";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { useLocalWorkspace, type LocalWorkspace } from "@/lib/use-local-workspace";
 import {
@@ -14,15 +15,27 @@ import {
   type LocalCommand, type Result,
 } from "@/lib/local-workspace";
 
-type Receipt = Result & { offerWeather?: boolean };
+type Receipt = Result & { offerWeather?: boolean; timerDeadline?: number };
 export type ToolSection = "timer" | "tasks" | "notes";
 
-export function speakLocalResult(text: string, language: string) {
-  if (!("speechSynthesis" in window)) return;
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = language;
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utterance);
+export function TimerCompletionNotice({ onOpen }: {
+  onOpen?: (trigger: HTMLButtonElement) => void;
+}) {
+  const ko = useWorkspaceLocale().startsWith("ko");
+  return (
+    <div className="jarvis-timer-notice">
+      <p role="status">
+        <ClockIcon size={16} aria-hidden="true" />
+        {activityLabels["timer-complete"][ko ? 0 : 1]}
+      </p>
+      {onOpen && (
+        <button type="button" className="jarvis-start-link jarvis-start-link-text" aria-haspopup="dialog"
+          onClick={(event) => onOpen(event.currentTarget)}>
+          {ko ? "타이머 열기" : "Open timer"}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function StandaloneLocalTools() {
@@ -39,7 +52,7 @@ export function LocalTools({ local, embedded = false, initialSection }: {
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
   const [now, setNow] = useState(0);
   const [command, setCommand] = useState("");
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [lastReceipt, setReceipt] = useState<Receipt | null>(null);
   const [weatherPending, setWeatherPending] = useState(false);
   const [voiceAvailable, setVoiceAvailable] = useState(false);
   const [undo, setUndo] = useState<(() => void) | null>(null);
@@ -77,7 +90,10 @@ export function LocalTools({ local, embedded = false, initialSection }: {
 
   const remaining = remainingSeconds(workspace.timer, now);
   const timerRunning = workspace.timer.endsAt !== null && remaining > 0;
-  const timerFinished = workspace.timer.endsAt !== null && remaining === 0;
+  const timerFinished = workspace.timer.completedAt !== undefined;
+  const receipt = lastReceipt?.timerDeadline !== undefined && lastReceipt.timerDeadline !== workspace.timer.endsAt
+    ? null
+    : lastReceipt;
 
   useEffect(() => {
     if (!timerRunning) return;
@@ -152,7 +168,10 @@ export function LocalTools({ local, embedded = false, initialSection }: {
       window.speechSynthesis.cancel();
     }
     setNow(timestamp);
-    showReceipt(result.result);
+    const timerDeadline = (action.kind === "timer" || action.kind === "resume") && !result.result.failed
+      ? result.workspace.timer.endsAt ?? undefined
+      : undefined;
+    showReceipt({ ...result.result, timerDeadline });
   }
 
   function submit(event: FormEvent) {
@@ -256,6 +275,7 @@ export function LocalTools({ local, embedded = false, initialSection }: {
       </header>}
       <div className="jarvis-local-content" role={embedded ? undefined : "main"}>
         {!embedded && <h1>{t("로컬 도구", "Local tools")}</h1>}
+        {timerFinished && <TimerCompletionNotice />}
         <fieldset ref={toolsRef} className="min-w-0" disabled={!workspaceReady}>
         <form className="jarvis-local-command" onSubmit={submit}>
           <input ref={inputRef} value={command} onChange={(event) => setCommand(event.target.value)}
@@ -321,7 +341,6 @@ export function LocalTools({ local, embedded = false, initialSection }: {
               </button>
             </div>
           </div>
-          {timerFinished && <p role="status" className="jarvis-timer-message">{t("타이머 완료", "Timer finished")}</p>}
           <div className="flex flex-wrap gap-2">
             {[5, 10, 25].map((minutes) => (
               <button key={minutes} type="button" className="jarvis-secondary-button"
