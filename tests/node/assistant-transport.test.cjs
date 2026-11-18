@@ -23,6 +23,58 @@ test("assistant transport has no browser-to-desktop authentication callback", as
   assert.deepEqual(await response.json(), { ok: false, error: "Not found" });
 });
 
+test("exact file reads keep their turns out of the following model history", async (t) => {
+  const token = createDesktopSessionToken();
+  const calls = [];
+  const server = createAssistantTransportServer({
+    port: 0,
+    sessionToken: token,
+    createAssistantForThread: () => ({
+      async setSessionContext(context) { calls.push(context.stateMessages); },
+      async handleInput(input) {
+        if (input === "read file /tmp/screen.txt") {
+          return {
+            reply: "File read.",
+            details: { filePreview: { name: "screen.txt", text: "Private preview", truncated: false } },
+          };
+        }
+        return { reply: "General conversation" };
+      },
+    }),
+  });
+  await server.start();
+  t.after(() => server.stop());
+
+  async function send(text, state) {
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [SESSION_HEADER]: token },
+      body: JSON.stringify({
+        threadId: "file-history",
+        commands: [{ type: "add-message", message: { role: "user", parts: [{ type: "text", text }] } }],
+        state,
+      }),
+    });
+    assert.equal(response.status, 200);
+    const frames = (await response.text()).split("\n").filter((line) => line.startsWith("aui-state:"))
+      .flatMap((line) => JSON.parse(line.slice("aui-state:".length)));
+    const next = frames.shift().value;
+    for (const frame of frames) {
+      const [, index, key] = frame.path;
+      const message = next.messages[index];
+      message[key] = frame.type === "append-text" ? message[key] + frame.value : frame.value;
+    }
+    return next;
+  }
+  const regular = await send("A general request");
+  const read = await send("read file /tmp/screen.txt", regular);
+  assert.deepEqual(read.messages.map((message) => message.attachmentReview), [false, false, true, true]);
+  assert.equal(read.messages.at(-1).details.filePreview.text, "Private preview");
+  assert.deepEqual(calls, [[]]);
+  await send("A follow-up request", read);
+  assert.deepEqual(calls.at(-1).map((message) => message.text), ["A general request", "General conversation"]);
+});
+
 test("the conversation stream emits only allowlisted memory categories for regular replies", async (t) => {
   const token = createDesktopSessionToken();
   const fixtureResult = {

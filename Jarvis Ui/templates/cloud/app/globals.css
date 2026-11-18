@@ -448,6 +448,31 @@
 }
 .jarvis-tool-section:first-of-type { margin-top: 1.5rem; }
 .jarvis-tool-section h2 { font-size: 1rem; font-weight: 620; }
+.jarvis-file-preview {
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+  background: var(--card);
+  padding: .625rem .875rem;
+  font-size: .875rem;
+}
+.jarvis-file-preview summary {
+  cursor: pointer;
+  font-weight: 550;
+}
+.jarvis-file-preview summary span {
+  color: var(--muted-foreground);
+  font-weight: 400;
+  margin-inline-start: .375rem;
+}
+.jarvis-file-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: min(40dvh, 22rem);
+  overflow: auto;
+  font-size: .8125rem;
+  line-height: 1.5;
+  margin-top: .625rem;
+}
 .jarvis-weather-dialog-content {
   display: grid;
   gap: .55rem;
