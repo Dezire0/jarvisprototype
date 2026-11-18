@@ -52,6 +52,14 @@ Desktop conversation uses the configured model first. Set `JARVIS_ENABLE_CLOUD_A
 
 Fallback sends the current request and up to ten recent text turns in that account's conversation. The fallback returns text and labels a successful reply with **Jarvis Cloud** and its model. Temporary chats and attachment review use the configured model path. Free and Pro use the same account endpoint, and both draw on their respective Jarvis Cloud allowance. See the [Worker setup](../backend/README.md#managed-cloud-chat).
 
+### Voice output
+
+Open **Voice output** in the desktop sidebar to choose a Korean or English voice engine and preview it. **Device voice** uses an installed on-device voice in the selected language. **Off** hides the read action for that language. A legacy Automatic preference uses a device voice in the workspace. For a named service, expand **Provider settings** to configure its voice and credentials. Save before previewing. Preview reads a fixed sample sentence. Opening settings and saving perform no synthesis.
+
+Open the assistant reply's **More** menu to choose **Read aloud on device** or **Read aloud with** the named service. Reply text is read up to 500 characters. Selecting a service sends that text to it. The workspace reports failure if that service cannot produce sound. Use **Stop reading**, switch conversations, or start the microphone to stop playback. An already submitted provider request may finish. Use **Mute Jarvis** to stop current output and mute new playback.
+
+Voice engine, voice and credential settings are shared by accounts using the same desktop profile. New keys use the OS secure store. The saved settings view never returns keys. The workspace `assistant:speak-workspace` IPC accepts the visible engine, language and bounded text. It verifies that the engine matches the saved route and returns audio or a status. Legacy automatic playback uses its existing entry point.
+
 ### Conversation history
 
 Sign in to the same account after reopening Jarvis to see saved conversations in the sidebar. Select a conversation to continue it, or find it through local search. Jarvis saves completed turns, thread titles and project grouping in the Electron app data directory under the signed-in account's namespace. The browser preview uses that account's storage at the current origin.
@@ -187,7 +195,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | File attachments | Composer, local transport, direct model APIs | Selectable PDF text, other text documents and raster images use a bounded model-only review turn |
 | App discovery and explicit bundle launch | macOS app catalog, desktop picker and Electron IPC | Local catalog and selected bundle validation on macOS |
 | macOS/Windows/Linux app operations and browser actions | Electron services and browser runtime | Existing routes retained. Native permissions and real apps/sites require manual verification |
-| Voice recognition, continuous mode and TTS | Voice provider, Electron STT/TTS, Friday | Existing controls retained. Real microphone and provider verification remains open, including [#4](https://github.com/Dezire0/jarvisprototype/issues/4) |
+| Voice recognition, continuous mode and TTS | Voice provider, Electron STT/TTS, Friday | Manual workspace playback and preview use a device voice or an explicitly named service. Automatic reply playback and wake word are available through the legacy controls. Live microphone and provider verification remains open |
 | OBS connection, status, scenes and broadcast transitions | Desktop OBS panel and Electron OBS WebSocket service | Verified against a loopback protocol fixture. Live OBS and physical confirmation remain to be verified |
 | Coding project templates, model drafts and save review | Desktop project creation and Electron project service | Uses built-in templates or a configured direct model and a native destination picker |
 | Steam and Epic installed games and store handoffs | Desktop Games panel and Electron game service | Local manifest scan and explicit store or launcher handoff |

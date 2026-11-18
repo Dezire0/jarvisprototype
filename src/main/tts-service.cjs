@@ -1,4 +1,5 @@
 const { GoogleAuth } = require("google-auth-library");
+const { maxTextLength } = require("./assistant/voice-output.json");
 
 const CARTESIA_API_URL = "https://api.cartesia.ai";
 const CARTESIA_API_VERSION = "2025-04-16";
@@ -11,7 +12,7 @@ const CARTESIA_PREFERRED_ENGLISH_VOICES = ["Katie", "Brooke", "Jacqueline", "Car
 const ELEVENLABS_PREFERRED_ENGLISH_VOICES = ["George", "Brian", "Adam", "Charlie", "Daniel", "Eric"];
 
 function clampTtsText(text = "") {
-  return String(text).trim().slice(0, 500);
+  return String(text).trim().slice(0, maxTextLength);
 }
 
 function normalizeTtsLanguage(languageCode = "en-US") {

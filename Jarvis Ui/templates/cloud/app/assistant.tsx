@@ -15,6 +15,7 @@ import { ToolDirectory, toolName, type ToolId } from "@/components/jarvis/tool-d
 import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
+import { VoiceOutputProvider } from "@/components/jarvis/voice-output-provider";
 import { FileSave } from "@/components/jarvis/file-save";
 import { FolderBrowser } from "@/components/jarvis/folder-browser";
 import { isFolderCommand } from "@/lib/folder-command";
@@ -258,6 +259,7 @@ function AssistantWorkspace() {
     <JarvisExtensionsProvider>
       <SidebarProvider defaultOpen={false}>
         <JarvisVoiceProvider runLocalCommand={runComposerCommand}>
+          <VoiceOutputProvider>
           <div className="aui-app-shell flex h-dvh w-full bg-background text-foreground">
             <ThreadListSidebar computerControlEnabled={computerControl === true} onOpenModelSettings={modelSettingsAction} />
             <main className="aui-app-main relative flex min-w-0 flex-1 flex-col">
@@ -352,6 +354,7 @@ function AssistantWorkspace() {
               )}
             </DialogContent>
           </Dialog>
+          </VoiceOutputProvider>
         </JarvisVoiceProvider>
       </SidebarProvider>
     </JarvisExtensionsProvider>

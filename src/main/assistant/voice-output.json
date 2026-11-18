@@ -1,0 +1,13 @@
+{
+  "maxTextLength": 500,
+  "providers": {
+    "system": "",
+    "off": "",
+    "elevenlabs": "ElevenLabs",
+    "naver-clova": "NAVER CLOVA Voice",
+    "gemini": "Gemini TTS",
+    "openai": "OpenAI TTS",
+    "cartesia": "Cartesia",
+    "google-cloud": "Google Cloud TTS"
+  }
+}
