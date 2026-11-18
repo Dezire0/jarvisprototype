@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceLocale } from "@/lib/workspace-language";
+
 import { type ChangeEvent, type PropsWithChildren, useEffect, useRef, useState, type FC } from "react";
 import { XIcon, PlusIcon, FileText } from "lucide-react";
 import {
@@ -103,7 +105,7 @@ const AttachmentUI: FC = () => {
   const name = useAuiState((s) => s.attachment.name);
   const coverage = useAuiState((s) => (s.attachment as PendingFileAttachment).pdfCoverage);
   const src = useAttachmentSrc();
-  const korean = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
+  const korean = useWorkspaceLocale().startsWith("ko");
   const label = (
     <>
       <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -165,6 +167,7 @@ export const ComposerAttachments: FC = () => {
 
 export const ComposerAddAttachment: FC<{ onChoose?: () => void }> = ({ onChoose }) => {
   const aui = useAui();
+  const label = useWorkspaceLocale().startsWith("ko") ? "파일 첨부" : "Add Attachment";
   const input = useRef<HTMLInputElement>(null);
   const supported = useAuiState((state) => state.thread.capabilities.attachments);
 
@@ -185,12 +188,12 @@ export const ComposerAddAttachment: FC<{ onChoose?: () => void }> = ({ onChoose 
       <input ref={input} type="file" hidden multiple accept={attachmentFileTypes} onChange={addFiles} />
       <TooltipIconButton
         type="button"
-        tooltip="Add Attachment"
+        tooltip={label}
         side="bottom"
         variant="ghost"
         size="icon"
         className="aui-composer-add-attachment size-8 rounded-full p-1 font-semibold text-xs hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30"
-        aria-label="Add Attachment"
+        aria-label={label}
         disabled={!supported}
         onClick={() => {
           onChoose?.();

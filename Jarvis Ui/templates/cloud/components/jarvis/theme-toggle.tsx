@@ -1,5 +1,6 @@
 "use client";
 
+import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { MoonStarIcon, SunMediumIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -16,6 +17,7 @@ function applyTheme(nextTheme: "dark" | "light") {
 }
 
 export function ThemeToggle() {
+  const ko = useWorkspaceLocale().startsWith("ko");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
@@ -54,7 +56,9 @@ export function ThemeToggle() {
       onClick={toggleTheme}
       className="jarvis-icon-button"
       aria-label={
-        theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+        theme === "dark"
+          ? (ko ? "밝은 모드로 전환" : "Switch to light mode")
+          : (ko ? "어두운 모드로 전환" : "Switch to dark mode")
       }
     >
       {theme === "dark" ? (

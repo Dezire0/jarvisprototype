@@ -156,35 +156,6 @@ export async function persistAuthSession(
   }
 }
 
-export async function updateStoredAuthUser(user: AuthUser) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const sessionStorageToken = window.sessionStorage.getItem(AUTH_TOKEN_KEY);
-  const localStorageToken = window.localStorage.getItem(AUTH_TOKEN_KEY);
-  const token = sessionStorageToken || localStorageToken;
-  const targetStorage = sessionStorageToken ? window.sessionStorage : window.localStorage;
-
-  targetStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED));
-
-  if (!token) {
-    return;
-  }
-
-  try {
-    if (targetStorage === window.localStorage) {
-      await (window as any).assistantAPI?.invokeTool("auth:session-save", {
-        token,
-        user,
-      });
-    }
-  } catch {
-    // Browser session remains available.
-  }
-}
-
 export async function clearAuthSession() {
   if (typeof window === "undefined") {
     return;

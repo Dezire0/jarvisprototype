@@ -13,17 +13,21 @@ import { LocalTools, speakLocalResult, type ToolSection } from "@/components/jar
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { useLocalWorkspace } from "@/lib/use-local-workspace";
+import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { WrenchIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { JarvisRuntimeProvider } from "./jarvis-runtime-provider";
 
-export const Assistant = () => {
+export const Assistant = () => <JarvisRuntimeProvider><AssistantWorkspace /></JarvisRuntimeProvider>;
+
+function AssistantWorkspace() {
   const [tools, setTools] = useState<{ section?: ToolSection } | null>(null);
   const [localResult, setLocalResult] = useState<Result | null>(null);
   const toolsTrigger = useRef<HTMLElement | null>(null);
   const localRun = useRef(0);
   const local = useLocalWorkspace();
-  const isKo = typeof navigator !== "undefined" && navigator.language.startsWith("ko");
+  const locale = useWorkspaceLocale();
+  const isKo = locale.startsWith("ko");
   const toolsLabel = isKo ? "로컬 도구" : "Local tools";
 
   function openTools(section: ToolSection | undefined, trigger: HTMLElement) {
@@ -44,7 +48,6 @@ export const Assistant = () => {
       return "retry";
     }
 
-    const locale = navigator.language || "en";
     const current = local.latestWorkspace();
     const { workspace, result } = runLocalCommand(command, current, Date.now(), crypto.randomUUID(), locale);
     function finish(saved: boolean) {
@@ -73,53 +76,51 @@ export const Assistant = () => {
   }
 
   return (
-    <JarvisRuntimeProvider>
-      <JarvisExtensionsProvider>
-        <SidebarProvider defaultOpen={false}>
-          <JarvisVoiceProvider runLocalCommand={runComposerCommand}>
-            <div className="aui-app-shell flex h-dvh w-full bg-background text-foreground">
-              <ThreadListSidebar />
-              <main className="aui-app-main relative flex min-w-0 flex-1 flex-col">
-                <header className="jarvis-toolbar">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <SidebarTrigger className="jarvis-icon-button" />
-                    <span className="truncate font-semibold">Jarvis</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button type="button" className="jarvis-toolbar-link" aria-haspopup="dialog"
-                      onClick={(event) => openTools(undefined, event.currentTarget)}>
-                      <WrenchIcon size={16} aria-hidden="true" />
-                      {toolsLabel}
-                    </button>
-                    <ThemeToggle />
-                  </div>
-                </header>
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <Thread
-                    onOpenTools={openTools}
-                    runLocalCommand={runComposerCommand}
-                    localResult={localResult}
-                    dismissLocalResult={dismissLocalResult}
-                  />
+    <JarvisExtensionsProvider>
+      <SidebarProvider defaultOpen={false}>
+        <JarvisVoiceProvider runLocalCommand={runComposerCommand}>
+          <div className="aui-app-shell flex h-dvh w-full bg-background text-foreground">
+            <ThreadListSidebar />
+            <main className="aui-app-main relative flex min-w-0 flex-1 flex-col">
+              <header className="jarvis-toolbar">
+                <div className="flex min-w-0 items-center gap-2">
+                <SidebarTrigger className="jarvis-icon-button" aria-label={isKo ? "사이드바 열기 또는 닫기" : "Toggle sidebar"} />
+                  <span className="truncate font-semibold">Jarvis</span>
                 </div>
-              </main>
-            </div>
-            <Dialog open={tools !== null} onOpenChange={(open) => { if (!open) setTools(null); }}>
-              <DialogContent
-                aria-describedby={undefined}
-                className="jarvis-tools-dialog block w-full gap-0 overflow-y-auto p-0 motion-reduce:animate-none sm:max-w-xl"
-                onCloseAutoFocus={(event) => {
-                  event.preventDefault();
-                  toolsTrigger.current?.focus();
-                }}
-              >
-                <DialogTitle className="jarvis-tools-dialog-title">{toolsLabel}</DialogTitle>
-                <LocalTools local={local} embedded initialSection={tools?.section} />
-              </DialogContent>
-            </Dialog>
-          </JarvisVoiceProvider>
-        </SidebarProvider>
-      </JarvisExtensionsProvider>
-    </JarvisRuntimeProvider>
+                <div className="flex items-center gap-1">
+                  <button type="button" className="jarvis-toolbar-link" aria-haspopup="dialog"
+                    onClick={(event) => openTools(undefined, event.currentTarget)}>
+                    <WrenchIcon size={16} aria-hidden="true" />
+                    {toolsLabel}
+                  </button>
+                  <ThemeToggle />
+                </div>
+              </header>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <Thread
+                  onOpenTools={openTools}
+                  runLocalCommand={runComposerCommand}
+                  localResult={localResult}
+                  dismissLocalResult={dismissLocalResult}
+                />
+              </div>
+            </main>
+          </div>
+          <Dialog open={tools !== null} onOpenChange={(open) => { if (!open) setTools(null); }}>
+            <DialogContent
+              aria-describedby={undefined}
+              className="jarvis-tools-dialog block w-full gap-0 overflow-y-auto p-0 motion-reduce:animate-none sm:max-w-xl"
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                toolsTrigger.current?.focus();
+              }}
+            >
+              <DialogTitle className="jarvis-tools-dialog-title">{toolsLabel}</DialogTitle>
+              <LocalTools local={local} embedded initialSection={tools?.section} />
+            </DialogContent>
+          </Dialog>
+        </JarvisVoiceProvider>
+      </SidebarProvider>
+    </JarvisExtensionsProvider>
   );
-};
+}

@@ -1,5 +1,7 @@
 "use client";
 
+import { useWorkspaceLocale } from "@/lib/workspace-language";
+
 import {
   createContext,
   type PropsWithChildren,
@@ -122,19 +124,11 @@ function canUseAssistantSttBridge() {
   );
 }
 
-function resolveRecognitionLanguage() {
-  if (typeof navigator === "undefined") {
-    return "ko-KR";
-  }
-
-  const preferred = navigator.languages?.[0] || navigator.language || "ko-KR";
-  return preferred.startsWith("ko") ? "ko-KR" : preferred;
-}
-
 export function JarvisVoiceProvider({
   children,
   runLocalCommand,
 }: PropsWithChildren<{ runLocalCommand?: ComposerCommandHandler }>) {
+  const locale = useWorkspaceLocale();
   const aui = useAui();
   const isThreadRunning = useAuiState((state) => state.thread.isRunning);
   const [supported, setSupported] = useState(false);
@@ -469,7 +463,7 @@ export function JarvisVoiceProvider({
     await disposeRecorderResources();
     if (!isCurrent(session)) return;
 
-    const language = resolveRecognitionLanguage();
+    const language = locale;
     const mimeType = recorder.mimeType || "audio/webm";
 
     try {
@@ -512,7 +506,7 @@ export function JarvisVoiceProvider({
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
-    recognition.lang = resolveRecognitionLanguage();
+    recognition.lang = locale;
 
     recognition.onstart = () => {
       if (!isCurrent(session)) return;

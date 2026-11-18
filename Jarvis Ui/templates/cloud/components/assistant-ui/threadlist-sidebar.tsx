@@ -23,13 +23,13 @@ import {
 import { cn } from "@/lib/utils";
 import { useChatHistory } from "@/app/jarvis-runtime-provider";
 import type { SidebarHistory } from "@/lib/chat-history";
+import { isWorkspaceLanguage, useWorkspaceLocale, WORKSPACE_LANGUAGES, type WorkspaceLanguage } from "@/lib/workspace-language";
 import { LoginModal } from "@/components/jarvis/login-modal";
 import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 import {
   clearAuthSession,
   persistAuthSession,
   restoreAuthSession,
-  updateStoredAuthUser,
   type AuthUser,
 } from "@/components/jarvis/auth-session";
 import {
@@ -341,8 +341,9 @@ export function ThreadListSidebar({
   const [profileAutoSync, setProfileAutoSync] = useState(history.cloudSync);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState(false);
-  const [profilePreferWebAi, setProfilePreferWebAi] = useState(true);
-  const [profileLanguage, setProfileLanguage] = useState<"auto" | "ko" | "en">("auto");
+  const [profileDraftLanguage, setProfileDraftLanguage] = useState<WorkspaceLanguage>("auto");
+  const [languageSaving, setLanguageSaving] = useState(false);
+  const [languageSaveError, setLanguageSaveError] = useState(false);
   const [conversationSettings, setConversationSettings] =
     useState<ConversationModelSettingsView | null>(null);
   const [conversationProvider, setConversationProvider] =
@@ -364,10 +365,13 @@ export function ThreadListSidebar({
   const [conversationSaving, setConversationSaving] = useState(false);
   const [conversationStatus, setConversationStatus] = useState("");
   const profileNameInputId = useId();
+  const profileTrigger = useRef<HTMLButtonElement>(null);
 
-  const isKo = profileLanguage === "ko" || (profileLanguage === "auto" && typeof navigator !== "undefined" && navigator.language.startsWith("ko"));
+  const isKo = useWorkspaceLocale().startsWith("ko");
 
   const t = (ko: string, en: string) => (isKo ? ko : en);
+  const languageLabels = { auto: t("시스템", "System"), ko: "한국어", en: "English" };
+  const saveError = t("설정을 저장하지 못했습니다. 다시 시도하세요.", "Preferences couldn’t be saved. Try again.");
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const allThreads = threadsState.threadItems.filter(
@@ -430,14 +434,8 @@ export function ThreadListSidebar({
   useEffect(() => {
     void (async () => {
       const session = await restoreAuthSession();
-      if (session.user) {
+      if (session.user?.id === history.accountId) {
         setAuthUser(session.user);
-        setProfileDraftName(
-          session.user.name || session.user.email.split("@")[0] || "",
-        );
-        setProfileAutoSync(history.cloudSync);
-        setProfilePreferWebAi(session.user.settings?.preferWebAi ?? true);
-        setProfileLanguage(session.user.settings?.language || "auto");
       }
       const cloudToken = history.cloudToken();
       if (cloudToken) void hydrateCloudIndex(cloudToken);
@@ -823,9 +821,6 @@ export function ThreadListSidebar({
 
   function handleLoginSuccess(user: AuthUser, token: string) {
     setAuthUser(user);
-    setProfileDraftName(user.name || user.email.split("@")[0] || "");
-    setProfileAutoSync(history.cloudSync);
-    setProfilePreferWebAi(user.settings?.preferWebAi ?? true);
     void persistAuthSession(token, user).then(() => hydrateCloudIndex(token));
   }
 
@@ -840,42 +835,31 @@ export function ThreadListSidebar({
     if (!authUser || profileSaving) return;
     setProfileSaving(true);
     setProfileSaveError(false);
-    const saved = await history.setCloudSync(profileAutoSync);
+    const saved = await history.saveProfile({
+      name: profileDraftName.trim(),
+      language: profileDraftLanguage,
+      cloudSync: profileAutoSync,
+    });
+    setProfileSaving(false);
     if (!saved) {
-      setCloudSearchIndex({});
       setProfileSaveError(true);
-      setProfileSaving(false);
+      setCloudSearchIndex({});
       return;
     }
+    const cloudToken = history.cloudToken();
+    if (cloudToken) void hydrateCloudIndex(cloudToken);
+    else setCloudSearchIndex({});
+    setLanguageSaveError(false);
+    setProfileOpen(false);
+  }
 
-    const nextUser: AuthUser = {
-      ...authUser,
-      name:
-        profileDraftName.trim() ||
-        authUser.email.split("@")[0] ||
-        "Jarvis User",
-      settings: {
-        ...authUser.settings,
-        autoSync: profileAutoSync,
-        preferWebAi: profilePreferWebAi,
-        language: profileLanguage,
-      },
-    };
-
-    try {
-      setAuthUser(nextUser);
-      await updateStoredAuthUser(nextUser);
-      const cloudToken = history.cloudToken();
-      if (cloudToken) void hydrateCloudIndex(cloudToken);
-      else setCloudSearchIndex({});
-
-      await window.assistantAPI?.invokeTool("settings:update", { preferredLanguage: profileLanguage });
-      setProfileOpen(false);
-    } catch {
-      setProfileSaveError(true);
-    } finally {
-      setProfileSaving(false);
-    }
+  async function handleSaveLanguage(language: WorkspaceLanguage) {
+    if (languageSaving) return;
+    setLanguageSaving(true);
+    setLanguageSaveError(false);
+    const saved = await history.saveProfile({ language });
+    setLanguageSaving(false);
+    setLanguageSaveError(!saved);
   }
 
   async function startNewChat(temporary = false) {
@@ -948,7 +932,7 @@ export function ThreadListSidebar({
   }
 
   const userDisplayName =
-    authUser?.name?.trim() || authUser?.email?.split("@")[0] || t("로그인이 필요합니다", "Login Required");
+    history.profile.name || authUser?.email?.split("@")[0] || t("로그인이 필요합니다", "Login Required");
   const userSubLabel = authUser
     ? history.cloudSync
       ? t("동기화 설정 켜짐", "Sync enabled in settings")
@@ -1118,70 +1102,73 @@ export function ThreadListSidebar({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="border-border bg-background text-foreground sm:max-w-md">
-          <DialogHeader>
+      <Dialog open={profileOpen} onOpenChange={(open) => { if (!profileSaving) setProfileOpen(open); }}>
+        <DialogContent
+          showCloseButton={false}
+          className="max-h-[calc(100dvh-2rem)] overflow-y-auto border-border bg-background text-foreground sm:max-w-md"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            profileTrigger.current?.focus();
+          }}
+        >
+          <DialogHeader className="text-left">
             <DialogTitle>{t("프로필 편집", "Edit profile")}</DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription>
               {t("다음 실행에도 이 계정의 설정을 사용합니다.", "These preferences are saved for this account on this device.")}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor={profileNameInputId}
-                className="font-medium text-xs text-zinc-400"
-              >
-                표시 이름
+          <form className="space-y-5" onSubmit={(event) => {
+            event.preventDefault();
+            void handleSaveProfile();
+          }}>
+            <fieldset disabled={profileSaving} className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor={profileNameInputId} className="block text-sm font-medium">
+                  {t("표시 이름", "Display name")}
+                </label>
+                <Input
+                  id={profileNameInputId}
+                  value={profileDraftName}
+                  onChange={(event) => setProfileDraftName(event.target.value)}
+                  placeholder={t("이름을 입력하세요", "Enter a name")}
+                  maxLength={80}
+                  className="border-input bg-background text-foreground dark:bg-background"
+                />
+              </div>
+              <label className="block space-y-2 text-sm font-medium">
+                <span>{t("언어", "Language")}</span>
+                <select
+                  value={profileDraftLanguage}
+                  onChange={(event) => {
+                    if (isWorkspaceLanguage(event.target.value)) setProfileDraftLanguage(event.target.value);
+                  }}
+                  className="block h-9 w-full rounded-md border border-input bg-background px-2 text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  {WORKSPACE_LANGUAGES.map((language) => <option key={language} value={language}>
+                    {languageLabels[language]}
+                  </option>)}
+                </select>
               </label>
-              <Input
-                id={profileNameInputId}
-                value={profileDraftName}
-                onChange={(event) => setProfileDraftName(event.target.value)}
-                placeholder="이름을 입력하세요"
-                className="border-white/10 bg-white/5 text-white placeholder:text-zinc-500"
-              />
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <label className="flex items-center justify-between gap-3 text-sm">
+              <label className="flex items-center justify-between gap-4 border-t border-border pt-4 text-sm">
                 <span>{t("클라우드 대화 동기화", "Cloud conversation sync")}</span>
                 <input
                   type="checkbox"
                   checked={profileAutoSync}
                   onChange={(event) => setProfileAutoSync(event.target.checked)}
-                  className="size-4 accent-white"
+                  className="size-4 shrink-0 accent-foreground"
                 />
               </label>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <label className="flex items-center justify-between gap-3 text-sm">
-                <span>{t("가능하면 자동 선택 사용", "Use automatic model selection")}</span>
-                <input
-                  type="checkbox"
-                  checked={profilePreferWebAi}
-                  onChange={(event) =>
-                    setProfilePreferWebAi(event.target.checked)
-                  }
-                  className="size-4 accent-white"
-                />
-              </label>
-            </div>
-          </div>
-          {profileSaveError && <p className="jarvis-auth-error" role="alert">
-            {t("설정을 저장하지 못했습니다. 다시 시도하세요.", "Preferences couldn’t be saved. Try again.")}
-          </p>}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setProfileOpen(false)} disabled={profileSaving}>
-              {t("닫기", "Close")}
-            </Button>
-            <Button
-              className="bg-white text-black hover:bg-zinc-200"
-              onClick={() => void handleSaveProfile()}
-              disabled={profileSaving}
-            >
-              {t("저장", "Save")}
-            </Button>
-          </DialogFooter>
+            </fieldset>
+            {profileSaveError && <p className="jarvis-auth-error" role="alert">{saveError}</p>}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setProfileOpen(false)} disabled={profileSaving}>
+                {t("취소", "Cancel")}
+              </Button>
+              <Button type="submit" disabled={profileSaving}>
+                {profileSaving ? t("저장 중…", "Saving…") : t("저장", "Save")}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -1653,21 +1640,22 @@ export function ThreadListSidebar({
         <SidebarFooter className="border-none px-3 pt-2 pb-3">
           <div className="flex items-center gap-2">
             <Button
+              ref={profileTrigger}
+              aria-haspopup="dialog"
               variant="ghost"
               onClick={() => {
                 if (authUser) {
-                  setProfileDraftName(
-                    authUser.name || authUser.email.split("@")[0] || "",
-                  );
+                  setProfileDraftName(history.profile.name);
                   setProfileAutoSync(history.cloudSync);
+                  setProfileDraftLanguage(history.profile.language);
                   setProfileSaveError(false);
-                  setProfilePreferWebAi(authUser.settings?.preferWebAi ?? true);
                   setProfileOpen(true);
                 } else {
                   setLoginOpen(true);
                 }
               }}
-              className="flex flex-1 items-center justify-start gap-3 rounded-xl px-2 py-6 text-foreground hover:bg-zinc-100 dark:hover:bg-[#212121]"
+              className="flex min-w-0 flex-1 items-center justify-start gap-3 rounded-xl px-2 py-6 text-foreground hover:bg-zinc-100 dark:hover:bg-[#212121]"
+              disabled={languageSaving}
             >
               <div className="flex size-8 items-center justify-center rounded-full bg-zinc-700 font-bold text-sm text-white dark:bg-zinc-700">
                 {userDisplayName.charAt(0).toUpperCase()}
@@ -1704,37 +1692,32 @@ export function ThreadListSidebar({
           </div>
 
           <div className="mt-2 flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
-            <div className="flex items-center justify-between text-[11px] text-zinc-400">
+            <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <MonitorIcon className="size-3.5" />
                 {t("언어 모드", "Language")}
               </span>
               <div className="flex gap-1">
-                {(["auto", "ko", "en"] as const).map((lang) => (
+                {WORKSPACE_LANGUAGES.map((lang) => (
                   <button
+                    type="button"
                     key={lang}
-                    onClick={() => {
-                      setProfileLanguage(lang);
-                      void (async () => {
-                        if (typeof window !== "undefined" && (window as any).assistantAPI?.invokeTool) {
-                          await (window as any).assistantAPI.invokeTool("settings:update", {
-                            preferredLanguage: lang,
-                          });
-                        }
-                      })();
-                    }}
+                    aria-pressed={history.profile.language === lang}
+                    disabled={languageSaving}
+                    onClick={() => void handleSaveLanguage(lang)}
                     className={cn(
-                      "rounded px-1.5 py-0.5 uppercase transition-colors",
-                      profileLanguage === lang 
-                        ? "bg-white text-black font-bold" 
-                        : "hover:bg-white/10"
+                      "min-h-7 rounded px-1.5 text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+                      history.profile.language === lang
+                        ? "bg-sidebar-accent font-semibold"
+                        : "hover:bg-sidebar-accent"
                     )}
                   >
-                    {lang === "auto" ? t("자동", "Auto") : lang}
+                    {languageLabels[lang]}
                   </button>
                 ))}
               </div>
             </div>
+            {languageSaveError && <p className="jarvis-auth-error" role="alert">{saveError}</p>}
 
             <div className="flex items-center justify-between text-[11px] text-zinc-400">
               <span className="inline-flex items-center gap-1">
