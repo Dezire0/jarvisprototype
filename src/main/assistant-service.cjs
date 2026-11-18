@@ -40,6 +40,7 @@ const { routeInputWithLlm } = require("./assistant/router.cjs");
 const { parseLocalFileRead, parseLocalFileWrite } = require("./assistant/local-file-command.cjs");
 const screenReviewCommands = require("./assistant/screen-review-commands.json");
 const browserReviewCommands = require("./assistant/browser-review-commands.json");
+const { parseReviewAddressCommand } = require("./assistant/browser-review-address.cjs");
 const obsCommands = require("./assistant/obs-commands.json");
 const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
@@ -6426,6 +6427,8 @@ class AssistantService {
     if (projectCommands.ko.includes(command)) return projectGuidance("ko");
     if (projectCommands.en.includes(command)) return projectGuidance("en");
     if (obsCommands.includes(command)) return this.obsGuidance(detectReplyLanguage(input));
+    const reviewAddress = parseReviewAddressCommand(input);
+    if (reviewAddress) return this.browserReviewGuidance(reviewAddress.language);
     if (Object.values(browserReviewCommands).some(({ ko, en }) => ko.includes(command) || en.includes(command))) {
       return this.browserReviewGuidance(detectReplyLanguage(input));
     }

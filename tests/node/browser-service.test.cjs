@@ -280,6 +280,83 @@ test("page review reads only the tracked, already-open web page and does not lau
   assert.deepEqual(await service.readPageForReview(), { ok: false, reason: "BROWSER_UNSUPPORTED_PAGE" });
 });
 
+test("address review accepts explicit HTTP(S) addresses and preserves the requested path", () => {
+  const {
+    MAX_REVIEW_ADDRESS_LENGTH, normalizeReviewAddress, parseReviewAddressCommand
+  } = require("../../src/main/assistant/browser-review-address.cjs");
+  const address = "https://example.invalid/Folder?a=A%20B#Details";
+  assert.deepEqual(parseReviewAddressCommand("REVIEW URL " + address), { address, language: "en" });
+  assert.deepEqual(parseReviewAddressCommand("웹 주소 검토 " + address), { address, language: "ko" });
+  assert.deepEqual(parseReviewAddressCommand("review url file:///example"), { address: "file:///example", language: "en" });
+  assert.deepEqual(parseReviewAddressCommand("review url"), { address: "", language: "en" });
+  assert.equal(parseReviewAddressCommand("Please review url " + address), null);
+  assert.equal(parseReviewAddressCommand("review url " + address + "\nMore"), null);
+  assert.equal(normalizeReviewAddress(address), address);
+  assert.equal(normalizeReviewAddress("https://example.invalid/책"), "https://example.invalid/%EC%B1%85");
+  assert.equal(normalizeReviewAddress("http://127.0.0.1:3000/path"), "http://127.0.0.1:3000/path");
+  for (const input of ["example.invalid", "file:///example", "data:text/plain,hello", "https:///example.invalid",
+    "http://", "https://user:password@example.invalid", "https://example.invalid/folder name",
+    "https://example.invalid/" + "a".repeat(MAX_REVIEW_ADDRESS_LENGTH),
+    "https://example.invalid/" + "책".repeat(256)]) {
+    assert.equal(normalizeReviewAddress(input), null, input);
+  }
+});
+
+test("an address review uses a separate browser and closes it on success, failed pages, and revoked approval", async () => {
+  const service = new BrowserService({ userDataDir: "/tmp/jarvis-browser-review", credentialStore: {} });
+  const managed = { url: () => "https://existing.invalid/" };
+  service.page = managed;
+  service.ensureContext = () => assert.fail("Address review must skip the managed browser profile.");
+  const visited = [];
+  let closed = 0;
+  let allow = true;
+  let httpOk = true;
+  let revokeOnNewPage = false;
+  let navigationFails = false;
+  const assertAllowed = () => {
+    if (!allow) throw Object.assign(new Error("Permission changed."), { code: "BROWSER_PERMISSION" });
+  };
+  const page = {
+    async goto(url, options) {
+      assert.equal(options.timeout, 12000);
+      visited.push(url);
+      if (navigationFails) throw new Error("Connection closed.");
+      return { ok: () => httpOk };
+    }
+  };
+  const launch = async (options) => {
+    assert.equal(options.chromiumSandbox, true);
+    assert.equal(options.ignoreHTTPSErrors, undefined);
+    return {
+      async newPage(contextOptions) {
+        assert.deepEqual(contextOptions, { acceptDownloads: false });
+        if (revokeOnNewPage) allow = false;
+        return page;
+      },
+      async close() { closed++; }
+    };
+  };
+  service.readReviewPage = async (reviewPage) => {
+    assert.equal(reviewPage, page);
+    return { ok: true, data: { title: "Review", origin: "https://final.invalid", text: "Review text" } };
+  };
+  const url = "https://start.invalid/redirect";
+  assert.deepEqual(await service.readAddressForReview("file:///example", assertAllowed, launch),
+    { ok: false, reason: "BROWSER_INVALID_ADDRESS" });
+  assert.deepEqual(await service.readAddressForReview(url, assertAllowed, launch),
+    { ok: true, data: { title: "Review", origin: "https://final.invalid", text: "Review text" } });
+  httpOk = false;
+  assert.deepEqual(await service.readAddressForReview(url, assertAllowed, launch),
+    { ok: false, reason: "BROWSER_HTTP_ERROR" });
+  navigationFails = true;
+  await assert.rejects(service.readAddressForReview(url, assertAllowed, launch), /Connection closed/);
+  revokeOnNewPage = true;
+  await assert.rejects(service.readAddressForReview(url, assertAllowed, launch), { code: "BROWSER_PERMISSION" });
+  assert.equal(closed, 4);
+  assert.deepEqual(visited, [url, url, url]);
+  assert.equal(service.page, managed);
+});
+
 test("page review limits visible text and returns title and origin without the full URL", async () => {
   const { EventEmitter } = require("node:events");
   const { runInNewContext } = require("node:vm");
@@ -349,4 +426,6 @@ test("exact browser review commands in the assistant use local guidance", async 
   const korean = await assistant.handleInput("현재 페이지 읽어줘");
   assert.equal(korean.provider, "local");
   assert.match(korean.reply, /웹 페이지 읽기/);
+  assert.match((await assistant.handleInput("review url https://example.invalid/")).reply, /Read web page/);
+  assert.match((await assistant.handleInput("웹 주소 검토 https://example.invalid/")).reply, /웹 페이지 읽기/);
 });

@@ -114,9 +114,13 @@ Review and edit the recognized text, then use **Attach to draft**. Summary or st
 
 ### Reviewing the current web page
 
-With Computer control enabled, open **Local tools → Read web page** or enter `read the current page`, `summarize the current page`, or the corresponding Korean command. **Read page** reads the currently tracked HTTP(S) page that Jarvis already has open. If no page is open, open one with Jarvis and return to the panel. The result shows the page title and origin, and up to 12,000 characters of editable plain text. A page change during the read asks you to try again.
+With Computer control enabled, open **Local tools → Read web page**. **Current page** reads a page already open in the Jarvis browser. Enter `read the current page`, `summarize the current page`, or the corresponding Korean command to open that view.
 
-Review the text and choose **Attach to draft**. The original page, its title and its address stay in the review panel. The existing attachment flow sends the edited text when you choose **Send**. The summary command fills an empty composer with a summary request. The legacy Read page button shows its result in the current session.
+Choose **Web address** and enter an HTTP or HTTPS address without credentials. Commands such as `review url https://example.com/` and `웹 주소 검토 https://example.com/` put the address in the form. **Open and read** visits the address in a fresh browser session with standard TLS validation, reads the page and closes the browser. It requires Playwright Chromium or Chrome and uses a separate session without saved browser logins. The website receives a normal page request after you choose **Open and read**.
+
+Both views show the reported title, final origin and up to 12,000 characters of editable visible text. A page change during the read asks you to try again. Closing the panel discards the preview. A page request already started can finish in its browser session. Review the text and choose **Attach to draft**. The original page, title and address stay in the review panel. The attachment flow sends the edited text when you choose **Send**. The summary command fills an empty composer with a summary request. The legacy Read page button shows its result in the current session.
+
+The desktop `browser:read` tool reads the current managed page. `browser:read-address` accepts an `address` from the signed-in workspace with Computer control enabled.
 
 ### Controlling OBS
 

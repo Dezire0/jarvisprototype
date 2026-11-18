@@ -48,7 +48,7 @@ function AssistantWorkspace() {
   const [tools, setTools] = useState<({ fromDirectory?: true } & (
     { section: "index" } |
     { section: ToolSection } |
-    { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string } |
+    { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string; address?: string } |
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
     { section: "folder"; threadId: string } |
     { section: "obs" | "project-create" } |
@@ -197,13 +197,13 @@ function AssistantWorkspace() {
       setTools({ section: "file-save", draft: fileDraft, threadId });
       return "local";
     }
-    const browserMode = resolveBrowserReviewCommand(text, hasAttachmentsOrQuote);
-    const mode = browserMode ?? resolveScreenReviewCommand(text, hasAttachmentsOrQuote);
+    const browserReview = resolveBrowserReviewCommand(text, hasAttachmentsOrQuote);
+    const mode = browserReview?.mode ?? resolveScreenReviewCommand(text, hasAttachmentsOrQuote);
     if (mode) {
       localRun.current++;
       setLocalResult(null);
       toolsTrigger.current = inputRef.current;
-      setTools({ section: browserMode ? "browser" : "screen", mode, threadId });
+      setTools({ section: browserReview ? "browser" : "screen", mode, threadId, address: browserReview?.address });
       return "local";
     }
     const command = resolveComposerCommand(text, hasAttachmentsOrQuote);
@@ -326,7 +326,8 @@ function AssistantWorkspace() {
                 lastTool={lastTool.current} computerControl={computerControl} onSelect={selectTool} />}
               {tools?.section === "weather" && <WeatherPanel inDialog canUseBrowserLocation={!local.nativeStorage} />}
               {(tools?.section === "screen" || tools?.section === "browser") && tools.threadId === threadId && (
-                <TextReview key={tools.section} source={tools.section} mode={tools.mode} computerControl={computerControl} onAttached={() => {
+                <TextReview key={tools.section} source={tools.section} initialAddress={tools.address} mode={tools.mode}
+                  computerControl={computerControl} onAttached={() => {
                   toolsTrigger.current = inputRef.current;
                   setTools(null);
                 }} />
