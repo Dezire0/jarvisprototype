@@ -1,5 +1,6 @@
 import type { ConversationModelDraft, ConversationModelSettings, ModelAvailability, ModelConnectionResult } from "@/components/jarvis/model-settings";
 import type { DesktopUpdateResult, DesktopUpdateStatus } from "@/components/jarvis/desktop-update-control";
+import type { SavedMemoryReview } from "@/components/jarvis/saved-memory-control";
 import type { VoiceOutputSettings, VoicePayload, VoiceResponse } from "@/lib/voice-output";
 import type { MacWakeSpeechEvent } from "@/lib/mac-wake-speech";
 
@@ -11,6 +12,8 @@ declare global {
       getBootstrap: () => Promise<unknown>;
       getAppState: () => Promise<{ version: string; updater: DesktopUpdateStatus | null }>;
       getComputerControl?: () => Promise<boolean>;
+      reviewSavedMemory?: (accountId: string) => Promise<SavedMemoryReview>;
+      clearSavedMemory?: (accountId: string, revision: string) => Promise<SavedMemoryReview | null>;
       setComputerControl?: (enabled: boolean) => Promise<boolean>;
       probeMacWakeSpeech?: (locale: string) => Promise<{ status: "available" | "unavailable" }>;
       startMacWakeSpeech?: (request: { id: string; locale: string }) => Promise<{ ok: boolean; reason?: string }>;

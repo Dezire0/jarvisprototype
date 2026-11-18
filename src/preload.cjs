@@ -13,6 +13,12 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   getComputerControl() {
     return ipcRenderer.invoke("assistant:get-computer-control");
   },
+  reviewSavedMemory(accountId) {
+    return ipcRenderer.invoke("assistant:review-saved-memory", accountId);
+  },
+  clearSavedMemory(accountId, revision) {
+    return ipcRenderer.invoke("assistant:clear-saved-memory", { accountId, revision });
+  },
   onFocusCommandInput(callback) {
     const listener = () => callback();
     ipcRenderer.on("assistant:focus-command-input", listener);

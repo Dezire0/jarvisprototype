@@ -30,6 +30,8 @@ The current desktop chat main frame supplies the account namespace over its proc
 
 The conversation cleanup view applies to the active account's local transcript. It reviews selected threads, rechecks the stored snapshot, and commits the filtered snapshot before clearing the thread runtime. Cloud retention and saved Assistant memory have separate paths.
 
+The saved-memory view only accepts the active desktop account from the trusted workspace main frame. It returns counts and bounded text previews. The clear action binds the confirmation to the memory revision and checks the account again before the atomic write. Success retires the old store and drops the account's cached memory-enabled assistant instances.
+
 ## Desktop Computer Control
 
 The Electron main process stores a separate consent choice for each desktop profile and defaults to off. Only the current desktop settings main frame can change the choice. Direct tool calls and live previews require the owned app window. When consent is off, chat uses a direct model and the tool dispatcher admits only enumerated app functions such as sign-in and model settings. Local tools and explicit attachment review remain available. Saved settings survive desktop UI port changes. A saved change discards cached action continuations before a later request. Work already running and separate OS permissions are handled independently.

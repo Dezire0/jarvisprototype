@@ -495,6 +495,7 @@ async function createServices() {
       : path.join(app.getAppPath(), "build", "macos-wake-speech", "jarvis-wake-speech")),
     spotify,
     memory,
+    resolveAccountMemory,
     obs,
     openClaw,
     screen: screenService,
@@ -1453,6 +1454,38 @@ ipcMain.handle("assistant:clear-account-session", (event) => {
   requireDesktopAccountFrame(event);
   void services?.macWakeSpeech.stop();
   accountSession.clear();
+});
+
+function bindAccountMemory(event, accountId) {
+  requireDesktopAccountFrame(event);
+  const account = accountSession.active;
+  const assertAllowed = () => {
+    requireDesktopAccountFrame(event);
+    if (!account || account.user.id !== accountId || accountSession.active !== account) {
+      throw new Error("Saved memory requires the active Jarvis account.");
+    }
+  };
+  assertAllowed();
+  return assertAllowed;
+}
+
+ipcMain.handle("assistant:review-saved-memory", async (event, accountId) => {
+  const assertAllowed = bindAccountMemory(event, accountId);
+  const { resolveAccountMemory } = ensureReadyServices().services;
+  const store = await resolveAccountMemory({ accountId });
+  assertAllowed();
+  if (!store) throw new Error("Saved memory is unavailable.");
+  return store.review();
+});
+
+ipcMain.handle("assistant:clear-saved-memory", async (event, { accountId, revision } = {}) => {
+  const beforeCommit = bindAccountMemory(event, accountId);
+  if (typeof revision !== "string" || revision.length !== 36) throw new Error("Review saved memory before clearing it.");
+  const { resolveAccountMemory } = ensureReadyServices().services;
+  const review = await resolveAccountMemory.clear({ accountId, revision, beforeCommit });
+  if (review) assistantTransportServer.invalidateSavedMemory(accountId);
+  beforeCommit();
+  return review;
 });
 
 ipcMain.handle("assistant:probe-mac-wake-speech", (event, locale) => {

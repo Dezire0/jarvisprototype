@@ -247,7 +247,7 @@ function createThreadAssistantResolver(createAssistantForThread, computerControl
   const cache = new Map();
   let revision = computerControl?.revision;
 
-  return (context) => {
+  const resolve = (context) => {
     if (revision !== computerControl?.revision) {
       cache.clear();
       revision = computerControl?.revision;
@@ -256,14 +256,22 @@ function createThreadAssistantResolver(createAssistantForThread, computerControl
     const cacheKey = JSON.stringify([accountId, threadId, memoryMode, savedMemory]);
 
     if (!cache.has(cacheKey)) {
-      cache.set(cacheKey, Promise.resolve().then(() => createAssistantForThread(threadId, context)).catch((error) => {
-        cache.delete(cacheKey);
+      const assistant = Promise.resolve().then(() => createAssistantForThread(threadId, context)).catch((error) => {
+        if (cache.get(cacheKey) === assistant) cache.delete(cacheKey);
         throw error;
-      }));
+      });
+      cache.set(cacheKey, assistant);
     }
 
     return cache.get(cacheKey);
   };
+  resolve.invalidateSavedMemory = (accountId) => {
+    for (const key of cache.keys()) {
+      const [owner, , mode, saved] = JSON.parse(key);
+      if (owner === accountId && mode === "persistent" && saved) cache.delete(key);
+    }
+  };
+  return resolve;
 }
 
 function createAssistantTransportServer({
@@ -449,6 +457,7 @@ function createAssistantTransportServer({
   };
 
   return {
+    invalidateSavedMemory: resolveAssistant.invalidateSavedMemory,
     get url() {
       return `http://${host}:${activePort}/assistant`;
     },
