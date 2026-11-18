@@ -38,6 +38,7 @@ const {
 const { registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs");
 const { registerChatHistoryHandlers } = require("./chat-history-store.cjs");
 const { MemoryStore, createAccountMemoryResolver } = require("./memory-store.cjs");
+const { MacWakeSpeech } = require("./mac-wake-speech.cjs");
 const { getSavedModelAvailability, testSavedModelConnection } = require("./model-connection.cjs");
 const { ObsService, OBS_TOOL_NAMES, OBS_ERRORS } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
@@ -486,6 +487,9 @@ async function createServices() {
     extensions,
     files,
     games,
+    macWakeSpeech: new MacWakeSpeech(process.platform !== "darwin" ? null : app.isPackaged
+      ? path.join(process.resourcesPath, "wake-speech", "jarvis-wake-speech")
+      : path.join(app.getAppPath(), "build", "macos-wake-speech", "jarvis-wake-speech")),
     spotify,
     memory,
     obs,
@@ -803,8 +807,14 @@ function createSettingsWindow() {
   }
   settingsWindow.webContents.on("will-navigate", handleNavigation);
   settingsWindow.webContents.on("will-redirect", handleNavigation);
+  settingsWindow.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) void services?.macWakeSpeech.stop();
+  });
+  settingsWindow.on("hide", () => { void services?.macWakeSpeech.stop(); });
+  settingsWindow.on("minimize", () => { void services?.macWakeSpeech.stop(); });
 
   settingsWindow.on("closed", () => {
+    void services?.macWakeSpeech.stop();
     settingsWindow = null;
   });
 
@@ -835,6 +845,7 @@ function createSettingsWindow() {
   });
 
   settingsWindow.webContents.on("render-process-gone", (_event, details) => {
+    void services?.macWakeSpeech.stop();
     console.error("Jarvis Desktop renderer process exited:", details);
   });
 
@@ -1249,6 +1260,7 @@ app.whenReady().then(async () => {
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
+  void services?.macWakeSpeech.stop();
 
   if (assistantTransportServer) {
     assistantTransportServer.stop().catch(() => {});
@@ -1397,12 +1409,37 @@ ipcMain.handle("assistant:restore-account-session", (event, allowLegacy) => {
 
 ipcMain.handle("assistant:save-account-session", (event, payload) => {
   requireDesktopAccountFrame(event);
+  if (payload?.user?.id !== accountSession.active?.user.id) void services?.macWakeSpeech.stop();
   return accountSession.save(payload);
 });
 
 ipcMain.handle("assistant:clear-account-session", (event) => {
   requireDesktopAccountFrame(event);
+  void services?.macWakeSpeech.stop();
   accountSession.clear();
+});
+
+ipcMain.handle("assistant:probe-mac-wake-speech", (event, locale) => {
+  requireDesktopAccountFrame(event);
+  if (!accountSession.active) return { status: "unavailable" };
+  return ensureReadyServices().services.macWakeSpeech.probe(locale);
+});
+
+ipcMain.handle("assistant:start-mac-wake-speech", (event, request) => {
+  requireDesktopAccountFrame(event);
+  const owner = accountSession.active?.user.id;
+  const window = settingsWindow;
+  const isOwner = () => Boolean(owner && accountSession.active?.user.id === owner &&
+    settingsWindow === window && window && !window.isDestroyed() && isDesktopWindow(event));
+  const allowed = () => isOwner() && window.isVisible() && !window.isMinimized() &&
+    (process.platform !== "darwin" || !app.isHidden());
+  return ensureReadyServices().services.macWakeSpeech.start(request || {}, allowed,
+    (message) => { if (isOwner()) event.sender.send("assistant:mac-wake-speech", message); });
+});
+
+ipcMain.handle("assistant:stop-mac-wake-speech", (event, id) => {
+  requireDesktopAccountFrame(event);
+  if (typeof id === "string") return ensureReadyServices().services.macWakeSpeech.stop(id);
 });
 
 registerLocalWorkspaceHandlers({

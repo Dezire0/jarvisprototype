@@ -1,5 +1,6 @@
 const path = require("node:path");
 const packageJson = require("./package.json");
+const { buildMacWakeSpeech } = require("./scripts/build-mac-wake-speech.cjs");
 const signingName = String(process.env.CSC_NAME || "").trim();
 const hasSigningIdentity = Boolean(String(process.env.CSC_LINK || "").trim() || (signingName && signingName !== "-"));
 
@@ -58,6 +59,9 @@ module.exports = {
   appId: "ai.jarvis.desktop",
   productName: "Jarvis Desktop",
   afterSign: path.join(__dirname, "scripts", "notarize-macos.cjs"),
+  beforePack: (context) => {
+    if (context.electronPlatformName === "darwin") buildMacWakeSpeech();
+  },
   directories: {
     output: "release"
   },
@@ -83,6 +87,20 @@ module.exports = {
     }
   ],
   mac: {
+    extraResources: [{ from: "build/macos-wake-speech/jarvis-wake-speech", to: "wake-speech/jarvis-wake-speech" }],
+    sign: async (options) => {
+      const helper = path.join(options.app, "Contents", "Resources", "wake-speech", "jarvis-wake-speech");
+      await require("@electron/osx-sign").signAsync({
+        ...options,
+        optionsForFile: (file) => {
+          const original = options.optionsForFile?.(file);
+          return file === helper ? {
+            ...original,
+            entitlements: path.join(__dirname, "resources", "macos", "entitlements.wake-speech.plist")
+          } : original;
+        }
+      });
+    },
     icon: path.join(__dirname, "resources", "icons", "icon.icns"),
     hardenedRuntime: hasSigningIdentity,
     gatekeeperAssess: false,

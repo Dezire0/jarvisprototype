@@ -29,6 +29,13 @@ async function main() {
       ["pnpm", "--dir", jarvisUiRoot, "-r", "--filter", "assistant-ui-starter-cloud^...", "build"],
       env
     );
+    if (process.platform === "darwin") {
+      try {
+        require("./build-mac-wake-speech.cjs").buildMacWakeSpeech();
+      } catch {
+        console.warn("Could not build the macOS wake speech helper. Browser speech is available separately.");
+      }
+    }
   }
 
   const child = spawn(electronBinary, ["."], { stdio: "inherit", env });

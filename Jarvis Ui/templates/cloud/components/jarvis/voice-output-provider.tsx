@@ -149,7 +149,7 @@ export function VoiceOutputProvider({ children }: { children: ReactNode }) {
     stop();
     const release = automatic ? voice.beginReplyAudio() : undefined;
     if (release === null) return;
-    if (!automatic) voice.stop();
+    const microphoneRelease = !automatic ? voice.stop() : null;
     const operation: Operation = { id, threadId: aui.threads().getState().mainThreadId, release };
     active.current = operation;
     const isCurrent = () => active.current === operation && !document.hidden &&
@@ -169,6 +169,8 @@ export function VoiceOutputProvider({ children }: { children: ReactNode }) {
     operation.timeout = window.setTimeout(() => update("failed"), 20000);
     const api = window.assistantAPI;
     try {
+      if (microphoneRelease) await microphoneRelease;
+      if (!isCurrent()) return;
       const mute = await api?.getMuteState?.();
       if (!isCurrent()) return;
       if (mute?.muted) {

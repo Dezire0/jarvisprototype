@@ -13,6 +13,20 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   getComputerControl() {
     return ipcRenderer.invoke("assistant:get-computer-control");
   },
+  probeMacWakeSpeech(locale) {
+    return ipcRenderer.invoke("assistant:probe-mac-wake-speech", locale);
+  },
+  startMacWakeSpeech(request) {
+    return ipcRenderer.invoke("assistant:start-mac-wake-speech", request);
+  },
+  stopMacWakeSpeech(id) {
+    return ipcRenderer.invoke("assistant:stop-mac-wake-speech", id);
+  },
+  onMacWakeSpeech(callback) {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("assistant:mac-wake-speech", listener);
+    return () => ipcRenderer.removeListener("assistant:mac-wake-speech", listener);
+  },
   setComputerControl(enabled) {
     return ipcRenderer.invoke("assistant:set-computer-control", enabled);
   },

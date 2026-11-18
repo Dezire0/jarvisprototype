@@ -7,6 +7,7 @@ import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { macWakeAvailability } from "@/lib/mac-wake-speech";
 import { getRecognitionConstructor, installWakeLanguage, localWakeAvailability, type WakeAvailability, type WakeEngine } from "@/lib/wake-word";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 
@@ -55,12 +56,18 @@ export function WakeWordButton() {
 function WakeRecognitionChoices({ locale, start }: { locale: string; start: (engine: WakeEngine) => void }) {
   const ko = locale.startsWith("ko");
   const [availability, setAvailability] = useState<WakeAvailability | "checking">("checking");
+  const [macAvailable, setMacAvailable] = useState(false);
   const [installFailed, setInstallFailed] = useState(false);
   const [installing, setInstalling] = useState(false);
   const canUseBrowser = Boolean(getRecognitionConstructor());
   useEffect(() => {
     let current = true;
-    void localWakeAvailability(locale).then((state) => { if (current) setAvailability(state); });
+    void Promise.all([macWakeAvailability(locale), localWakeAvailability(locale)]).then(([mac, state]) => {
+      if (current) {
+        setMacAvailable(mac);
+        setAvailability(state);
+      }
+    });
     return () => { current = false; };
   }, [locale]);
   const localStatus = availability === "checking" ? (ko ? "기기 인식을 확인하는 중…" : "Checking on-device recognition…")
@@ -79,16 +86,19 @@ function WakeRecognitionChoices({ locale, start }: { locale: string; start: (eng
 
   return <div className="grid gap-4 text-sm">
     <div className="grid gap-2">
-      {localStatus && <p role="status" className="text-muted-foreground">{localStatus}</p>}
-      {availability === "available" && <Button type="button" onClick={() => start("device")}>
+      {!macAvailable && localStatus && <p role="status" className="text-muted-foreground">{localStatus}</p>}
+      {macAvailable && <Button type="button" onClick={() => start("mac")}>
+        {ko ? "이 Mac에서 듣기 시작" : "Start listening on this Mac"}
+      </Button>}
+      {!macAvailable && availability === "available" && <Button type="button" onClick={() => start("device")}>
         {ko ? "기기에서 듣기 시작" : "Start on-device listening"}
       </Button>}
-      {availability === "downloadable" && <Button type="button" variant="outline"
+      {!macAvailable && availability === "downloadable" && <Button type="button" variant="outline"
         disabled={installing} onClick={() => void installLanguage()}>
         {installing ? (ko ? "언어 팩을 준비하는 중…" : "Preparing language pack…")
           : (ko ? "기기 인식 언어 팩 받기" : "Download on-device language pack")}
       </Button>}
-      {availability === "downloading" && <Button type="button" variant="outline" onClick={() => {
+      {!macAvailable && availability === "downloading" && <Button type="button" variant="outline" onClick={() => {
         void localWakeAvailability(locale).then(setAvailability);
       }}>
         {ko ? "언어 팩 상태 확인" : "Check language pack"}

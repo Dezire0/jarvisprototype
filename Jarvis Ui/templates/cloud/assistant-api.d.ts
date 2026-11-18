@@ -1,5 +1,6 @@
 import type { ConversationModelDraft, ConversationModelSettings, ModelAvailability, ModelConnectionResult } from "@/components/jarvis/model-settings";
 import type { VoiceOutputSettings, VoicePayload, VoiceResponse } from "@/lib/voice-output";
+import type { MacWakeSpeechEvent } from "@/lib/mac-wake-speech";
 
 export {};
 
@@ -10,6 +11,10 @@ declare global {
       getAppState: () => Promise<unknown>;
       getComputerControl?: () => Promise<boolean>;
       setComputerControl?: (enabled: boolean) => Promise<boolean>;
+      probeMacWakeSpeech?: (locale: string) => Promise<{ status: "available" | "unavailable" }>;
+      startMacWakeSpeech?: (request: { id: string; locale: string }) => Promise<{ ok: boolean; reason?: string }>;
+      stopMacWakeSpeech?: (id: string) => Promise<void>;
+      onMacWakeSpeech?: (callback: (event: MacWakeSpeechEvent) => void) => (() => void);
       getConversationModelSettings?: () => Promise<{ settings: ConversationModelSettings; availability: ModelAvailability }>;
       saveConversationModelSettings?: (draft: ConversationModelDraft) => Promise<{ settings: ConversationModelSettings }>;
       testConversationModel?: () => Promise<ModelConnectionResult>;
