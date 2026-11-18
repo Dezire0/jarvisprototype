@@ -15,6 +15,7 @@ import { ToolDirectory, toolName, type ToolId } from "@/components/jarvis/tool-d
 import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
+import { BrowserHandoff } from "@/components/jarvis/browser-handoff";
 import { VoiceOutputProvider } from "@/components/jarvis/voice-output-provider";
 import { FileSave } from "@/components/jarvis/file-save";
 import { FolderBrowser } from "@/components/jarvis/folder-browser";
@@ -52,7 +53,7 @@ function AssistantWorkspace() {
     { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string; address?: string } |
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
     { section: "folder"; threadId: string } |
-    { section: "obs" | "project-create" } |
+    { section: "obs" | "project-create" | "browser-handoff" } |
     { section: "games"; initial: GameView; query?: string } |
     { section: "spotify" | "apps"; query?: string }
   )) | null>(null);
@@ -344,6 +345,7 @@ function AssistantWorkspace() {
               )}
               {tools?.section === "folder" && tools.threadId === threadId && <FolderBrowser computerControl={computerControl} />}
               {tools?.section === "apps" && <AppPicker initialQuery={tools.query} computerControl={computerControl} />}
+              {tools?.section === "browser-handoff" && <BrowserHandoff computerControl={computerControl} />}
               {tools?.section === "spotify" && <SpotifyPanel initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "games" && <GamesLibrary initial={tools.initial} initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "project-create" && <ProjectCreation computerControl={computerControl} />}
