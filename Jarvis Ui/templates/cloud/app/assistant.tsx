@@ -15,6 +15,8 @@ import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/component
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
 import { FileSave } from "@/components/jarvis/file-save";
+import { AppPicker } from "@/components/jarvis/app-picker";
+import { resolveAppPickerCommand } from "@/lib/app-picker-command";
 import { SpotifyPanel } from "@/components/jarvis/spotify-panel";
 import { resolveSpotifyCommand } from "@/lib/spotify-command";
 import { GamesLibrary } from "@/components/jarvis/games-library";
@@ -46,7 +48,7 @@ function AssistantWorkspace() {
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
     { section: "obs" | "project-create" } |
     { section: "games"; initial: GameView; query?: string } |
-    { section: "spotify"; query?: string } |
+    { section: "spotify" | "apps"; query?: string } |
     null
   >(null);
   const [computerControl, setComputerControl] = useState<boolean | null>(null);
@@ -106,6 +108,14 @@ function AssistantWorkspace() {
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    const appPickerCommand = resolveAppPickerCommand(text, hasAttachmentsOrQuote);
+    if (appPickerCommand) {
+      localRun.current++;
+      setLocalResult(null);
+      toolsTrigger.current = inputRef.current;
+      setTools({ section: "apps", query: appPickerCommand.query });
+      return "local";
+    }
     const spotifyCommand = resolveSpotifyCommand(text, hasAttachmentsOrQuote);
     if (spotifyCommand) {
       localRun.current++;
@@ -201,7 +211,8 @@ function AssistantWorkspace() {
     setLocalResult(null);
   }
 
-  const toolTitle = tools?.section === "spotify" ? "Spotify"
+  const toolTitle = tools?.section === "apps" ? (isKo ? "앱" : "Apps")
+    : tools?.section === "spotify" ? "Spotify"
     : tools?.section === "games" ? (isKo ? "게임" : "Games")
     : tools?.section === "project-create" ? (isKo ? "코딩 프로젝트 만들기" : "Create coding project")
     : tools?.section === "obs" ? "OBS" : fileSaveOpen ? (isKo ? "파일 저장" : "Save file")
@@ -284,17 +295,19 @@ function AssistantWorkspace() {
                   setTools(null);
                 }} />
               )}
+              {tools?.section === "apps" && <AppPicker initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "spotify" && <SpotifyPanel initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "games" && <GamesLibrary initial={tools.initial} initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "project-create" && <ProjectCreation computerControl={computerControl} />}
               {tools?.section === "obs" && <ObsControls computerControl={computerControl} />}
-              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && tools.section !== "games" && tools.section !== "spotify" && (
+              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && tools.section !== "games" && tools.section !== "spotify" && tools.section !== "apps" && (
                 <LocalTools local={local} embedded initialSection={tools.section}
                   onReadPage={computerControl === null ? undefined : () => setTools({ section: "browser", mode: "read", threadId })}
                   onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })}
                   onSaveFile={computerControl === null ? undefined : () => setTools({
                     section: "file-save", draft: { path: "", content: "" }, threadId,
                   })}
+                  onOpenApps={computerControl === null ? undefined : () => setTools({ section: "apps" })}
                   onOpenSpotify={computerControl === null ? undefined : () => setTools({ section: "spotify" })}
                   onOpenGames={computerControl === null ? undefined : () => setTools({ section: "games", initial: "library" })}
                   onCreateProject={computerControl === null ? undefined : () => setTools({ section: "project-create" })}

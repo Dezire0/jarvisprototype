@@ -86,7 +86,7 @@ async function walkAppBundles(directory, depth = 2) {
 
 async function querySpotlightApps() {
   try {
-    const { stdout } = await execFileAsync("mdfind", ['kMDItemContentType == "com.apple.application-bundle"']);
+    const { stdout } = await execFileAsync("mdfind", ['kMDItemContentType == "com.apple.application-bundle"'], { timeout: 5000 });
     return stdout
       .split(/\r?\n/g)
       .map((line) => line.trim())
@@ -189,7 +189,9 @@ async function listInstalledAppsMac({ query = "", limit = 200, forceRefresh = fa
   const catalog = await getMacAppCatalog({
     forceRefresh
   });
-  const apps = query ? await searchMacApps(query, { limit }) : catalog.slice(0, limit);
+  const alias = getAppConfig().aliases?.[normalizeAppToken(query)];
+  const resolvedQuery = typeof alias === "string" ? alias : query;
+  const apps = resolvedQuery ? await searchMacApps(resolvedQuery, { limit }) : catalog.slice(0, limit);
 
   return {
     query,
