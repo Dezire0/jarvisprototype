@@ -122,7 +122,7 @@ function createThreadListAdapter(history: ChatHistory): RemoteThreadListAdapter 
       history.revise(remoteId, { status: "regular" });
     },
     async delete(remoteId) {
-      history.remove(remoteId);
+      await history.remove(remoteId);
     },
     async fetch(remoteId) {
       const thread = history.get(remoteId);

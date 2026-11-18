@@ -28,6 +28,8 @@
 
 The current desktop chat main frame supplies the account namespace over its process-scoped local Assistant connection. Each namespace has a separate transcript and recall database. The anonymous and temporary chat paths do not load persistent Assistant recall. The legacy command entry point uses its pre-existing device store. Account separation relies on the trusted desktop renderer and does not encrypt the on-device files or replace operating-system account isolation.
 
+The conversation cleanup view applies to the active account's local transcript. It reviews selected threads, rechecks the stored snapshot, and commits the filtered snapshot before clearing the thread runtime. Cloud retention and saved Assistant memory have separate paths.
+
 ## Desktop Computer Control
 
 The Electron main process stores a separate consent choice for each desktop profile and defaults to off. Only the current desktop settings main frame can change the choice. Direct tool calls and live previews require the owned app window. When consent is off, chat uses a direct model and the tool dispatcher admits only enumerated app functions such as sign-in and model settings. Local tools and explicit attachment review remain available. Saved settings survive desktop UI port changes. A saved change discards cached action continuations before a later request. Work already running and separate OS permissions are handled independently.

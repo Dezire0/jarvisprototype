@@ -163,6 +163,10 @@ function localCommandText(input: string) {
   return input.trim().replace(/^(?:(?:hey\s+)?jarvis|자비스)(?:[,:\s]+|$)/i, "");
 }
 
+export function isClearConversationCommand(input: string) {
+  return /^(clear chat|clear conversation|대화 삭제)$/i.test(localCommandText(input));
+}
+
 export const LOCAL_COMMAND_EXAMPLE = {
   ko: "3분 타이머 맞춰줘",
   en: "Set a timer for 3 minutes",
@@ -181,7 +185,7 @@ export function parseLocalCommand(input: string): LocalCommand | null {
   if (/^(list tasks|show tasks|objectives|할 ?일|작업 목록)$/i.test(raw)) return { kind: "tasks" };
   if (/^(notes|show notes|list notes|메모 (목록|보기))$/i.test(raw)) return { kind: "notes" };
 
-  if (/^(clear chat|clear result|clear conversation|대화 삭제|결과 지우기)$/i.test(raw)) return { kind: "clear" };
+  if (/^(clear result|결과 지우기)$/i.test(raw)) return { kind: "clear" };
   if (/^(speak on|voice on|unmute|음성 켜|말하기 켜)$/i.test(raw)) return { kind: "speech", enabled: true };
   if (/^(speak off|voice off|mute|음성 꺼|말하기 꺼)$/i.test(raw)) return { kind: "speech", enabled: false };
 

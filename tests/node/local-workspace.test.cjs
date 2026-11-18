@@ -1,11 +1,20 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
-  calculate, clearReviewedLocalData, completeExpiredTimer, emptyWorkspace, formatTimer, LOCAL_COMMAND_EXAMPLE, parseLocalCommand,
+  calculate, clearReviewedLocalData, completeExpiredTimer, emptyWorkspace, formatTimer, isClearConversationCommand, LOCAL_COMMAND_EXAMPLE, parseLocalCommand,
   readWorkspace, recordActivity, remainingSeconds, resolveComposerCommand, reviewLocalData, runLocalCommand,
 } = require("../../Jarvis Ui/templates/cloud/lib/local-workspace.ts");
 
 const NOW = Date.UTC(2026, 10, 17, 20);
+
+test("conversation deletion aliases are separate from clearing transient local results", () => {
+  for (const input of ["clear chat", "clear conversation", "자비스, 대화 삭제"]) {
+    assert.equal(isClearConversationCommand(input), true);
+    assert.equal(parseLocalCommand(input), null);
+  }
+  assert.equal(isClearConversationCommand("clear result"), false);
+  assert.deepEqual(parseLocalCommand("clear result"), { kind: "clear" });
+});
 
 test("local deletion removes only the reviewed lists and rejects later edits", () => {
   const task = { id: "task", text: "Review a draft", done: false };
