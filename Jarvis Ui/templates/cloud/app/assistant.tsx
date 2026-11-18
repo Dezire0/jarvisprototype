@@ -15,6 +15,8 @@ import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/component
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
 import { FileSave } from "@/components/jarvis/file-save";
+import { SpotifyPanel } from "@/components/jarvis/spotify-panel";
+import { resolveSpotifyCommand } from "@/lib/spotify-command";
 import { GamesLibrary } from "@/components/jarvis/games-library";
 import { resolveGameCommand, type GameView } from "@/lib/game-command";
 import { ProjectCreation } from "@/components/jarvis/project-creation";
@@ -44,6 +46,7 @@ function AssistantWorkspace() {
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
     { section: "obs" | "project-create" } |
     { section: "games"; initial: GameView; query?: string } |
+    { section: "spotify"; query?: string } |
     null
   >(null);
   const [computerControl, setComputerControl] = useState<boolean | null>(null);
@@ -103,6 +106,14 @@ function AssistantWorkspace() {
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    const spotifyCommand = resolveSpotifyCommand(text, hasAttachmentsOrQuote);
+    if (spotifyCommand) {
+      localRun.current++;
+      setLocalResult(null);
+      toolsTrigger.current = inputRef.current;
+      setTools({ section: "spotify", query: spotifyCommand.query });
+      return "local";
+    }
     const gameCommand = resolveGameCommand(text, hasAttachmentsOrQuote);
     if (gameCommand) {
       localRun.current++;
@@ -190,7 +201,8 @@ function AssistantWorkspace() {
     setLocalResult(null);
   }
 
-  const toolTitle = tools?.section === "games" ? (isKo ? "게임" : "Games")
+  const toolTitle = tools?.section === "spotify" ? "Spotify"
+    : tools?.section === "games" ? (isKo ? "게임" : "Games")
     : tools?.section === "project-create" ? (isKo ? "코딩 프로젝트 만들기" : "Create coding project")
     : tools?.section === "obs" ? "OBS" : fileSaveOpen ? (isKo ? "파일 저장" : "Save file")
     : tools?.section === "browser" ? (isKo ? "웹 페이지 읽기" : "Read web page")
@@ -272,16 +284,18 @@ function AssistantWorkspace() {
                   setTools(null);
                 }} />
               )}
+              {tools?.section === "spotify" && <SpotifyPanel initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "games" && <GamesLibrary initial={tools.initial} initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "project-create" && <ProjectCreation computerControl={computerControl} />}
               {tools?.section === "obs" && <ObsControls computerControl={computerControl} />}
-              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && tools.section !== "games" && (
+              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && tools.section !== "games" && tools.section !== "spotify" && (
                 <LocalTools local={local} embedded initialSection={tools.section}
                   onReadPage={computerControl === null ? undefined : () => setTools({ section: "browser", mode: "read", threadId })}
                   onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })}
                   onSaveFile={computerControl === null ? undefined : () => setTools({
                     section: "file-save", draft: { path: "", content: "" }, threadId,
                   })}
+                  onOpenSpotify={computerControl === null ? undefined : () => setTools({ section: "spotify" })}
                   onOpenGames={computerControl === null ? undefined : () => setTools({ section: "games", initial: "library" })}
                   onCreateProject={computerControl === null ? undefined : () => setTools({ section: "project-create" })}
                   onOpenObs={computerControl === null ? undefined : () => setTools({ section: "obs" })} />

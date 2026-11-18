@@ -39,6 +39,7 @@ const { MemoryStore, createAccountMemoryResolver } = require("./memory-store.cjs
 const { getSavedModelAvailability, testSavedModelConnection } = require("./model-connection.cjs");
 const { ObsService, OBS_TOOL_NAMES, OBS_ERRORS } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
+const { SpotifyService } = require("./spotify-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
 const { createLocalFileSaver } = require("./assistant/local-file-save.cjs");
 const { createAutomationAdapter } = require("./platform-adapters.cjs");
@@ -216,6 +217,48 @@ async function dispatchGameTool(event, { tool, payload = {} }) {
   }
 }
 
+const SPOTIFY_TOOL_NAMES = new Set([
+  "spotify:availability", "spotify:status", "spotify:control", "spotify:play-track", "spotify:open", "spotify:search"
+]);
+const SPOTIFY_ERRORS = new Set([
+  "SPOTIFY_INPUT", "SPOTIFY_LINK", "SPOTIFY_COMMAND", "SPOTIFY_OPEN", "SPOTIFY_CLOSED",
+  "SPOTIFY_UNAVAILABLE", "SPOTIFY_OS_PERMISSION", "SPOTIFY_PLAYER", "SPOTIFY_PERMISSION"
+]);
+let spotifyBusy = false;
+
+async function dispatchSpotifyTool(event, { tool, payload = {} }) {
+  const assertAllowed = bindDesktopApproval(event, "SPOTIFY_PERMISSION");
+  if (spotifyBusy) return { ok: false, reason: "SPOTIFY_BUSY" };
+  spotifyBusy = true;
+  try {
+    assertAllowed();
+    const { spotify } = ensureReadyServices().services;
+    let data;
+    switch (tool) {
+      case "spotify:availability": data = await spotify.availability(); break;
+      case "spotify:open": data = await spotify.openPlayer(assertAllowed); break;
+      case "spotify:search": data = await spotify.openSearch(payload.text, assertAllowed); break;
+      case "spotify:control":
+        if (!["resume", "pause", "next", "previous"].includes(payload.command)) {
+          return { ok: false, reason: "SPOTIFY_COMMAND" };
+        }
+        data = await spotify.readPlayer({ command: payload.command, assertAllowed });
+        break;
+      case "spotify:play-track":
+        data = await spotify.readPlayer({ command: "track", link: payload.text, assertAllowed });
+        break;
+      default: data = await spotify.readPlayer({ assertAllowed }); break;
+    }
+    assertAllowed();
+    return { ok: true, data };
+  } catch (error) {
+    const fallback = ["spotify:open", "spotify:search"].includes(tool) ? "SPOTIFY_OPEN" : "SPOTIFY_PLAYER";
+    return { ok: false, reason: SPOTIFY_ERRORS.has(error.code) ? error.code : fallback };
+  } finally {
+    spotifyBusy = false;
+  }
+}
+
 async function requestObsTransition(event, active, { language } = {}) {
   const assertAllowed = bindDesktopApproval(event, "OBS_PERMISSION");
   const { obs } = ensureReadyServices().services;
@@ -367,6 +410,11 @@ async function createServices() {
   const automation = createAutomationAdapter({
     screen: screenService
   });
+  const spotify = new SpotifyService({
+    locateApp: async () => (await app.getApplicationInfoForProtocol("spotify:")).path,
+    openAppPath: (location) => shell.openPath(location),
+    openExternal: (target) => shell.openExternal(target)
+  });
   const games = new GameService({ openExternal: (target) => shell.openExternal(target) });
   const codeProjects = new CodeProjectService({ automation });
   const tts = new TtsService({
@@ -384,6 +432,7 @@ async function createServices() {
     extensions,
     files,
     games,
+    spotify,
     memory,
     obs,
     openClaw,
@@ -1313,6 +1362,7 @@ ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
 ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   requireAssistantWindow(event);
   if (requiresComputerControl(request.tool)) requireComputerControl();
+  if (SPOTIFY_TOOL_NAMES.has(request.tool)) return dispatchSpotifyTool(event, request);
   if (GAME_TOOL_NAMES.has(request.tool)) return dispatchGameTool(event, request);
   if (PROJECT_TOOL_NAMES.has(request.tool)) return dispatchProjectTool(event, request);
   if (request.tool === "file:write") {
