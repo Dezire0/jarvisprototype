@@ -1289,17 +1289,6 @@ ipcMain.handle("assistant:get-gemini-status", async () => {
   };
 });
 
-ipcMain.handle("settings:update", async (event, newSettings) => {
-  const { services: liveServices } = ensureReadyServices();
-  if (newSettings.preferredLanguage) {
-    liveServices.settings.setPreferredLanguage(newSettings.preferredLanguage);
-  }
-  if (newSettings.isPro !== undefined) {
-    liveServices.settings.setIsPro(newSettings.isPro);
-  }
-  return { success: true };
-});
-
 ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
   const { services: liveServices } = ensureReadyServices();
   await liveServices.settings.updateGeminiApiKey(payload.key);

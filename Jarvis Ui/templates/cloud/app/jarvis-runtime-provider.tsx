@@ -21,6 +21,8 @@ import {
 import { ChatHistory, type TransportMessage, type TransportState } from "@/lib/chat-history";
 import { AUTH_SESSION_CHANGED, readStoredAuthSession } from "@/components/jarvis/auth-session";
 
+import { WorkspaceLanguageContext } from "@/lib/workspace-language";
+
 const History = createContext<ChatHistory | null>(null);
 const HistoryError = createContext(false);
 
@@ -349,6 +351,7 @@ function ConversationRuntime({ history, failed, children }: {
   failed: boolean;
   children: ReactNode;
 }) {
+  const language = useSyncExternalStore(history.subscribe, () => history.profile.language, () => "auto" as const);
   const [notices, setNotices] = useState<ReadonlyMap<string, TransportNotice>>(() => new Map());
   const setNotice = useCallback<SetTransportNotice>((id, notice) => {
     setNotices((current) => {
@@ -371,7 +374,9 @@ function ConversationRuntime({ history, failed, children }: {
       <HistoryError.Provider value={failed}>
         <TransportNotices.Provider value={{ notices, setNotice }}>
           <FileError.Provider value={{ error: fileError, clear: () => setFileError(null) }}>
-            <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+            <WorkspaceLanguageContext.Provider value={language}>
+              <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+            </WorkspaceLanguageContext.Provider>
           </FileError.Provider>
         </TransportNotices.Provider>
       </HistoryError.Provider>

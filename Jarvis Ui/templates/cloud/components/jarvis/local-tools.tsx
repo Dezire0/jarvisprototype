@@ -7,6 +7,7 @@ import {
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
+import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { useLocalWorkspace, type LocalWorkspace } from "@/lib/use-local-workspace";
 import {
   activityLabels, formatTimer, parseLocalCommand, recordActivity, remainingSeconds, runLocalCommand,
@@ -34,7 +35,7 @@ export function LocalTools({ local, embedded = false, initialSection }: {
   embedded?: boolean;
   initialSection?: ToolSection;
 }) {
-  const [locale, setLocale] = useState("en");
+  const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
   const [now, setNow] = useState(0);
   const [command, setCommand] = useState("");
@@ -49,7 +50,6 @@ export function LocalTools({ local, embedded = false, initialSection }: {
   const t = (korean: string, english: string) => ko ? korean : english;
 
   useEffect(() => {
-    setLocale(navigator.language || "en");
     setVoiceAvailable("speechSynthesis" in window);
     setNow(Date.now());
     return () => { requestCounter.current++; };

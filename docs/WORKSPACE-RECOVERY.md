@@ -34,7 +34,9 @@ Sign in to the same account after reopening Jarvis to see saved conversations in
 
 The saved transcript includes file names and replies. File contents, open prompts, live previews and raw action payloads are excluded from the history file.
 
-Cloud sync starts off in this version. Open the profile and save your cloud sync choice to apply it to this account on this device. The setting survives signing in again. When enabled, cloud search can open a selected conversation and save a local copy. Background sync excludes file review conversations and temporary turns.
+Open your profile in the sidebar to edit your display name, choose the workspace language, and manage cloud conversation sync. Save applies all three choices to the current account on this device, and they survive signing in again. The sidebar language buttons also save immediately. **System** follows the system language. The setting applies to workspace controls and new voice recognition sessions. The account entry screen and standalone Local tools follow the system language.
+
+Cloud sync starts off for new profiles. When enabled, cloud search can open a selected conversation and save a local copy. Background sync excludes file review conversations and temporary turns. If saving fails, the dialog retains your draft for retry and the workspace keeps the last saved profile.
 
 ### Memory and temporary chat
 
