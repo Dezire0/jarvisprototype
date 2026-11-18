@@ -1,4 +1,4 @@
-import type { ConversationModelDraft, ConversationModelSettings, ModelConnectionResult } from "@/components/jarvis/model-settings";
+import type { ConversationModelDraft, ConversationModelSettings, ModelAvailability, ModelConnectionResult } from "@/components/jarvis/model-settings";
 
 export {};
 
@@ -9,7 +9,7 @@ declare global {
       getAppState: () => Promise<unknown>;
       getComputerControl?: () => Promise<boolean>;
       setComputerControl?: (enabled: boolean) => Promise<boolean>;
-      getConversationModelSettings?: () => Promise<{ settings: ConversationModelSettings }>;
+      getConversationModelSettings?: () => Promise<{ settings: ConversationModelSettings; availability: ModelAvailability }>;
       saveConversationModelSettings?: (draft: ConversationModelDraft) => Promise<{ settings: ConversationModelSettings }>;
       testConversationModel?: () => Promise<ModelConnectionResult>;
       getLivePreview: () => Promise<{

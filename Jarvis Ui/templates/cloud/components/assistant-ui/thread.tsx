@@ -8,11 +8,12 @@ import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import type { ModelAvailability } from "@/components/jarvis/model-settings";
 import type { ToolSection } from "@/components/jarvis/local-tools";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
+import { LOCAL_COMMAND_EXAMPLE, resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportNotice, useTemporaryChat } from "@/app/jarvis-runtime-provider";
 import {
   ActionBarMorePrimitive,
@@ -47,7 +48,7 @@ import {
   StickyNoteIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type FC, type FormEvent, type Ref } from "react";
+import { useEffect, useState, type FC, type FormEvent, type Ref, type RefObject } from "react";
 
 
 
@@ -98,17 +99,43 @@ function useKorean(language?: string) {
   return language === "ko" || (language !== "en" && locale.startsWith("ko"));
 }
 
+type OpenModelSettings = (trigger: HTMLButtonElement) => void;
+
 export const Thread: FC<{
   onOpenTools: (section: ToolSection, trigger: HTMLButtonElement) => void;
+  onOpenModelSettings?: OpenModelSettings;
+  modelAvailability: ModelAvailability | null;
+  inputRef: RefObject<HTMLTextAreaElement | null>;
   runLocalCommand: ComposerCommandHandler;
   localResult: Result | null;
   dismissLocalResult: () => void;
-}> = ({ onOpenTools, runLocalCommand, localResult, dismissLocalResult }) => {
+}> = ({ onOpenTools, onOpenModelSettings, modelAvailability, inputRef, runLocalCommand, localResult, dismissLocalResult }) => {
+  const aui = useAui();
   const isEmpty = useAuiState((state) => state.thread.isEmpty);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hasDraft = useAuiState((state) => {
+    const { text, attachments, quote } = state.thread.composer;
+    return Boolean(text || attachments.length || quote);
+  });
   const historyError = useChatHistoryError();
   const temporary = useTemporaryChat();
   const isKo = useKorean();
+  const example = LOCAL_COMMAND_EXAMPLE[isKo ? "ko" : "en"];
+  const modelHint = modelAvailability === "missing"
+    ? (isKo ? "대화에 사용할 모델을 설정하세요." : "Choose a model for conversations.")
+    : modelAvailability === "partial"
+      ? (isKo ? "일부 대화 모델에 설정이 필요합니다." : "Some conversations still need a model configured.")
+      : modelAvailability === "computer-control"
+        ? (isKo ? "CLI 모델은 컴퓨터 제어가 필요합니다." : "CLI models require computer control.")
+        : null;
+
+  function fillExample() {
+    const composer = aui.thread().composer();
+    const { text, attachments, quote } = composer.getState();
+    if (text || attachments.length || quote) return;
+    composer.setText(example);
+    inputRef.current?.focus();
+  }
+
 
   return (
     <ThreadPrimitive.Root
@@ -136,7 +163,7 @@ export const Thread: FC<{
           </div>
         </AuiIf>
         <ThreadPrimitive.Messages>
-          {() => <ThreadMessage />}
+          {() => <ThreadMessage onOpenModelSettings={onOpenModelSettings} />}
         </ThreadPrimitive.Messages>
         <ThreadPrimitive.ViewportFooter
           data-empty={isEmpty}
@@ -161,8 +188,14 @@ export const Thread: FC<{
             </div>
           )}
           <TransportFeedback focusInput={() => inputRef.current?.focus()} />
+          {isEmpty && modelHint && onOpenModelSettings && (
+            <div className="jarvis-start-model">
+              <p role="status" className="text-muted-foreground">{modelHint}</p>
+              <ModelSettingsLink onOpen={onOpenModelSettings} />
+            </div>
+          )}
           {isEmpty && (
-            <div className="jarvis-start-actions" role="group" aria-label={isKo ? "로컬 도구" : "Local tools"}>
+            <div className="jarvis-start-actions items-center" role="group" aria-label={isKo ? "로컬 도구" : "Local tools"}>
               <button type="button" className="jarvis-secondary-button" aria-haspopup="dialog"
                 onClick={(event) => onOpenTools("timer", event.currentTarget)}>
                 <ClockIcon size={16} aria-hidden="true" />{isKo ? "타이머" : "Timer"}
@@ -175,6 +208,12 @@ export const Thread: FC<{
                 onClick={(event) => onOpenTools("notes", event.currentTarget)}>
                 <StickyNoteIcon size={16} aria-hidden="true" />{isKo ? "메모" : "Notes"}
               </button>
+              {!hasDraft && (
+                <button type="button" className="jarvis-start-link jarvis-start-example" onClick={fillExample}>
+                  <span className="text-muted-foreground">{isKo ? "로컬 명령 예시" : "Example local command"}</span>
+                  <span className="jarvis-start-link-text">{example}</span>
+                </button>
+              )}
             </div>
           )}
         </ThreadPrimitive.ViewportFooter>
@@ -182,6 +221,16 @@ export const Thread: FC<{
     </ThreadPrimitive.Root>
   );
 };
+
+function ModelSettingsLink({ onOpen }: { onOpen: OpenModelSettings }) {
+  const isKo = useKorean();
+  return (
+    <button type="button" className="jarvis-start-link jarvis-start-link-text" aria-haspopup="dialog"
+      onClick={(event) => onOpen(event.currentTarget)}>
+      {isKo ? "모델 설정" : "Model settings"}
+    </button>
+  );
+}
 
 function TransportFeedback({ focusInput }: { focusInput: () => void }) {
   const { notice, dismiss } = useJarvisTransportNotice();
@@ -231,7 +280,7 @@ function TransportFeedback({ focusInput }: { focusInput: () => void }) {
   );
 }
 
-const ThreadMessage: FC = () => {
+const ThreadMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onOpenModelSettings }) => {
   const role = useAuiState((state) => state.message.role);
   const isEditing = useAuiState((state) => state.message.composer.isEditing);
 
@@ -243,7 +292,7 @@ const ThreadMessage: FC = () => {
     return <UserMessage />;
   }
 
-  return <AssistantMessage />;
+  return <AssistantMessage onOpenModelSettings={onOpenModelSettings} />;
 };
 
 const ThreadScrollToBottom: FC = () => {
@@ -903,7 +952,7 @@ function ExecutionReceipt({ args, fallback }: { args: unknown; fallback: React.R
   );
 }
 
-const AssistantMessage: FC = () => {
+const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onOpenModelSettings }) => {
   const attachmentReview = useAuiState((state) => state.message.metadata.custom?.attachmentReview === true);
   const provider = useAuiState((state) => state.message.metadata.custom?.provider);
   const cloudModel = typeof provider === "string" && provider.startsWith("jarvis-cloud-gemini-")
@@ -946,6 +995,10 @@ const AssistantMessage: FC = () => {
           <p className="mt-2 wrap-break-word text-xs text-muted-foreground">
             Jarvis Cloud{cloudModel ? ` · ${cloudModel}` : ""}
           </p>
+        )}
+
+        {onOpenModelSettings && (provider === "model-required" || provider === "model-error") && (
+          <ModelSettingsLink onOpen={onOpenModelSettings} />
         )}
 
         <div className="aui-assistant-message-footer mt-2 flex items-center">

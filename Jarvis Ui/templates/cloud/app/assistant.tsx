@@ -9,6 +9,7 @@ import { ThreadListSidebar } from "@/components/assistant-ui/threadlist-sidebar"
 import { JarvisExtensionsProvider } from "@/components/jarvis/extensions-provider";
 import { JarvisVoiceProvider } from "@/components/jarvis/voice-provider";
 import { ComputerControlSettings } from "@/components/jarvis/computer-control-settings";
+import { ModelSettings, MODEL_SETTINGS_SAVED, type ModelAvailability } from "@/components/jarvis/model-settings";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { LocalTools, speakLocalResult, type ToolSection } from "@/components/jarvis/local-tools";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -16,7 +17,7 @@ import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, t
 import { useLocalWorkspace } from "@/lib/use-local-workspace";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { WrenchIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { JarvisRuntimeProvider } from "./jarvis-runtime-provider";
 
 export const Assistant = () => <JarvisRuntimeProvider><AssistantWorkspace /></JarvisRuntimeProvider>;
@@ -24,6 +25,11 @@ export const Assistant = () => <JarvisRuntimeProvider><AssistantWorkspace /></Ja
 function AssistantWorkspace() {
   const [tools, setTools] = useState<{ section?: ToolSection } | null>(null);
   const [computerControl, setComputerControl] = useState<boolean | null>(null);
+  const [modelSettingsAvailable, setModelSettingsAvailable] = useState(false);
+  const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
+  const [modelAvailability, setModelAvailability] = useState<ModelAvailability | null>(null);
+  const modelSettingsTrigger = useRef<HTMLButtonElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [localResult, setLocalResult] = useState<Result | null>(null);
   const toolsTrigger = useRef<HTMLElement | null>(null);
   const localRun = useRef(0);
@@ -31,6 +37,36 @@ function AssistantWorkspace() {
   const locale = useWorkspaceLocale();
   const isKo = locale.startsWith("ko");
   const toolsLabel = isKo ? "로컬 도구" : "Local tools";
+
+  useEffect(() => {
+    const read = window.assistantAPI?.getConversationModelSettings;
+    setModelSettingsAvailable(Boolean(read));
+    if (!read) return;
+
+    let request = 0;
+    const refresh = () => {
+      const current = ++request;
+      void read().then(({ availability }) => {
+        if (current === request) setModelAvailability(availability);
+      }).catch(() => {
+        if (current === request) setModelAvailability(null);
+      });
+    };
+
+    refresh();
+    window.addEventListener(MODEL_SETTINGS_SAVED, refresh);
+    return () => {
+      request++;
+      window.removeEventListener(MODEL_SETTINGS_SAVED, refresh);
+    };
+  }, [computerControl]);
+
+  function openModelSettings(trigger: HTMLButtonElement) {
+    modelSettingsTrigger.current = trigger;
+    setModelSettingsOpen(true);
+  }
+
+  const modelSettingsAction = modelSettingsAvailable ? openModelSettings : undefined;
 
   function openTools(section: ToolSection | undefined, trigger: HTMLElement) {
     toolsTrigger.current = trigger;
@@ -82,7 +118,7 @@ function AssistantWorkspace() {
       <SidebarProvider defaultOpen={false}>
         <JarvisVoiceProvider runLocalCommand={runComposerCommand}>
           <div className="aui-app-shell flex h-dvh w-full bg-background text-foreground">
-            <ThreadListSidebar computerControlEnabled={computerControl === true} />
+            <ThreadListSidebar computerControlEnabled={computerControl === true} onOpenModelSettings={modelSettingsAction} />
             <main className="aui-app-main relative flex min-w-0 flex-1 flex-col">
               <header className="jarvis-toolbar">
                 <div className="flex min-w-0 items-center gap-2">
@@ -102,6 +138,9 @@ function AssistantWorkspace() {
               <div className="min-h-0 flex-1 overflow-hidden">
                 <Thread
                   onOpenTools={openTools}
+                  onOpenModelSettings={modelSettingsAction}
+                  modelAvailability={modelAvailability}
+                  inputRef={inputRef}
                   runLocalCommand={runComposerCommand}
                   localResult={localResult}
                   dismissLocalResult={dismissLocalResult}
@@ -109,6 +148,12 @@ function AssistantWorkspace() {
               </div>
             </main>
           </div>
+          <ModelSettings open={modelSettingsOpen} onOpenChange={setModelSettingsOpen}
+            restoreFocus={() => {
+              const trigger = modelSettingsTrigger.current;
+              if (trigger?.isConnected) trigger.focus();
+              else inputRef.current?.focus();
+            }} />
           <Dialog open={tools !== null} onOpenChange={(open) => { if (!open) setTools(null); }}>
             <DialogContent
               aria-describedby={undefined}

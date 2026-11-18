@@ -1,5 +1,19 @@
 const { chat, resolveConfig, isDirectConversationConfigured } = require("./ollama-service.cjs");
 
+function getSavedModelAvailability(computerControlEnabled) {
+  const tiers = ["fast", "complex"].map((tier) => {
+    const config = resolveConfig({ tier });
+    if (config.provider.endsWith("-cli")) {
+      return computerControlEnabled ? "configured" : "computer-control";
+    }
+    return isDirectConversationConfigured(config, tier) ? "configured" : "missing";
+  });
+
+  if (tiers.every((tier) => tier === "configured")) return "configured";
+  if (tiers.includes("configured")) return "partial";
+  return tiers.includes("computer-control") ? "computer-control" : "missing";
+}
+
 async function testSavedModelConnection({ signal = AbortSignal.timeout(12000) } = {}) {
   const config = resolveConfig();
   const { provider, model } = config;
@@ -24,4 +38,4 @@ async function testSavedModelConnection({ signal = AbortSignal.timeout(12000) } 
   }
 }
 
-module.exports = { testSavedModelConnection };
+module.exports = { getSavedModelAvailability, testSavedModelConnection };
