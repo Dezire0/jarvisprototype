@@ -467,6 +467,41 @@
 .jarvis-auth-field { display: grid; gap: .35rem; font-size: .875rem; font-weight: 500; }
 .jarvis-auth-field input { background: var(--jarvis-control); border-color: var(--jarvis-control-border); }
 .jarvis-auth-error { color: var(--destructive); font-size: .875rem; }
+.jarvis-plan-panel {
+  width: min(100% - 2rem, 27rem);
+  margin-top: clamp(1.5rem, 7dvh, 3.75rem);
+}
+.jarvis-plan-option {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  min-height: 4rem;
+  padding: .65rem .875rem;
+  border: 1px solid var(--jarvis-control-border);
+  border-radius: .625rem;
+  background: var(--jarvis-control);
+  cursor: pointer;
+}
+.jarvis-plan-option:has(input:checked) {
+  border-color: var(--jarvis-focus);
+  background: var(--jarvis-focus-halo);
+}
+.jarvis-plan-option:has(input:focus-visible) {
+  outline: 2px solid var(--jarvis-focus);
+  outline-offset: 2px;
+}
+.jarvis-plan-panel .jarvis-send:focus-visible {
+  outline: 2px solid var(--jarvis-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.jarvis-plan-option:has(input:disabled) { cursor: default; }
+.jarvis-plan-option input {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  accent-color: var(--jarvis-focus);
+}
 .jarvis-receipt {
   margin-top: .55rem;
   border-radius: .625rem;
