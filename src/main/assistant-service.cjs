@@ -9,11 +9,10 @@ const spotifyCommands = require("./assistant/spotify-commands.json");
 const gameCommands = require("./assistant/game-commands.json");
 const projectCommands = require("./assistant/project-commands.json");
 const {
-  chat: officialChat,
+  chatWithSource,
   buildBasePrompt,
   detectLanguageCode,
   FAST_PLANNER_MODEL,
-  getTierProviderLabel,
   getExternalLlmSettings,
   getRequestedProviderForTier,
   resolveConfig,
@@ -59,7 +58,11 @@ function buildModelFailureReply(text = "", error, config = {}) {
   return buildModelFailureReplyMessage(text, error, config, detectLanguageCode);
 }
 
-const chat = async (options) => {
+function modelProvider(source, fallback) {
+  return source ? [source.provider, source.model].filter(Boolean).join(":") : fallback;
+}
+
+async function replyFromModel(options) {
   let config = null;
   try {
     const effectiveOptions = options.localOnly
@@ -91,15 +94,17 @@ const chat = async (options) => {
         (directApiSelected && !directApiReady));
 
     if (needsModelConnection) {
-      return buildModelConnectionReply(effectiveOptions.userPrompt);
+      return { reply: buildModelConnectionReply(effectiveOptions.userPrompt), modelRequired: true };
     }
-    return await officialChat(effectiveOptions);
+    return await chatWithSource(effectiveOptions);
   } catch (err) {
     if (options.throwOnFailure) throw err;
     console.error("Conversation model failed:", err.message);
-    return buildModelFailureReply(options.userPrompt, err, config || {});
+    return { reply: buildModelFailureReply(options.userPrompt, err, config || {}) };
   }
-};
+}
+
+const chat = async (options) => (await replyFromModel(options)).reply;
 
 const LONG_TERM_MEMORY_SYSTEM_PROMPT = [
   "You extract durable long-term user memory for a desktop assistant.",
@@ -4080,7 +4085,7 @@ class AssistantService {
 
     if (needsContentAnswer) {
       try {
-        const reply = await this.replyWithModel(
+        const { reply, responseSource } = await this.replyWithModelAndMemory(
           input,
           [
             "The user asked you to interpret the result of a browser workflow.",
@@ -4102,6 +4107,7 @@ class AssistantService {
           reply: appendBrowserNotices(reply, notices, language),
           actions,
           provider: "openclaw-computer-use",
+          responseSource,
           details: this.buildOpenClawExecutorDetails(details, plannerMeta, {
             executorMode: "playwright"
           })
@@ -4393,9 +4399,10 @@ class AssistantService {
       this.makeAction("system_briefing", "computer")
     ];
     let reply = "";
+    let responseSource;
 
     try {
-      reply = await this.replyWithModel(
+      ({ reply, responseSource } = await this.replyWithModelAndMemory(
         input,
         [
           "The user asked for a direct briefing about the current computer state.",
@@ -4408,7 +4415,7 @@ class AssistantService {
           tier: "complex",
           includeHistory: false
         }
-      );
+      ));
     } catch (_error) {
       const frontApp = details.currentContext?.appName || (language === "ko" ? "확인되지 않음" : "not detected");
       const browserSummary = details.browser?.currentPage?.title || details.browser?.provider || "browser unavailable";
@@ -4425,7 +4432,8 @@ class AssistantService {
     return {
       reply,
       actions,
-      provider: getTierProviderLabel("complex"),
+      provider: modelProvider(responseSource, "local"),
+      responseSource,
       details
     };
   }
@@ -5511,16 +5519,11 @@ class AssistantService {
     };
   }
 
-  async replyWithModel(userPrompt, extraContext = "", options = {}) {
-    const { reply } = await this.replyWithModelAndMemory(userPrompt, extraContext, options);
-    return reply;
-  }
-
   async replyWithModelAndMemory(input, extraContext, options) {
     const includeHistory = options.includeHistory !== false;
     const { userPrompt, memorySources } = this.prepareModelPrompt(input, extraContext, options);
 
-    const reply = await chat({
+    const result = await replyFromModel({
       systemPrompt: options.systemPrompt || buildBasePrompt(),
       tier: options.tier || "complex",
       provider: options.provider,
@@ -5532,8 +5535,7 @@ class AssistantService {
       history: includeHistory ? this.getRecentHistory() : [],
       userPrompt
     });
-    const modelRequired = reply === buildModelConnectionReply(userPrompt);
-    return { reply, modelRequired, memorySources: modelRequired ? [] : memorySources };
+    return { ...result, memorySources: result.responseSource ? memorySources : [] };
   }
 
   async routeInput(input) {
@@ -6349,7 +6351,7 @@ class AssistantService {
     const tier = chooseChatModelTier(input, this.getRecentHistory());
 
     try {
-      const { reply, modelRequired, memorySources } = await this.replyWithModelAndMemory(
+      const { reply, modelRequired, responseSource, memorySources } = await this.replyWithModelAndMemory(
         input,
         [
           "Follow the conversation naturally.",
@@ -6373,7 +6375,8 @@ class AssistantService {
       return {
         reply,
         actions: [],
-        provider: modelRequired ? "model-required" : getTierProviderLabel(tier),
+        provider: modelProvider(responseSource, modelRequired ? "model-required" : "local"),
+        responseSource,
         memorySources
       };
     } catch (error) {
@@ -6534,7 +6537,7 @@ class AssistantService {
 
     try {
       const { userPrompt, memorySources } = this.prepareModelPrompt(input, "", { includeDocumentMemory: false });
-      const reply = await officialChat({
+      const { reply, responseSource } = await chatWithSource({
         ...config,
         tier,
         systemPrompt: [
@@ -6548,7 +6551,7 @@ class AssistantService {
         history: this.getRecentHistory(),
         signal: AbortSignal.timeout(90000)
       });
-      return { ...result(reply, `${config.provider}:${config.model}`), memorySources };
+      return { ...result(reply, modelProvider(responseSource, "local")), responseSource, memorySources };
     } catch {
       const cloud = await this.tryManagedCloudChat(input, language);
       if (cloud) return cloud;
@@ -6586,7 +6589,7 @@ class AssistantService {
       imageNames: images.map((file) => file.name)
     });
     try {
-      const response = await officialChat({
+      const { reply: response, responseSource } = await chatWithSource({
         ...config,
         exactModel: true,
         systemPrompt: [
@@ -6601,7 +6604,7 @@ class AssistantService {
         images,
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(90000)]) : AbortSignal.timeout(90000)
       });
-      return reply(response, `${config.provider}:${config.model}`);
+      return { ...reply(response, modelProvider(responseSource, "local")), responseSource };
     } catch {
       if (!images.length) return reply(korean
         ? "설정한 모델이 문서를 처리하지 못했습니다. 모델 연결을 확인하세요."

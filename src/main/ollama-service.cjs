@@ -6,6 +6,8 @@ const path = require("node:path");
 const { promisify } = require("node:util");
 const { OPENAI_DEFAULT_ORIGIN, getOpenAIEndpointOrigin } = require("./openai-endpoint.cjs");
 
+const { normalizeReplySource } = require("./assistant/reply-source.cjs");
+
 const execFileAsync = promisify(execFile);
 const DEFAULT_MODEL = process.env.JARVIS_MODEL || "qwen3:14b";
 const CHAT_MODEL = process.env.JARVIS_CHAT_MODEL || DEFAULT_MODEL;
@@ -953,7 +955,7 @@ async function chatWithOllama({
       const data = await response.json();
       const text = data.message?.content?.trim();
       if (!text) throw new Error("Ollama returned an empty response.");
-      return text;
+      return { reply: text, model: candidateModel };
     }
 
     let detail = `status ${response.status}`;
@@ -1167,88 +1169,35 @@ function getTierProviderLabel(tier = "complex") {
   return `${config.provider}:${config.model}`;
 }
 
-async function chat({
-  systemPrompt, userPrompt, history = [], model, tier = "complex", provider, url, apiKey, images = [], signal, exactModel
-}) {
-  const config = resolveConfig({ tier, provider, model, url, apiKey });
+const modelAdapters = {
+  gemini: chatWithGemini,
+  "gemini-cli": chatWithGeminiCli,
+  "openai-cli": chatWithOpenAICli,
+  "openai-compatible": chatWithOpenAICompatible,
+  groq: chatWithOpenAICompatible,
+  anthropic: chatWithAnthropic,
+  "claude-code": chatWithClaudeCode
+};
 
-  if (config.provider === "gemini") {
-    return chatWithGemini({
-      systemPrompt,
-      userPrompt,
-      history,
-      model: config.model,
-      apiKey: config.apiKey,
-      images,
-      signal
-    });
+async function chatWithSource(options) {
+  const config = resolveConfig(options);
+  const request = { ...options, ...config };
+  if (config.provider === "ollama") {
+    const { reply, model } = await chatWithOllama(request);
+    return { reply, responseSource: normalizeReplySource({ provider: "ollama", model }) };
   }
+  const reply = await modelAdapters[config.provider](request);
+  return { reply, responseSource: normalizeReplySource(config) };
+}
 
-  if (config.provider === "gemini-cli") {
-    return chatWithGeminiCli({
-      systemPrompt,
-      userPrompt,
-      history,
-      model: config.model
-    });
-  }
-
-  if (config.provider === "openai-cli") {
-    return chatWithOpenAICli({
-      systemPrompt,
-      userPrompt,
-      history,
-      model: config.model
-    });
-  }
-
-  if (config.provider === "openai-compatible" || config.provider === "groq") {
-    return chatWithOpenAICompatible({
-      systemPrompt,
-      userPrompt,
-      history,
-      model: config.model,
-      url: config.url,
-      apiKey: config.apiKey,
-      images,
-      signal
-    });
-  }
-
-  if (config.provider === "anthropic") {
-    return chatWithAnthropic({
-      systemPrompt,
-      userPrompt,
-      history,
-      model: config.model,
-      url: config.url,
-      apiKey: config.apiKey
-    });
-  }
-
-  if (config.provider === "claude-code") {
-    return chatWithClaudeCode({
-      systemPrompt,
-      userPrompt,
-      history,
-      model: config.model
-    });
-  }
-
-  return chatWithOllama({
-    systemPrompt,
-    userPrompt,
-    history,
-    model: config.model,
-    url: config.url,
-    images,
-    signal,
-    exactModel
-  });
+async function chat(options) {
+  const { reply } = await chatWithSource(options);
+  return reply;
 }
 
 module.exports = {
   chat,
+  chatWithSource,
   CHAT_MODEL,
   COMPLEX_LLM_MODEL,
   COMPLEX_LLM_PROVIDER,

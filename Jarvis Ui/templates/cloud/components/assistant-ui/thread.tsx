@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { voiceEngine, voiceEngineName, voiceLanguage, voiceTextLimit } from "@/lib/voice-output";
 import { formatMemorySources } from "@/lib/chat-memory";
+import { replySourceLabel } from "@/lib/reply-source";
 import { actionLabels, actionStatuses, type ExecutionRecord } from "@/lib/execution-record";
 import { resolveScreenReviewCommand } from "@/lib/screen-review";
 import { resolveBrowserReviewCommand } from "@/lib/browser-review";
@@ -940,11 +941,10 @@ const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onO
   const records = useAuiState((state) => state.message.metadata.custom?.executionRecords as readonly ExecutionRecord[] | undefined);
   const visibleRecords = hasFilePreview ? records?.filter(({ type }) => type !== "file_read") : records;
   const provider = useAuiState((state) => state.message.metadata.custom?.provider);
+  const responseSource = useAuiState((state) => state.message.metadata.custom?.responseSource);
   const memorySources = useAuiState((state) => state.message.metadata.custom?.memorySources);
   const memoryLabel = formatMemorySources(memorySources, isKo);
-  const cloudModel = typeof provider === "string" && provider.startsWith("jarvis-cloud-gemini-")
-    ? provider.slice("jarvis-cloud-".length)
-    : "";
+  const sourceLabel = replySourceLabel(responseSource, provider, isKo);
   return (
     <MessagePrimitive.Root
       className="aui-assistant-message-root relative mx-auto grid w-full max-w-(--thread-max-width) grid-cols-[auto_1fr] items-start gap-3 py-4"
@@ -977,9 +977,9 @@ const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onO
 
         {visibleRecords && visibleRecords.length > 0 && <ExecutionRecordList records={visibleRecords} />}
 
-        {(provider === "jarvis-cloud" || cloudModel) && (
+        {sourceLabel && (
           <p className="mt-2 wrap-break-word text-xs text-muted-foreground">
-            Jarvis Cloud{cloudModel ? ` · ${cloudModel}` : ""}
+            {sourceLabel}
           </p>
         )}
 
