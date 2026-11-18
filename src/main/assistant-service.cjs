@@ -27,6 +27,7 @@ const {
   findOfficialAppFallback: findConfiguredOfficialAppFallback
 } = require("./assistant/targets.cjs");
 const { routeInputWithLlm } = require("./assistant/router.cjs");
+const { parseLocalFileRead } = require("./assistant/local-file-command.cjs");
 const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
 
@@ -6766,6 +6767,9 @@ class AssistantService {
   }
 
   async handleInput(input) {
+    const file = parseLocalFileRead(input);
+    if (file) return this.handleLocalFilePreview(file.path, file.language);
+
     const cleanInput = normalizeWhitespace(input);
     if (cleanInput && this.computerControl?.enabled === false) {
       const result = await this.handleModelConversation(cleanInput);
@@ -6779,6 +6783,35 @@ class AssistantService {
       looksLikeModelIdentityQuestion,
       promoteFollowUpRoute
     });
+  }
+
+  async handleLocalFilePreview(path, language) {
+    const korean = language === "ko";
+    const result = (reply) => ({ reply, provider: "local", language, actions: [] });
+    if (!this.computerControl?.enabled) {
+      return result(korean
+        ? "파일을 읽으려면 컴퓨터 제어를 켜세요."
+        : "Turn on computer control to read the file.");
+    }
+    if (!path) {
+      return result(korean ? "파일 경로를 확인하세요." : "Check the file path.");
+    }
+    try {
+      const filePreview = await this.files.readPreview(path);
+      return {
+        ...result(korean ? "파일을 읽었습니다." : "File read."),
+        actions: [this.makeAction("file_read", filePreview.name)],
+        details: { filePreview },
+      };
+    } catch (error) {
+      if (error.code === "UNSUPPORTED_FILE_PREVIEW") {
+        return result(korean ? "UTF-8 텍스트 파일만 미리볼 수 있습니다." : "Choose a UTF-8 text file to preview.");
+      }
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+        return result(korean ? "이 경로에서 파일을 찾지 못했습니다." : "No file was found at this path.");
+      }
+      return result(korean ? "파일을 읽지 못했습니다. 파일 접근 권한을 확인하세요." : "Couldn’t read the file. Check its access permissions.");
+    }
   }
 
   async handleModelConversation(input) {
