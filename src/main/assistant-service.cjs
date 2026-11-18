@@ -3074,7 +3074,7 @@ class AssistantService {
       allowSensitive: Boolean(options.allowSensitive)
     });
     const finalState = result?.state || startState || {};
-    const actionType = mapStructuredBrowserToolToActionType(action);
+    const actionType = mapStructuredBrowserToolToActionType(toolName);
     const actionTarget = summarizeStructuredBrowserToolTarget(action);
 
     if (result.requiresConfirmation) {
@@ -3143,7 +3143,10 @@ class AssistantService {
         (language === "ko"
           ? "OpenClaw 세션에서 작업을 실행했어요."
           : "I executed that through the OpenClaw session."),
-      actions: [this.makeAction(actionType, actionTarget, "executed", { tool: toolName })],
+      actions: [this.makeAction(actionType, actionTarget, "executed", {
+        tool: toolName,
+        ...(toolName === "desktop.open_app" && options.catalogAppName ? { appName: options.catalogAppName } : {})
+      })],
       provider: "openclaw-computer-use",
       details: this.buildOpenClawExecutorDetails(
         {
@@ -5329,7 +5332,7 @@ class AssistantService {
         target: appName
       });
       const openedName = data.resolvedTarget || data.appName || appName;
-      actions.push(this.makeAction("open_app", openedName));
+      actions.push(this.makeAction("open_app", openedName, "executed", data.openPath ? { appName: data.resolvedTarget } : {}));
       openedLabels.push(openedName);
       this.rememberAppContext(openedName);
     }
@@ -6300,6 +6303,7 @@ class AssistantService {
           planner: "openclaw-session",
           plannerReason: "desktop-open"
         },
+        catalogAppName: resolved.openPath ? resolved.resolvedTarget : undefined,
         reply: fallback
       }
     );

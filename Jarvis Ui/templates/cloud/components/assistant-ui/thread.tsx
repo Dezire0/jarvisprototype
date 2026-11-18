@@ -6,7 +6,6 @@ import {
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
-import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import type { ModelAvailability } from "@/components/jarvis/model-settings";
 import type { ToolSection } from "@/components/jarvis/local-tools";
@@ -17,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { voiceEngine, voiceEngineName, voiceLanguage, voiceTextLimit } from "@/lib/voice-output";
 import { formatMemorySources } from "@/lib/chat-memory";
+import { actionLabels, actionStatuses, type ExecutionRecord } from "@/lib/execution-record";
 import { resolveScreenReviewCommand } from "@/lib/screen-review";
 import { resolveBrowserReviewCommand } from "@/lib/browser-review";
 import { resolveFileSaveCommand } from "@/lib/file-save";
@@ -906,61 +906,28 @@ const SensitiveConfirmationCard: FC<{ confirmation: SensitiveConfirmationDetails
   );
 };
 
-const ACTION_LABELS: Record<string, [string, string]> = {
-  open_url: ["페이지 열기", "Open page"],
-  open_app: ["앱 열기", "Open app"],
-  browser_login: ["사이트 로그인", "Sign in to site"],
-  browser_search: ["브라우저 검색", "Search browser"],
-  read_page: ["페이지 읽기", "Read page"],
-  app_key: ["키보드 입력", "Send keyboard shortcut"],
-  app_type: ["텍스트 입력", "Enter text"],
-  app_menu_click: ["메뉴 선택", "Choose menu item"],
-  file_read: ["파일 읽기", "Read file"],
-};
-
-const ACTION_STATES: Record<string, [string, string]> = {
-  executed: ["실행됨", "Executed"],
-  failed: ["실패", "Failed"],
-  "needs-confirmation": ["승인 대기", "Awaiting confirmation"],
-  "needs-install": ["설치 필요", "Installation needed"],
-};
-
-function ExecutionReceipt({ args, fallback }: { args: unknown; fallback: React.ReactNode }) {
+function ExecutionRecordList({ records }: { records: readonly ExecutionRecord[] }) {
   const isKo = useKorean();
-  if (!args || typeof args !== "object") return fallback;
-  const action = args as Record<string, unknown>;
-  if (typeof action.type !== "string" || typeof action.status !== "string") return fallback;
-
-  const t = (labels: [string, string]) => labels[isKo ? 0 : 1];
-  const label = Object.hasOwn(ACTION_LABELS, action.type)
-    ? t(ACTION_LABELS[action.type])
-    : action.type.replace(/[_.-]+/g, " ").slice(0, 72);
-  const status = Object.hasOwn(ACTION_STATES, action.status)
-    ? t(ACTION_STATES[action.status])
-    : action.status.replace(/[_.-]+/g, " ").slice(0, 72);
-  const target = typeof action.target === "string" ? action.target : "";
-  let destination = "";
-  if (action.type === "open_url") {
-    try {
-      const url = new URL(target);
-      if (url.protocol === "https:" || url.protocol === "http:") {
-        destination = url.hostname;
-      }
-    } catch {
-      // Some action results have no URL.
-    }
-  } else if (action.type === "open_app") {
-    destination = target.slice(0, 72);
-  }
+  const title = isKo ? "실행 기록" : "Execution record";
+  const labelIndex = isKo ? 0 : 1;
 
   return (
-    <div className="jarvis-receipt">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <span className="font-medium">{label}</span>
-        <span className="jarvis-receipt-status" data-attention={action.status !== "executed" || undefined}>{status}</span>
-      </div>
-      {destination && <div className="text-xs text-muted-foreground">{destination}</div>}
-    </div>
+    <section className="jarvis-execution-record" aria-label={title}>
+      <p className="jarvis-execution-record-title">{title}</p>
+      <ul>
+        {records.map(({ type, status, host, appName }, index) => (
+          <li key={index}>
+            <div>
+              <p>{actionLabels[type][labelIndex]}</p>
+              {(host || appName) && <p className="jarvis-execution-destination"><bdi>{host || appName}</bdi></p>}
+            </div>
+            <span className="jarvis-execution-status" data-failed={status === "failed" || undefined}>
+              {actionStatuses[status][labelIndex]}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -970,6 +937,8 @@ const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onO
   const hasFilePreview = useAuiState((state) => Boolean(
     (state.message.metadata.custom?.details as AssistantResultDetails | null)?.filePreview,
   ));
+  const records = useAuiState((state) => state.message.metadata.custom?.executionRecords as readonly ExecutionRecord[] | undefined);
+  const visibleRecords = hasFilePreview ? records?.filter(({ type }) => type !== "file_read") : records;
   const provider = useAuiState((state) => state.message.metadata.custom?.provider);
   const memorySources = useAuiState((state) => state.message.metadata.custom?.memorySources);
   const memoryLabel = formatMemorySources(memorySources, isKo);
@@ -998,10 +967,6 @@ const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onO
               if (part.type === "reasoning") {
                 return <Reasoning {...part} />;
               }
-              if (part.type === "tool-call") {
-                if (hasFilePreview && part.toolName === "file_read") return null;
-                return part.toolUI ?? <ExecutionReceipt args={part.args} fallback={<ToolFallback {...part} />} />;
-              }
               return null;
             }}
           </MessagePrimitive.Parts>
@@ -1009,6 +974,8 @@ const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onO
           <MessageError />
           <AssistantResultPrompts />
         </div>
+
+        {visibleRecords && visibleRecords.length > 0 && <ExecutionRecordList records={visibleRecords} />}
 
         {(provider === "jarvis-cloud" || cloudModel) && (
           <p className="mt-2 wrap-break-word text-xs text-muted-foreground">

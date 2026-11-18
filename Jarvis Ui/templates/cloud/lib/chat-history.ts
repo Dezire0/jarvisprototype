@@ -2,6 +2,7 @@
 
 import { readStoredAuthSession } from "@/components/jarvis/auth-session";
 import { normalizeMemorySources, type MemorySource } from "@/lib/chat-memory";
+import { executionRecords } from "@/lib/execution-record";
 import { isWorkspaceLanguage, type WorkspaceLanguage } from "@/lib/workspace-language";
 
 export type TransportMessage = {
@@ -78,12 +79,7 @@ function completedTranscript(messages: TransportMessage[]): TransportMessage[] {
       : undefined,
     attachmentNames: message.attachmentNames,
     attachmentReview: message.attachmentReview,
-    actions: message.actions?.flatMap((value) => {
-      const action = value as { type?: unknown; status?: unknown } | null;
-      return typeof action?.type === "string" && typeof action.status === "string"
-        ? [{ type: action.type, status: action.status }]
-        : [];
-    }),
+    actions: message.role === "assistant" && Array.isArray(message.actions) ? executionRecords(message.actions) : undefined,
   }));
 }
 

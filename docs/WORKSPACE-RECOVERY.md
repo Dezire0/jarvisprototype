@@ -46,7 +46,9 @@ An exact weather command in the conversation composer opens **Weather** in Local
 
 After signing in, use **Computer control** in the workspace toolbar to review, enable, or revoke computer control. Control starts off when a profile first uses this native setting, including profiles that accepted the earlier consent screen. The last saved choice applies to accounts using that desktop profile and survives changes to the app's local address. The Mac Accessibility settings are in the Help menu.
 
-With control off, the conversation uses a directly connected API model or Ollama and can review files you attach. The planner, direct desktop actions, live previews, and app launcher require computer control. Enabling it preserves existing action confirmations and OS permissions. Turning it off blocks new requests for computer actions and clears pending continuations. Work already underway can finish. Action receipts render the reported outcome and show the hostname for opened pages.
+With control off, the conversation uses a directly connected API model or Ollama and can review files you attach. The planner, direct desktop actions, live previews, and app launcher require computer control. Enabling it preserves existing action confirmations and OS permissions. Turning it off blocks new requests for computer actions and clears pending continuations. Work already underway can finish.
+
+An answer that reports actions shows an **Execution record** with the reported outcomes. It can show a page's hostname or a simple app name confirmed by the system catalog. Those fields and the operation and outcome labels are restored from the conversation on this device. The receipt does not store URL credentials, paths, query strings, fragments, or full tool arguments. Cloud conversation sync still sends message text and basic message fields. Temporary chat results are omitted from saved history.
 
 ### Model settings
 
