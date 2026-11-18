@@ -173,6 +173,49 @@ async function dispatchProjectTool(event, { tool, payload = {} }) {
   }
 }
 
+const GAME_TOOL_NAMES = new Set(["games:list", "games:search", "games:install", "games:update", "games:store"]);
+const GAME_ERRORS = new Set([
+  "GAMES_QUERY", "GAMES_SEARCH", "GAMES_PLATFORM", "GAMES_LAUNCHER_OPEN", "GAMES_STORE_OPEN",
+  "GAMES_PERMISSION", "GAMES_CHOOSE_RESULT"
+]);
+let gameOperationBusy = false;
+let gameSearchRevision = 0;
+let steamSearch;
+
+async function dispatchGameTool(event, { tool, payload = {} }) {
+  const assertAllowed = bindDesktopApproval(event, "GAMES_PERMISSION");
+  if (gameOperationBusy) return { ok: false, reason: "GAMES_BUSY" };
+  gameOperationBusy = true;
+  try {
+    assertAllowed();
+    const { games } = ensureReadyServices().services;
+    if (tool === "games:search") {
+      steamSearch = null;
+      const results = await games.searchSteamStore(payload.gameName);
+      assertAllowed();
+      const revision = ++gameSearchRevision;
+      steamSearch = { revision, results, assertAllowed };
+      return { ok: true, data: { revision, results } };
+    }
+    if (tool === "games:install") {
+      if (steamSearch?.revision !== payload.revision || !steamSearch?.results.some((game) => game.id === payload.id)) {
+        return { ok: false, reason: "GAMES_CHOOSE_RESULT" };
+      }
+      steamSearch.assertAllowed();
+      return { ok: true, data: await games.installSteamGame(payload.id) };
+    }
+    if (tool === "games:store") return { ok: true, data: await games.openStore(payload.platform, payload.gameName) };
+    if (tool === "games:update") return { ok: true, data: await games.openUpdates(payload.platform) };
+    const data = await games.listInstalledGames();
+    assertAllowed();
+    return { ok: true, data };
+  } catch (error) {
+    return { ok: false, reason: GAME_ERRORS.has(error.code) ? error.code : "GAMES_SCAN" };
+  } finally {
+    gameOperationBusy = false;
+  }
+}
+
 async function requestObsTransition(event, active, { language } = {}) {
   const assertAllowed = bindDesktopApproval(event, "OBS_PERMISSION");
   const { obs } = ensureReadyServices().services;
@@ -324,9 +367,7 @@ async function createServices() {
   const automation = createAutomationAdapter({
     screen: screenService
   });
-  const games = new GameService({
-    automation
-  });
+  const games = new GameService({ openExternal: (target) => shell.openExternal(target) });
   const codeProjects = new CodeProjectService({ automation });
   const tts = new TtsService({
     settingsStore: settings
@@ -365,7 +406,6 @@ async function createServices() {
         credentials,
         extensions,
         files,
-        games,
         memory: accountMemory,
         readAccountSession: () => {
           const active = accountSession.active;
@@ -931,30 +971,6 @@ async function dispatchTool(tool, payload = {}) {
         data
       };
     }
-    case "games:list": {
-      const data = await liveServices.games.listInstalledGames(payload);
-      return {
-        ok: true,
-        tool,
-        data
-      };
-    }
-    case "games:install": {
-      const data = await liveServices.games.installGame(payload);
-      return {
-        ok: true,
-        tool,
-        data
-      };
-    }
-    case "games:update": {
-      const data = await liveServices.games.updateGame(payload);
-      return {
-        ok: true,
-        tool,
-        data
-      };
-    }
     case "credentials:save": {
       const data = await liveServices.credentials.saveCredential(payload);
       return {
@@ -1297,6 +1313,7 @@ ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
 ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   requireAssistantWindow(event);
   if (requiresComputerControl(request.tool)) requireComputerControl();
+  if (GAME_TOOL_NAMES.has(request.tool)) return dispatchGameTool(event, request);
   if (PROJECT_TOOL_NAMES.has(request.tool)) return dispatchProjectTool(event, request);
   if (request.tool === "file:write") {
     return saveLocalFile(ensureReadyServices().services.files, request.payload, bindDesktopApproval(event, "FILE_PERMISSION_CHANGED"));

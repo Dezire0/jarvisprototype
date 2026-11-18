@@ -44,7 +44,7 @@ export function StandaloneLocalTools() {
   return <LocalTools local={local} />;
 }
 
-export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject }: {
+export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject, onOpenGames }: {
   local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: Exclude<ToolSection, "weather">;
@@ -53,6 +53,7 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
   onSaveFile?: () => void;
   onOpenObs?: () => void;
   onCreateProject?: () => void;
+  onOpenGames?: () => void;
 }) {
   const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
@@ -268,6 +269,9 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
           </button>}
           {onCreateProject && <button type="button" className="jarvis-toolbar-link" onClick={onCreateProject}>
             {t("코딩 프로젝트 만들기", "Create coding project")}
+          </button>}
+          {onOpenGames && <button type="button" className="jarvis-toolbar-link" onClick={onOpenGames}>
+            {t("게임", "Games")}
           </button>}
           {onOpenObs && <button type="button" className="jarvis-toolbar-link" onClick={onOpenObs}>OBS</button>}
         </div>

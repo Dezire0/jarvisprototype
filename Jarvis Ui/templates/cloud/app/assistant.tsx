@@ -15,6 +15,8 @@ import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/component
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
 import { FileSave } from "@/components/jarvis/file-save";
+import { GamesLibrary } from "@/components/jarvis/games-library";
+import { resolveGameCommand, type GameView } from "@/lib/game-command";
 import { ProjectCreation } from "@/components/jarvis/project-creation";
 import { isProjectCommand } from "@/lib/project-command";
 import { ObsControls } from "@/components/jarvis/obs-controls";
@@ -41,6 +43,7 @@ function AssistantWorkspace() {
     { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string } |
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
     { section: "obs" | "project-create" } |
+    { section: "games"; initial: GameView; query?: string } |
     null
   >(null);
   const [computerControl, setComputerControl] = useState<boolean | null>(null);
@@ -100,6 +103,14 @@ function AssistantWorkspace() {
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    const gameCommand = resolveGameCommand(text, hasAttachmentsOrQuote);
+    if (gameCommand) {
+      localRun.current++;
+      setLocalResult(null);
+      toolsTrigger.current = inputRef.current;
+      setTools({ section: "games", initial: gameCommand.view, query: gameCommand.query });
+      return "local";
+    }
     if (isProjectCommand(text, hasAttachmentsOrQuote)) {
       localRun.current++;
       setLocalResult(null);
@@ -179,7 +190,8 @@ function AssistantWorkspace() {
     setLocalResult(null);
   }
 
-  const toolTitle = tools?.section === "project-create" ? (isKo ? "코딩 프로젝트 만들기" : "Create coding project")
+  const toolTitle = tools?.section === "games" ? (isKo ? "게임" : "Games")
+    : tools?.section === "project-create" ? (isKo ? "코딩 프로젝트 만들기" : "Create coding project")
     : tools?.section === "obs" ? "OBS" : fileSaveOpen ? (isKo ? "파일 저장" : "Save file")
     : tools?.section === "browser" ? (isKo ? "웹 페이지 읽기" : "Read web page")
     : screenOpen ? (isKo ? "화면 읽기" : "Read screen")
@@ -260,15 +272,17 @@ function AssistantWorkspace() {
                   setTools(null);
                 }} />
               )}
+              {tools?.section === "games" && <GamesLibrary initial={tools.initial} initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "project-create" && <ProjectCreation computerControl={computerControl} />}
               {tools?.section === "obs" && <ObsControls computerControl={computerControl} />}
-              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && (
+              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && tools.section !== "games" && (
                 <LocalTools local={local} embedded initialSection={tools.section}
                   onReadPage={computerControl === null ? undefined : () => setTools({ section: "browser", mode: "read", threadId })}
                   onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })}
                   onSaveFile={computerControl === null ? undefined : () => setTools({
                     section: "file-save", draft: { path: "", content: "" }, threadId,
                   })}
+                  onOpenGames={computerControl === null ? undefined : () => setTools({ section: "games", initial: "library" })}
                   onCreateProject={computerControl === null ? undefined : () => setTools({ section: "project-create" })}
                   onOpenObs={computerControl === null ? undefined : () => setTools({ section: "obs" })} />
               )}

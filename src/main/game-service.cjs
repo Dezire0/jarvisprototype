@@ -2,6 +2,60 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { homedir, platform } = require("node:os");
 
+const GAME_ID = /^[1-9]\d{0,9}$/;
+const MAX_MANIFEST_BYTES = 512 * 1024;
+const STEAM_SEARCH = "https://store.steampowered.com/api/storesearch/";
+
+function gameError(code) {
+  return Object.assign(new Error(code), { code });
+}
+
+function normalizeName(name) {
+  return typeof name === "string"
+    ? name.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, " ").trim().slice(0, 160)
+    : "";
+}
+
+function requireQuery(gameName) {
+  if (typeof gameName !== "string" || !gameName.trim() || gameName.trim().length > 120) {
+    throw gameError("GAMES_QUERY");
+  }
+  return gameName.trim();
+}
+
+function isMissing(error) {
+  return error.code === "ENOENT" || error.code === "ENOTDIR";
+}
+
+async function readManifest(location) {
+  const { O_RDONLY, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
+  const handle = await fs.open(location, O_RDONLY | (O_NOFOLLOW ?? 0) | (O_NONBLOCK ?? 0));
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size > MAX_MANIFEST_BYTES) throw gameError("GAMES_SCAN");
+    const contents = Buffer.alloc(stat.size + 1);
+    let offset = 0;
+    while (offset < contents.length) {
+      const { bytesRead } = await handle.read(contents, offset, contents.length - offset, offset);
+      if (!bytesRead) break;
+      offset += bytesRead;
+    }
+    if (offset > stat.size) throw gameError("GAMES_SCAN");
+    return contents.toString("utf8", 0, offset);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function isDirectory(location) {
+  try {
+    return (await fs.stat(location)).isDirectory();
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw error;
+  }
+}
+
 function normalizeGameToken(value = "") {
   return String(value)
     .trim()
@@ -62,7 +116,7 @@ function parseSteamManifest(content = "") {
   const installDir = String(content.match(/"installdir"\s+"([^"]+)"/i)?.[1] || "").trim();
   const stateFlags = String(content.match(/"StateFlags"\s+"([^"]+)"/i)?.[1] || "").trim();
 
-  if (!appId || !name) {
+  if (!GAME_ID.test(appId) || !name) {
     return null;
   }
 
@@ -94,28 +148,20 @@ function parseSteamLibraryFolders(content = "") {
 function parseEpicManifest(raw = "") {
   try {
     const data = JSON.parse(raw);
-    const name = String(data.DisplayName || data.AppName || data.CatalogItemId || "").trim();
+    if (data.bIsIncompleteInstall === true) return null;
+    const name = normalizeName(data.DisplayName || data.AppName || data.CatalogItemId);
 
     if (!name) {
       return null;
     }
 
     return {
-      id: String(data.CatalogNamespace || data.MainGameCatalogNamespace || data.AppName || "").trim(),
+      id: String(data.AppName || data.CatalogItemId || data.CatalogNamespace || data.MainGameCatalogNamespace || "").trim(),
       name,
       installLocation: String(data.InstallLocation || "").trim()
     };
   } catch (_error) {
     return null;
-  }
-}
-
-async function pathExists(targetPath) {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch (_error) {
-    return false;
   }
 }
 
@@ -138,7 +184,8 @@ function getSteamRoots() {
 
   return [
     path.join(home, ".steam", "steam"),
-    path.join(home, ".local", "share", "Steam")
+    path.join(home, ".local", "share", "Steam"),
+    path.join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam")
   ];
 }
 
@@ -161,285 +208,141 @@ function getEpicManifestRoots() {
   return [];
 }
 
+function gameLibraryGuidance(language) {
+  const reply = language === "ko"
+    ? "로컬 도구에서 게임을 열어 설치 목록을 확인하거나 스토어와 다운로드 화면을 열어 주세요."
+    : "Open Games from Local tools to check installed games or open a store or downloads.";
+  return { reply, language, actions: [], provider: "local" };
+}
+
 class GameService {
-  constructor({ automation } = {}) {
-    this.automation = automation || null;
+  constructor({ openExternal, fetchSteam = fetch, steamRoots = getSteamRoots(), epicRoots = getEpicManifestRoots() } = {}) {
+    this.openExternal = openExternal;
+    this.fetchSteam = fetchSteam;
+    this.steamRoots = steamRoots;
+    this.epicRoots = epicRoots;
   }
 
-  async getSteamLibraryDirs() {
-    const steamRoots = getSteamRoots();
-    const discovered = [];
-
-    for (const steamRoot of steamRoots) {
-      const steamAppsPath = path.join(steamRoot, "steamapps");
-
-      if (await pathExists(steamAppsPath)) {
-        discovered.push(steamAppsPath);
-      }
-
-      const libraryFilePath = path.join(steamAppsPath, "libraryfolders.vdf");
-
-      if (await pathExists(libraryFilePath)) {
-        const content = await fs.readFile(libraryFilePath, "utf8");
-        discovered.push(...parseSteamLibraryFolders(content));
-      }
-    }
-
-    return unique(discovered);
-  }
-
-  async listSteamGames() {
-    const libraries = await this.getSteamLibraryDirs();
-    const games = [];
-    const seen = new Set();
-
-    for (const libraryPath of libraries) {
-      if (!(await pathExists(libraryPath))) {
-        continue;
-      }
-
-      const entries = await fs.readdir(libraryPath);
-
-      for (const entry of entries) {
-        if (!/^appmanifest_\d+\.acf$/i.test(entry)) {
-          continue;
-        }
-
-        const manifest = parseSteamManifest(await fs.readFile(path.join(libraryPath, entry), "utf8"));
-
-        if (!manifest || seen.has(manifest.appId)) {
-          continue;
-        }
-
-        seen.add(manifest.appId);
-        games.push({
-          ...manifest,
-          platform: "steam",
-          libraryPath
-        });
-      }
-    }
-
-    return games.sort((left, right) => left.name.localeCompare(right.name));
-  }
-
-  async listEpicGames() {
-    const roots = getEpicManifestRoots();
-    const games = [];
-    const seen = new Set();
-
-    for (const manifestRoot of roots) {
-      if (!(await pathExists(manifestRoot))) {
-        continue;
-      }
-
-      const entries = await fs.readdir(manifestRoot);
-
-      for (const entry of entries) {
-        if (!/\.(item|json)$/i.test(entry)) {
-          continue;
-        }
-
-        const manifest = parseEpicManifest(await fs.readFile(path.join(manifestRoot, entry), "utf8"));
-
-        if (!manifest || seen.has(manifest.name)) {
-          continue;
-        }
-
-        seen.add(manifest.name);
-        games.push({
-          ...manifest,
-          platform: "epic"
-        });
-      }
-    }
-
-    return games.sort((left, right) => left.name.localeCompare(right.name));
-  }
-
-  pickInstalledGame(games = [], gameName = "") {
-    const sorted = [...games]
-      .map((game) => ({
-        ...game,
-        score: scoreGameMatch(gameName, game.name)
-      }))
-      .sort((left, right) => right.score - left.score);
-
-    return sorted.find((game) => game.score > 0) || null;
-  }
-
-  async searchSteamStore(gameName = "") {
-    const query = String(gameName).trim();
-
-    if (!query) {
-      return [];
-    }
-
-    const response = await fetch(
-      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(query)}&l=english&cc=US`
-    );
-
-    if (!response.ok) {
-      throw new Error(`Steam store search failed with status ${response.status}.`);
-    }
-
-    const data = await response.json();
-    const items = Array.isArray(data.items) ? data.items : [];
-
-    return items
-      .map((item) => ({
-        appId: String(item.id || item.appid || "").trim(),
-        name: String(item.name || "").trim()
-      }))
-      .filter((item) => item.appId && item.name)
-      .sort((left, right) => scoreGameMatch(query, right.name) - scoreGameMatch(query, left.name));
-  }
-
-  async openLauncher(appName) {
-    if (!this.automation || typeof this.automation.execute !== "function") {
-      return {
-        opened: false
-      };
-    }
-
-    try {
-      const data = await this.automation.execute({
-        type: "open_app",
-        target: appName
-      });
-      return {
-        opened: true,
-        appName: data.resolvedTarget || data.appName || appName
-      };
-    } catch (_error) {
-      return {
-        opened: false,
-        appName
-      };
-    }
-  }
-
-  async openUrl(target) {
-    if (!this.automation || typeof this.automation.execute !== "function") {
-      throw new Error("Desktop automation is not available.");
-    }
-
-    return this.automation.execute({
-      type: "open_url",
-      target
-    });
-  }
-
-  async installGame({ gameName, platform = "both" } = {}) {
-    const normalizedPlatform = platform === "steam" || platform === "epic" ? platform : "both";
-    const query = String(gameName || "").trim();
-
-    if (!query) {
-      throw new Error("A game name is required.");
-    }
-
-    if (normalizedPlatform !== "epic") {
-      const storeResults = await this.searchSteamStore(query).catch(() => []);
-      const best = storeResults[0];
-
-      if (best) {
-        const launcher = await this.openLauncher("Steam");
-        const installUrl = `steam://install/${best.appId}`;
-        let openedInstallUrl = true;
-
-        try {
-          await this.openUrl(installUrl);
-        } catch (_error) {
-          openedInstallUrl = false;
-          await this.openUrl(buildSteamSearchUrl(best.name));
-        }
-
-        return {
-          action: "install",
-          platform: "steam",
-          query,
-          gameName: best.name,
-          appId: best.appId,
-          installUrl,
-          launcherOpened: launcher.opened,
-          openedInstallUrl,
-          searchResults: storeResults.slice(0, 5)
-        };
-      }
-    }
-
-    const epicSearchUrl = buildEpicSearchUrl(query);
-    const launcher = await this.openLauncher("Epic Games Launcher");
-    await this.openUrl(epicSearchUrl);
-
-    return {
-      action: "install",
-      platform: "epic",
-      query,
-      gameName: query,
-      searchUrl: epicSearchUrl,
-      launcherOpened: launcher.opened
-    };
-  }
-
-  async updateGame({ gameName = "", platform = "both" } = {}) {
-    const normalizedPlatform = platform === "steam" || platform === "epic" ? platform : "both";
-    const query = String(gameName || "").trim();
-
-    if (normalizedPlatform !== "epic") {
-      const launcher = await this.openLauncher("Steam");
-      const installedGames = await this.listSteamGames();
-      const matchedGame = query ? this.pickInstalledGame(installedGames, query) : null;
-      const targetUrl = matchedGame
-        ? `steam://update/${matchedGame.appId}`
-        : "steam://open/downloads";
-      let openedTargetUrl = true;
-
+  async steamDirectories(reportIssue) {
+    const directories = [];
+    for (const root of this.steamRoots) {
+      const directory = path.join(root, "steamapps");
+      directories.push(directory);
       try {
-        await this.openUrl(targetUrl);
-      } catch (_error) {
-        openedTargetUrl = false;
-        await this.openUrl(query ? buildSteamSearchUrl(query) : "https://store.steampowered.com/");
+        const config = await readManifest(path.join(directory, "libraryfolders.vdf"));
+        directories.push(...parseSteamLibraryFolders(config).filter((location) => path.isAbsolute(location)));
+      } catch (error) {
+        if (!isMissing(error)) reportIssue();
       }
-
-      return {
-        action: "update",
-        platform: "steam",
-        query,
-        gameName: matchedGame?.name || query,
-        appId: matchedGame?.appId || "",
-        targetUrl,
-        openedTargetUrl,
-        launcherOpened: launcher.opened
-      };
     }
+    return unique(directories);
+  }
 
-    const launcher = await this.openLauncher("Epic Games Launcher");
-    const searchUrl = query ? buildEpicSearchUrl(query) : "https://store.epicgames.com/en-US/";
-    await this.openUrl(searchUrl);
+  async scanLibrary(provider) {
+    const games = new Map();
+    let readable = false;
+    let partial = false;
+    const reportIssue = () => { partial = true; };
+    const steam = provider === "steam";
+    const directories = steam ? await this.steamDirectories(reportIssue) : this.epicRoots;
+    for (const directory of directories) {
+      let entries;
+      try {
+        entries = await fs.readdir(directory, { withFileTypes: true });
+        readable = true;
+      } catch (error) {
+        if (!isMissing(error)) reportIssue();
+        continue;
+      }
+      for (const entry of entries) {
+        const nameMatch = steam ? entry.name.match(/^appmanifest_(\d+)\.acf$/i) : entry.name.match(/\.(?:item|json)$/i);
+        if (!nameMatch) continue;
+        try {
+          // Only regular records are read, including on platforms without O_NOFOLLOW.
+          if (!entry.isFile()) {
+            reportIssue();
+            continue;
+          }
+          const contents = await readManifest(path.join(directory, entry.name));
+          const manifest = steam ? parseSteamManifest(contents) : parseEpicManifest(contents);
+          if (!manifest) {
+            reportIssue();
+            continue;
+          }
+          if (steam && (nameMatch[1] !== manifest.appId ||
+              !/^[0-9]+$/.test(manifest.stateFlags) || !(Number(manifest.stateFlags) & 4) ||
+              !manifest.installDir || manifest.installDir === "." || manifest.installDir === ".." ||
+              /[\x00-\x1f\/\\:]/.test(manifest.installDir))) continue;
 
+          const id = steam ? manifest.appId : manifest.id || manifest.name;
+          const location = steam ? path.join(directory, "common", manifest.installDir) : manifest.installLocation;
+          if (games.has(id) || !path.isAbsolute(location) || !(await isDirectory(location))) continue;
+          const name = normalizeName(manifest.name);
+          if (name) games.set(id, { id, name });
+        } catch (error) {
+          if (!isMissing(error)) reportIssue();
+        }
+      }
+    }
     return {
-      action: "update",
-      platform: "epic",
-      query,
-      gameName: query,
-      searchUrl,
-      launcherOpened: launcher.opened
+      platform: provider,
+      status: directories.length === 0 ? "unsupported" : partial ? "partial" : readable ? "available" : "missing",
+      games: [...games.values()].sort((a, b) => a.name.localeCompare(b.name))
     };
   }
 
-  async listInstalledGames({ platform = "both" } = {}) {
-    const normalizedPlatform = platform === "steam" || platform === "epic" ? platform : "both";
-    const steamGames = normalizedPlatform === "epic" ? [] : await this.listSteamGames();
-    const epicGames = normalizedPlatform === "steam" ? [] : await this.listEpicGames();
+  async listInstalledGames() {
+    return Promise.all(["steam", "epic"].map((provider) => this.scanLibrary(provider)));
+  }
 
-    return {
-      action: "list",
-      platform: normalizedPlatform,
-      steamGames,
-      epicGames,
-      totalCount: steamGames.length + epicGames.length
-    };
+  async searchSteamStore(gameName) {
+    const query = requireQuery(gameName);
+    const url = new URL(STEAM_SEARCH);
+    url.search = new URLSearchParams({ term: query, l: "english", cc: "US" }).toString();
+    try {
+      const response = await this.fetchSteam(url, { redirect: "error", signal: AbortSignal.timeout(8000) });
+      if (!response.ok) throw gameError("GAMES_SEARCH");
+      const data = await response.json();
+      if (!Array.isArray(data?.items)) throw gameError("GAMES_SEARCH");
+      const candidates = new Map();
+      for (const item of data.items.slice(0, 100)) {
+        const id = String(item?.id ?? item?.appid ?? "");
+        const name = normalizeName(item?.name);
+        if (GAME_ID.test(id) && name && !candidates.has(id)) candidates.set(id, { id, name });
+      }
+      return [...candidates.values()]
+        .sort((a, b) => scoreGameMatch(query, b.name) - scoreGameMatch(query, a.name))
+        .slice(0, 8);
+    } catch {
+      throw gameError("GAMES_SEARCH");
+    }
+  }
+
+  async installSteamGame(id) {
+    if (typeof id !== "string" || !GAME_ID.test(id)) throw gameError("GAMES_CHOOSE_RESULT");
+    return this.openDestination("steam-install", "steam://install/" + id);
+  }
+
+  async openUpdates(provider) {
+    if (provider === "steam") return this.openDestination("steam-downloads", "steam://open/downloads");
+    if (provider === "epic") return this.openDestination("epic-launcher", "com.epicgames.launcher://");
+    throw gameError("GAMES_PLATFORM");
+  }
+
+  async openStore(provider, gameName) {
+    const query = requireQuery(gameName);
+    if (provider === "steam") return this.openDestination("steam-store", buildSteamSearchUrl(query));
+    if (provider === "epic") return this.openDestination("epic-store", buildEpicSearchUrl(query));
+    throw gameError("GAMES_PLATFORM");
+  }
+
+  async openDestination(destination, target) {
+    try {
+      await this.openExternal(target);
+      return { destination };
+    } catch {
+      throw gameError(destination.endsWith("-store") ? "GAMES_STORE_OPEN" : "GAMES_LAUNCHER_OPEN");
+    }
   }
 }
 
@@ -447,6 +350,7 @@ module.exports = {
   GameService,
   buildEpicSearchUrl,
   buildSteamSearchUrl,
+  gameLibraryGuidance,
   parseEpicManifest,
   parseSteamLibraryFolders,
   parseSteamManifest,

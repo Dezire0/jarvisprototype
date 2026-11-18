@@ -1,0 +1,22 @@
+{
+  "library": {
+    "en": ["games", "installed games", "list games", "list installed games", "game library", "steam library", "steam downloads", "update games"],
+    "ko": ["게임", "게임 목록", "설치된 게임", "설치 게임 목록", "게임 라이브러리", "게임 업데이트"]
+  },
+  "steam": {
+    "en": ["install a game", "install game", "find a game", "find game", "steam store"],
+    "ko": ["게임 설치", "게임 찾기", "스팀 스토어"],
+    "withTitle": {
+      "en": ["install game", "find game", "find on steam"],
+      "ko": ["게임 설치", "게임 찾기", "스팀에서 찾기"]
+    }
+  },
+  "epic": {
+    "en": ["epic store", "epic games store"],
+    "ko": ["에픽 스토어", "에픽 게임즈 스토어"],
+    "withTitle": {
+      "en": ["find on epic games", "find on epic"],
+      "ko": ["에픽에서 찾기", "에픽 게임즈에서 찾기"]
+    }
+  }
+}
