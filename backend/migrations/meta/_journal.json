@@ -22,6 +22,13 @@
       "when": 1794953104448,
       "tag": "0002_restore_user_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794962342604,
+      "tag": "0003_google_sign_in_attempts",
+      "breakpoints": true
     }
   ]
 }
