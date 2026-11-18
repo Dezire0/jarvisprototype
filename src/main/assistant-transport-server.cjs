@@ -2,7 +2,7 @@ const http = require("node:http");
 const { SESSION_HEADER, isDesktopSessionToken, matchesDesktopToken } = require("./desktop-session.cjs");
 const { normalizeMemoryAccountId } = require("./memory-store.cjs");
 const { normalizeFileName, parseAssistantInput } = require("./assistant/chat-attachments.cjs");
-const { parseLocalFileRead } = require("./assistant/local-file-command.cjs");
+const { parseLocalFileRead, parseLocalFileWrite } = require("./assistant/local-file-command.cjs");
 const { normalizeMemorySources } = require("./assistant/memory-context.cjs");
 const { maxFiles } = require("./assistant/attachment-contract.json");
 
@@ -307,8 +307,7 @@ function createAssistantTransportServer({
     const state = normalizeState(payload?.state);
     const { text: userText, attachments } = input;
     const attachmentReview = attachments.length > 0;
-    const localFileRead = !attachmentReview && Boolean(parseLocalFileRead(userText));
-    const fileReview = attachmentReview || localFileRead;
+    const fileReview = attachmentReview || Boolean(parseLocalFileRead(userText) || parseLocalFileWrite(userText));
     const memoryContext = normalizeMemoryContext(payload?.memoryContext, threadId);
 
     if (!userText && !attachmentReview) {

@@ -34,6 +34,8 @@ The Electron main process stores a separate consent choice for each desktop prof
 
 The workspace’s screen review opens without capturing. **Read text** starts the permission-checked OCR request. The captured pixels stay within the capture and OCR path. Users can edit the returned text before adding it as an attachment, and **Send** starts model review. Automatic progress previews display the workspace-managed browser when available.
 
+Direct file replacement requires the trusted desktop editor, active computer control, and a native confirmation tied to the resolved path and inspected file revision. The native handler checks the desktop/account context and file revision again before publishing. Automated file writes can only create a new destination. Publishing a new file uses an exclusive hard link on the destination filesystem. Replacement uses atomic rename after the revision check, so an external writer acting in the final check-to-rename interval is outside the revision guarantee.
+
 ## Safe Alternative to "Auto Login Everywhere"
 
 For websites and apps, the right pattern is:

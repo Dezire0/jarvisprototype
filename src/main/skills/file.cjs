@@ -1,4 +1,6 @@
 const fs = require('fs/promises');
+const { FileService } = require("../file-service.cjs");
+const files = new FileService({ workspaceRoot: process.cwd() });
 
 module.exports = [
   {
@@ -17,10 +19,10 @@ module.exports = [
   {
     name: "file_write",
     schema: '{"action":"file_write","path":"/absolute/path/to/file","content":"...","reason":"..."}',
-    description: "[신규] 수집된 정보나 결과물을 로컬 파일로 저장",
+    description: "수집된 정보나 결과물을 새 로컬 파일에 저장",
     execute: async (action, { safeObserve }) => {
       try {
-        await fs.writeFile(action.path, action.content, 'utf8');
+        await files.writeFile(action.path, action.content);
         return { state: { ...(await safeObserve()), file_saved: true }, error: null };
       } catch (err) {
         return { state: await safeObserve(), error: `파일 쓰기 실패: ${err.message}` };

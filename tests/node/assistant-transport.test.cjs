@@ -23,7 +23,7 @@ test("assistant transport has no browser-to-desktop authentication callback", as
   assert.deepEqual(await response.json(), { ok: false, error: "Not found" });
 });
 
-test("exact file reads keep their turns out of the following model history", async (t) => {
+test("exact local file commands keep their turns out of the following model history", async (t) => {
   const token = createDesktopSessionToken();
   const calls = [];
   const server = createAssistantTransportServer({
@@ -71,7 +71,9 @@ test("exact file reads keep their turns out of the following model history", asy
   assert.deepEqual(read.messages.map((message) => message.attachmentReview), [false, false, true, true]);
   assert.equal(read.messages.at(-1).details.filePreview.text, "Private preview");
   assert.deepEqual(calls, [[]]);
-  await send("A follow-up request", read);
+  const staged = await send("save file /tmp/notes.txt :::\nPrivate save draft", read);
+  assert.deepEqual(staged.messages.slice(-2).map((message) => message.attachmentReview), [true, true]);
+  await send("A follow-up request", staged);
   assert.deepEqual(calls.at(-1).map((message) => message.text), ["A general request", "General conversation"]);
 });
 
