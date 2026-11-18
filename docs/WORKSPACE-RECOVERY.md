@@ -66,6 +66,10 @@ Cloud sync starts off for new profiles. When enabled, cloud search can open a se
 
 The desktop Assistant stores conversation recall, project context, indexed documents and saved personal context in a separate on-device store for each workspace account. Relevant excerpts can be included in requests to the configured model. The chat transcript and Assistant recall are separate stores. Legacy unscoped memory stays with the legacy desktop entry point because its account owner is unknown.
 
+In your profile, turn off **Use saved memory** and save to stop reading and updating that memory for new desktop requests. Work already underway follows the previous setting. The open conversation still provides its recent turns, and completed conversations are still saved in the sidebar. Cloud conversation sync has its own preference. Turning saved memory on again makes earlier saved memory available. The default is on. If the workspace cannot load its preferences, it keeps saved memory off for that session.
+
+The desktop workspace sends the preference as `memoryContext.savedMemory` on regular chat requests. The local transport and desktop transcript storage check the account against the current desktop session. Temporary chats retain their separate `memoryMode`.
+
 When Jarvis sends saved memory in a regular model request, **Saved memory sent** lists the categories under the corresponding reply. It reflects the prompt sent to the model. The line contains category labels and stays with the local transcript. Cloud transcript sync carries no memory-category field. Temporary chats, attachment reviews and managed fallback responses omit the line. Recent turns already in the open conversation are separate from saved memory added to the prompt.
 
 Choose **Temporary Chat** from the sidebar. The conversation keeps its own context while open and does not read saved Assistant recall. It does not appear in recent conversations, search or cloud sync. Choose **New Chat** or an existing conversation in the sidebar to return to regular chat. Temporary requests still use the configured model, and actions you explicitly run, including local tasks and notes, still apply.

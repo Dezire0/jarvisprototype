@@ -25,7 +25,7 @@ test("memory categories are visible on the corresponding answer and saved only i
       if (target.origin !== url.origin) return route.abort();
       if (target.pathname === "/fixture-account/login") {
         return route.fulfill({ json: {
-          token: "memory-fixture-token", user: { id: accountId, email: "memory@example.invalid", plan: "free" },
+          token: "memory-fixture-token", user: { id: accountId, name: "Memory Fixture", email: "memory@example.invalid", plan: "free" },
         } });
       }
       if (target.pathname === "/fixture-account/plan") return route.fulfill({ json: { success: true, plan: "free" } });
@@ -34,16 +34,19 @@ test("memory categories are visible on the corresponding answer and saved only i
         return route.fulfill({ json: { success: true } });
       }
       if (target.pathname !== "/api/chat") return route.continue();
-      const { memoryContext } = request.postDataJSON();
+      const { memoryContext, state } = request.postDataJSON();
       const temporary = memoryContext.memoryMode === "temporary";
-      chats.push(memoryContext.memoryMode);
+      const disabled = memoryContext.savedMemory === false;
+      chats.push({ mode: memoryContext.memoryMode, saved: memoryContext.savedMemory, prior: state.messages.length });
       const createdAt = new Date().toISOString();
       const messages = [
-        { id: "fixture-user", role: "user", status: "complete", createdAt, text: temporary ? "Temporary prompt" : "Ordinary prompt" },
+        ...state.messages,
+        { id: "fixture-user-" + chats.length, role: "user", status: "complete", createdAt,
+          text: temporary ? "Temporary prompt" : disabled ? "Follow-up prompt" : "Ordinary prompt" },
         {
-          id: "fixture-answer", role: "assistant", status: "complete", createdAt,
-          text: temporary ? "Temporary answer" : "Ordinary answer",
-          memorySources: temporary ? [] : ["conversation", "personal", "personal", "/fixture/hidden-path"],
+          id: "fixture-answer-" + chats.length, role: "assistant", status: "complete", createdAt,
+          text: temporary ? "Temporary answer" : disabled ? "Follow-up answer" : "Ordinary answer",
+          memorySources: temporary || disabled ? [] : ["conversation", "personal", "personal", "/fixture/hidden-path"],
         },
       ];
       return route.fulfill({
@@ -99,14 +102,61 @@ test("memory categories are visible on the corresponding answer and saved only i
     await sidebarToggle.click();
     await page.getByRole("button", { name: "Ordinary prompt", exact: true }).click();
     await label.waitFor();
-    assert.deepEqual(chats, ["persistent"]);
+    assert.deepEqual(chats, [{ mode: "persistent", saved: true, prior: 0 }]);
+
+    const profile = page.getByRole("button", { name: /Memory Fixture/ });
+    await profile.click();
+    const dialog = page.getByRole("dialog", { name: "Edit profile" });
+    const memory = dialog.getByRole("checkbox", { name: "Use saved memory" });
+    const sync = dialog.getByRole("checkbox", { name: "Cloud conversation sync" });
+    assert.equal(await memory.isChecked(), true);
+    assert.equal(await sync.isChecked(), true);
+    await memory.focus();
+    await memory.press("Space");
+    assert.equal(await memory.isChecked(), false);
+    assert.equal(await sync.isChecked(), true);
+
+    await page.evaluate((key) => {
+      const setItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (name, value) {
+        if (name === key) throw new Error("Fixture write failure.");
+        return setItem.call(this, name, value);
+      };
+      window.restoreFixtureStorage = () => { Storage.prototype.setItem = setItem; };
+    }, historyKey);
+    const save = dialog.getByRole("button", { name: "Save", exact: true });
+    await save.click();
+    await dialog.getByText("Preferences couldn’t be saved. Try again.").waitFor();
+    assert.equal(await memory.isChecked(), false);
+    assert.equal(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)).savedMemory, historyKey), true);
+    await page.evaluate(() => window.restoreFixtureStorage());
+    await save.click();
+    await dialog.waitFor({ state: "hidden" });
+    assert.deepEqual(await page.evaluate((key) => {
+      const { savedMemory, cloudSync } = JSON.parse(localStorage.getItem(key));
+      return { savedMemory, cloudSync };
+    }, historyKey), { savedMemory: false, cloudSync: true });
+
+    const syncedAgain = page.waitForResponse((response) => new URL(response.url()).pathname === "/fixture-sync");
+    await composer.fill("Follow-up prompt");
+    await composer.press("Enter");
+    await page.getByText("Follow-up answer", { exact: true }).waitFor();
+    await syncedAgain;
+    assert.deepEqual(chats[1], { mode: "persistent", saved: false, prior: 2 });
+    assert.equal(await label.count(), 1);
+
+    await page.reload();
+    await sidebarToggle.click();
+    await profile.click();
+    assert.equal(await memory.isChecked(), false);
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByRole("button", { name: "Temporary Chat", exact: true }).click();
     await composer.fill("Temporary prompt");
     await composer.press("Enter");
     await page.getByText("Temporary answer", { exact: true }).waitFor();
     assert.equal(await label.count(), 0);
-    assert.deepEqual(chats, ["persistent", "temporary"]);
-    assert.equal(cloud.length, 1);
+    assert.deepEqual(chats[2], { mode: "temporary", saved: undefined, prior: 0 });
+    assert.equal(cloud.length, 2);
     assert.doesNotMatch(await page.evaluate((key) => localStorage.getItem(key), historyKey), /Temporary prompt/);
   } finally {
     await browser.close();

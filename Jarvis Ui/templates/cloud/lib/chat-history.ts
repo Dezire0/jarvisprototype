@@ -35,9 +35,10 @@ type Snapshot = {
   threads: ThreadHistory[];
   sidebar: SidebarHistory;
   cloudSync?: boolean;
+  savedMemory?: boolean;
   profile?: { name: string; language: WorkspaceLanguage };
 };
-type Profile = NonNullable<Snapshot["profile"]> & { cloudSync: boolean };
+type Profile = NonNullable<Snapshot["profile"]> & { cloudSync: boolean; savedMemory: boolean };
 
 const EMPTY_SIDEBAR: SidebarHistory = { projects: [], threadMetaById: {}, selectedProjectId: null };
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
@@ -49,6 +50,7 @@ function readSnapshot(raw: string | null): Snapshot {
   if (data?.version !== 1 || !Array.isArray(data.threads) || !Array.isArray(data.sidebar?.projects) ||
       !data.sidebar.threadMetaById || typeof data.sidebar.threadMetaById !== "object" ||
       data.threads.some((thread) => !thread?.remoteId || !Array.isArray(thread.messages)) ||
+      (data.savedMemory !== undefined && typeof data.savedMemory !== "boolean") ||
       (data.profile !== undefined &&
         (typeof data.profile?.name !== "string" || data.profile.name.length > 80 ||
           !isWorkspaceLanguage(data.profile.language)))) {
@@ -108,7 +110,7 @@ export class ChatHistory {
       return history;
     } catch {
       onError(true);
-      return new ChatHistory(accountId, { version: 1, threads: [], sidebar: EMPTY_SIDEBAR }, null, onError);
+      return new ChatHistory(accountId, { version: 1, threads: [], sidebar: EMPTY_SIDEBAR, savedMemory: false }, null, onError);
     }
   }
 
@@ -127,6 +129,7 @@ export class ChatHistory {
       name: snapshot.profile?.name ?? previousName,
       language: snapshot.profile?.language ?? (isWorkspaceLanguage(previousLanguage) ? previousLanguage : "auto"),
       cloudSync: snapshot.cloudSync === true,
+      savedMemory: snapshot.savedMemory !== false,
     };
     this.saved = new Map(snapshot.threads.map((thread) => [thread.remoteId, thread]));
   }
@@ -192,7 +195,7 @@ export class ChatHistory {
       };
       const next = { ...this.preferences, ...patch };
       const snapshot = {
-        version: 1, threads, sidebar, cloudSync: next.cloudSync,
+        version: 1, threads, sidebar, cloudSync: next.cloudSync, savedMemory: next.savedMemory,
         profile: { name: next.name, language: next.language },
       } satisfies Snapshot;
       await write(JSON.stringify(snapshot));
