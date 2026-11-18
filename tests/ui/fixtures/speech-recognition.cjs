@@ -35,4 +35,44 @@ function installSpeechFixture() {
   window.speechSynthesis.speak = () => {};
 }
 
-module.exports = { installSpeechFixture };
+function installWakeFixture({ availability = "downloadable", supportsDevice = true } = {}) {
+  const sessions = [];
+  const fixture = {
+    downloads: [],
+    starts: [],
+    aborts: 0,
+    deliver(index, transcript, isFinal = true) {
+      const result = Object.assign([{ transcript }], { isFinal });
+      sessions[index].onresult?.({ resultIndex: 0, results: [result] });
+    },
+    fail(index, error) { sessions[index].onerror?.({ error }); },
+    end(index) { sessions[index].onend?.(); },
+  };
+  window.jarvisWakeFixture = fixture;
+  class FixtureRecognition {
+    constructor() {
+      if (supportsDevice) this.processLocally = false;
+    }
+    start() {
+      sessions.push(this);
+      fixture.starts.push({ locale: this.lang, local: this.processLocally === true, continuous: this.continuous });
+      queueMicrotask(() => this.onstart?.());
+    }
+    stop() { queueMicrotask(() => this.onend?.()); }
+    abort() {
+      fixture.aborts++;
+      queueMicrotask(() => this.onend?.());
+    }
+  }
+  if (supportsDevice) {
+    FixtureRecognition.available = async () => availability;
+    FixtureRecognition.install = async (options) => {
+      fixture.downloads.push(options);
+      availability = "available";
+      return true;
+    };
+  }
+  window.SpeechRecognition = FixtureRecognition;
+}
+
+module.exports = { installSpeechFixture, installWakeFixture };
