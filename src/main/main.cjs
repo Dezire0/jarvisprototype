@@ -109,6 +109,70 @@ function bindDesktopApproval(event, code) {
   };
 }
 
+const PROJECT_TOOL_NAMES = new Set(["project:create", "project:save", "project:open"]);
+const PROJECT_ERRORS = new Set([
+  "PROJECT_INVALID_REQUEST", "PROJECT_INVALID_NAME", "PROJECT_INVALID_FILES", "PROJECT_TOO_LARGE",
+  "PROJECT_MODEL_REQUIRED", "PROJECT_MODEL_FAILED", "PROJECT_INVALID_DESTINATION", "PROJECT_EXISTS",
+  "PROJECT_PERMISSION", "PROJECT_PARTIAL"
+]);
+let projectBusy = false;
+let projectDraft;
+let savedProject;
+let projectSequence = 0;
+
+async function dispatchProjectTool(event, { tool, payload = {} }) {
+  const assertAllowed = bindDesktopApproval(event, "PROJECT_PERMISSION");
+  if (projectBusy) return { ok: false, reason: "PROJECT_BUSY" };
+  projectBusy = true;
+  try {
+    assertAllowed();
+    const service = ensureReadyServices().services.codeProjects;
+    if (tool === "project:create") {
+      projectDraft = null;
+      savedProject = null;
+      const { template = "model", name, prompt = payload.input } = payload;
+      const draft = await service.prepareProject({ template, name, prompt });
+      assertAllowed();
+      const id = ++projectSequence;
+      projectDraft = { id, draft, assertAllowed };
+      return { ok: true, data: { id, ...draft } };
+    }
+    if (tool === "project:save") {
+      if (!projectDraft || projectDraft.id !== payload.id) return { ok: false, reason: "PROJECT_REVIEW_REQUIRED" };
+      projectDraft.assertAllowed();
+      const korean = payload.language === "ko";
+      const selection = await dialog.showOpenDialog(settingsWindow, {
+        title: korean ? "코딩 프로젝트를 저장할 위치" : "Choose where to save the project",
+        buttonLabel: korean ? "여기에 만들기" : "Create here",
+        properties: ["openDirectory"]
+      });
+      if (selection.canceled || selection.filePaths.length !== 1) return { ok: true, outcome: "cancelled" };
+      const check = () => {
+        assertAllowed();
+        projectDraft.assertAllowed();
+      };
+      const result = await service.saveProject(projectDraft.draft, selection.filePaths[0], check);
+      savedProject = { id: projectDraft.id, path: result.path, assertAllowed };
+      projectDraft = null;
+      return { ok: true, data: result };
+    }
+
+    if (!savedProject || savedProject.id !== payload.id) return { ok: false, reason: "PROJECT_REVIEW_REQUIRED" };
+    savedProject.assertAllowed();
+    const projectPath = savedProject.path;
+    if (!(await fs.lstat(projectPath)).isDirectory()) return { ok: false, reason: "PROJECT_OPEN_FAILED" };
+    assertAllowed();
+    savedProject.assertAllowed();
+    const opened = payload.editor === "vscode" ? await service.openProjectInVsCode(projectPath) : !(await shell.openPath(projectPath));
+    return opened ? { ok: true } : { ok: false, reason: "PROJECT_OPEN_FAILED" };
+  } catch (error) {
+    if (PROJECT_ERRORS.has(error.code)) return { ok: false, reason: error.code, ...error.details };
+    return { ok: false, reason: tool === "project:open" ? "PROJECT_OPEN_FAILED" : "PROJECT_FAILED" };
+  } finally {
+    projectBusy = false;
+  }
+}
+
 async function requestObsTransition(event, active, { language } = {}) {
   const assertAllowed = bindDesktopApproval(event, "OBS_PERMISSION");
   const { obs } = ensureReadyServices().services;
@@ -263,10 +327,7 @@ async function createServices() {
   const games = new GameService({
     automation
   });
-  const codeProjects = new CodeProjectService({
-    files,
-    automation
-  });
+  const codeProjects = new CodeProjectService({ automation });
   const tts = new TtsService({
     settingsStore: settings
   });
@@ -301,7 +362,6 @@ async function createServices() {
         automation,
         computerControl,
         browser,
-        codeProjects,
         credentials,
         extensions,
         files,
@@ -1014,16 +1074,6 @@ async function dispatchTool(tool, payload = {}) {
     case "os:notifications": {
       return { ok: true, tool, context: notificationMonitor.getAIContextString() };
     }
-    case "project:create": {
-      const data = await liveServices.codeProjects.createProject(
-        payload.prompt || payload.input || ""
-      );
-      return {
-        ok: true,
-        tool,
-        data
-      };
-    }
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }
@@ -1247,6 +1297,7 @@ ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
 ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   requireAssistantWindow(event);
   if (requiresComputerControl(request.tool)) requireComputerControl();
+  if (PROJECT_TOOL_NAMES.has(request.tool)) return dispatchProjectTool(event, request);
   if (request.tool === "file:write") {
     return saveLocalFile(ensureReadyServices().services.files, request.payload, bindDesktopApproval(event, "FILE_PERMISSION_CHANGED"));
   }
@@ -1335,7 +1386,7 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
       obsControl: "obs-websocket-js",
       fileAutomation: "local-fs",
       gameLaunchers: "steam+epic",
-      codeProjects: "generated-projects",
+      codeProjects: "project-review",
       extensions: liveServices.extensions.getSummary()
     },
     providers: {

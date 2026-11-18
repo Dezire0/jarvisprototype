@@ -15,6 +15,8 @@ import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/component
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
 import { FileSave } from "@/components/jarvis/file-save";
+import { ProjectCreation } from "@/components/jarvis/project-creation";
+import { isProjectCommand } from "@/lib/project-command";
 import { ObsControls } from "@/components/jarvis/obs-controls";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
@@ -38,7 +40,7 @@ function AssistantWorkspace() {
     { section?: ToolSection } |
     { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string } |
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
-    { section: "obs" } |
+    { section: "obs" | "project-create" } |
     null
   >(null);
   const [computerControl, setComputerControl] = useState<boolean | null>(null);
@@ -98,6 +100,13 @@ function AssistantWorkspace() {
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    if (isProjectCommand(text, hasAttachmentsOrQuote)) {
+      localRun.current++;
+      setLocalResult(null);
+      toolsTrigger.current = inputRef.current;
+      setTools({ section: "project-create" });
+      return "local";
+    }
     if (isObsCommand(text, hasAttachmentsOrQuote)) {
       localRun.current++;
       setLocalResult(null);
@@ -170,7 +179,8 @@ function AssistantWorkspace() {
     setLocalResult(null);
   }
 
-  const toolTitle = tools?.section === "obs" ? "OBS" : fileSaveOpen ? (isKo ? "파일 저장" : "Save file")
+  const toolTitle = tools?.section === "project-create" ? (isKo ? "코딩 프로젝트 만들기" : "Create coding project")
+    : tools?.section === "obs" ? "OBS" : fileSaveOpen ? (isKo ? "파일 저장" : "Save file")
     : tools?.section === "browser" ? (isKo ? "웹 페이지 읽기" : "Read web page")
     : screenOpen ? (isKo ? "화면 읽기" : "Read screen")
       : weatherOpen ? (isKo ? "날씨" : "Weather") : toolsLabel;
@@ -250,14 +260,16 @@ function AssistantWorkspace() {
                   setTools(null);
                 }} />
               )}
+              {tools?.section === "project-create" && <ProjectCreation computerControl={computerControl} />}
               {tools?.section === "obs" && <ObsControls computerControl={computerControl} />}
-              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && (
+              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && (
                 <LocalTools local={local} embedded initialSection={tools.section}
                   onReadPage={computerControl === null ? undefined : () => setTools({ section: "browser", mode: "read", threadId })}
                   onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })}
                   onSaveFile={computerControl === null ? undefined : () => setTools({
                     section: "file-save", draft: { path: "", content: "" }, threadId,
                   })}
+                  onCreateProject={computerControl === null ? undefined : () => setTools({ section: "project-create" })}
                   onOpenObs={computerControl === null ? undefined : () => setTools({ section: "obs" })} />
               )}
             </DialogContent>

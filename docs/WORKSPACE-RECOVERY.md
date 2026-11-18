@@ -90,7 +90,7 @@ With desktop computer control enabled, an exact command such as `read file "/pat
 
 Open **Local tools → Save file** in the desktop workspace, or enter `save file "/path/to/meeting notes.txt" ::: text` without an attachment or quote. The path and multiline text appear in an editor. With Computer control on, **Save** writes up to 64 KiB of UTF-8 text on this device. The editor and saved text stay outside the model request and conversation history.
 
-New files are created exclusively. For an existing regular file, the system confirmation shows its resolved path and defaults to **Cancel**. If the file changes while confirmation is open, Jarvis retains the draft and asks you to review again. The legacy editor uses the same confirmation. Automated file creation and project scaffolds use new paths. Use an absolute path to select a destination regardless of how Jarvis launched.
+New files are created exclusively. For an existing regular file, the system confirmation shows its resolved path and defaults to **Cancel**. If the file changes while confirmation is open, Jarvis retains the draft and asks you to review again. The legacy editor uses the same confirmation. Automated file creation uses new paths. Use an absolute path to select a destination regardless of how Jarvis launched.
 
 ### Reading or summarizing the screen
 
@@ -109,6 +109,14 @@ Review the text and choose **Attach to draft**. The original page, its title and
 With Computer control enabled, open **Local tools → OBS** or enter `OBS status`, `start stream`, or `방송 시작`. The panel shows the scene and broadcast state reported by the OBS WebSocket API. Connect explicitly to a WebSocket address. The default is the local OBS server at `ws://127.0.0.1:4455`. Enter any required WebSocket password in the local form. Use **Refresh** to read current state and **Switch scene** to apply your scene selection. [OBS WebSocket protocol](https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md#stream-requests)
 
 **Start broadcast** and **Stop broadcast** open a system confirmation with the server and current scene. If OBS or the desktop permission changes during confirmation, review the current state before trying again. The panel displays the reported state after the request and can refresh if OBS is still starting or stopping. Direct OBS controls keep credentials and requests in the desktop app. The legacy controls use the same approval.
+
+### Creating a coding project
+
+In Jarvis Desktop, enable Computer control and open **Local tools → Create coding project**, or enter `create a coding project` or `코딩 프로젝트 만들기`. Choose a built-in web page, task list or grid-game template. You can also choose **Describe to model** and explicitly send the project description and optional name to the configured API model or Ollama. The model prepares a text draft and the review shows which model responded. Template previews are generated on the device.
+
+Expand the file names to review their plain-text content, then choose **Choose folder and create…**. The system folder picker lets you select the parent folder. Jarvis writes a new child folder named in the review. Choose another location or name if a folder already exists. After saving, use **Open folder** or **Open in VS Code**. The preceding steps leave the files unopened.
+
+The desktop `project:create` tool prepares the draft and returns its review ID. `project:save` accepts that ID and opens the native picker. `project:open` acts on the saved result for the current review ID. All three require the trusted desktop window and computer control.
 
 ### Reviewing attached files
 
@@ -138,6 +146,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | macOS/Windows/Linux app operations and browser actions | Electron services and browser runtime | Existing routes retained. Native permissions and real apps/sites require manual verification |
 | Voice recognition, continuous mode and TTS | Voice provider, Electron STT/TTS, Friday | Existing controls retained. Real microphone and provider verification remains open, including [#4](https://github.com/Dezire0/jarvisprototype/issues/4) |
 | OBS connection, status, scenes and broadcast transitions | Desktop OBS panel and Electron OBS WebSocket service | Verified against a loopback protocol fixture. Live OBS and physical confirmation remain to be verified |
-| Files, OCR, screen briefing, music, game and project-generation actions | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |
+| Coding project templates, model drafts and save review | Desktop project creation and Electron project service | Uses built-in templates or a configured direct model and a native destination picker |
+| Files, OCR, screen briefing, music and game actions | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |
 | Registration, Google sign-in and saved model state | Worker, D1, and existing onboarding | Account API work tracked in [#19](https://github.com/Dezire0/jarvisprototype/issues/19) |
 | OpenClaw planner, memory and direct tool dispatch | Desktop Assistant and memory services | Follow-up tracked in [#7–#11](https://github.com/Dezire0/jarvisprototype/issues) |
