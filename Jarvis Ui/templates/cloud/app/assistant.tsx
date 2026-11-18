@@ -11,9 +11,10 @@ import { JarvisVoiceProvider } from "@/components/jarvis/voice-provider";
 import { ComputerControlSettings } from "@/components/jarvis/computer-control-settings";
 import { ModelSettings, MODEL_SETTINGS_SAVED, type ModelAvailability } from "@/components/jarvis/model-settings";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
-import { LocalTools, speakLocalResult, type ToolSection } from "@/components/jarvis/local-tools";
+import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
+import { speakLocalResult } from "@/lib/local-speech";
 import { useLocalWorkspace } from "@/lib/use-local-workspace";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { WrenchIcon } from "lucide-react";
@@ -30,7 +31,7 @@ function AssistantWorkspace() {
   const [modelAvailability, setModelAvailability] = useState<ModelAvailability | null>(null);
   const modelSettingsTrigger = useRef<HTMLButtonElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [localResult, setLocalResult] = useState<Result | null>(null);
+  const [localResult, setLocalResult] = useState<(Result & { timerDeadline?: number }) | null>(null);
   const toolsTrigger = useRef<HTMLElement | null>(null);
   const localRun = useRef(0);
   const local = useLocalWorkspace();
@@ -88,6 +89,7 @@ function AssistantWorkspace() {
 
     const current = local.latestWorkspace();
     const { workspace, result } = runLocalCommand(command, current, Date.now(), crypto.randomUUID(), locale);
+    const isTimerStart = command.kind === "timer" || command.kind === "resume";
     function finish(saved: boolean) {
       if (run !== localRun.current) return;
       const outcome = saved ? result : {
@@ -95,7 +97,10 @@ function AssistantWorkspace() {
         detail: result.detail,
         failed: true,
       };
-      setLocalResult(outcome);
+      const timerDeadline = saved && !result.failed && isTimerStart
+        ? workspace.timer.endsAt ?? undefined
+        : undefined;
+      setLocalResult({ ...outcome, timerDeadline });
       if (saved && allowSpeech && workspace.speakResults && !result.failed) speakLocalResult(result.title, locale);
     }
 
@@ -135,6 +140,9 @@ function AssistantWorkspace() {
                   <ThemeToggle />
                 </div>
               </header>
+              {tools === null && local.workspace.timer.completedAt !== undefined && (
+                <TimerCompletionNotice onOpen={(trigger) => openTools("timer", trigger)} />
+              )}
               <div className="min-h-0 flex-1 overflow-hidden">
                 <Thread
                   onOpenTools={openTools}
@@ -142,7 +150,9 @@ function AssistantWorkspace() {
                   modelAvailability={modelAvailability}
                   inputRef={inputRef}
                   runLocalCommand={runComposerCommand}
-                  localResult={localResult}
+                  localResult={localResult?.timerDeadline !== undefined && localResult.timerDeadline !== local.workspace.timer.endsAt
+                    ? null
+                    : localResult}
                   dismissLocalResult={dismissLocalResult}
                 />
               </div>
@@ -160,7 +170,9 @@ function AssistantWorkspace() {
               className="jarvis-tools-dialog block w-full gap-0 overflow-y-auto p-0 motion-reduce:animate-none sm:max-w-xl"
               onCloseAutoFocus={(event) => {
                 event.preventDefault();
-                toolsTrigger.current?.focus();
+                const trigger = toolsTrigger.current;
+                if (trigger?.isConnected) trigger.focus();
+                else inputRef.current?.focus();
               }}
             >
               <DialogTitle className="jarvis-tools-dialog-title">{toolsLabel}</DialogTitle>

@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
-  calculate, emptyWorkspace, formatTimer, LOCAL_COMMAND_EXAMPLE, parseLocalCommand, readWorkspace,
+  calculate, completeExpiredTimer, emptyWorkspace, formatTimer, LOCAL_COMMAND_EXAMPLE, parseLocalCommand, readWorkspace,
   recordActivity, remainingSeconds, resolveComposerCommand, runLocalCommand,
 } = require("../../Jarvis Ui/templates/cloud/lib/local-workspace.ts");
 
@@ -71,6 +71,46 @@ test("the timer survives persistence, expires by deadline, and pauses/resumes fr
   const resumed = execute("resume timer", paused, NOW + 20000).workspace;
   assert.equal(remainingSeconds(resumed.timer, NOW + 31000), 0);
   assert.equal(formatTimer(remainingSeconds(execute("reset timer", resumed).workspace.timer, NOW)), "00:15");
+});
+
+test("an expired timer records one durable completion and preserves workspace entries", () => {
+  const task = execute("add task Review the draft").workspace;
+  const note = execute("save note Check tomorrow", task).workspace;
+  const spoken = execute("speak on", note).workspace;
+  const started = execute("timer 15 seconds", spoken).workspace;
+  const restored = readWorkspace(JSON.stringify(started));
+  const deadline = NOW + 15000;
+  assert.strictEqual(completeExpiredTimer(restored, deadline, deadline - 1), restored);
+
+  const completed = completeExpiredTimer(restored, deadline, deadline + 30000);
+  assert.equal(remainingSeconds(completed.timer, deadline), 0);
+  assert.equal(completed.timer.completedAt, deadline);
+  assert.equal(completed.timer.endsAt, null);
+  assert.deepEqual(completed.activity[0], { id: `timer-complete-${deadline}`, at: deadline, kind: "timer-complete" });
+  assert.deepEqual(completed.activity.slice(1), started.activity);
+  assert.deepEqual(completed.tasks, task.tasks);
+  assert.deepEqual(completed.notes, note.notes);
+  assert.equal(completed.speakResults, true);
+
+  const reopened = readWorkspace(JSON.stringify(completed));
+  assert.deepEqual(reopened, completed);
+  assert.strictEqual(completeExpiredTimer(reopened, deadline, deadline + 60000), reopened);
+  assert.equal(execute("reset timer", reopened, deadline).workspace.timer.completedAt, undefined);
+  assert.equal(execute("resume timer", reopened, deadline).workspace.timer.completedAt, undefined);
+});
+
+test("paused, reset, and replaced timers ignore the previous deadline", () => {
+  const started = execute("timer 15 seconds").workspace;
+  const deadline = started.timer.endsAt;
+  const replacesAt = NOW + 5000;
+  for (const command of ["pause timer", "reset timer", "timer 1 minute"]) {
+    const updated = execute(command, started, replacesAt).workspace;
+    assert.strictEqual(completeExpiredTimer(updated, deadline, deadline + 30000), updated);
+  }
+  const replacement = execute("timer 1 minute", started, replacesAt).workspace;
+  const completed = completeExpiredTimer(replacement, replacement.timer.endsAt, NOW + 65000);
+  assert.equal(completed.timer.completedAt, NOW + 65000);
+  assert.equal(completed.activity.filter(({ kind }) => kind === "timer-complete").length, 1);
 });
 
 test("invalid durations and missing entries yield failures without updating state", () => {
