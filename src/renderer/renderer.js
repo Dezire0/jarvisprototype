@@ -2917,14 +2917,31 @@ fileReadButton.addEventListener("click", async () => {
 });
 
 fileWriteButton.addEventListener("click", async () => {
-  await invokeTool(
-    "file:write",
-    {
+  fileWriteButton.disabled = true;
+  try {
+    const result = await window.assistantAPI.invokeTool("file:write", {
       path: filePath.value.trim(),
-      content: fileContent.value
-    },
-    "파일에 저장했어요."
-  );
+      content: fileContent.value,
+      language: "ko",
+    });
+    if (result.ok) {
+      addMessage("assistant", "파일에 저장했어요.", result.data.path);
+      return;
+    }
+    const messages = {
+      cancelled: "저장을 취소했습니다.",
+      conflict: "파일이 변경됐습니다. 다시 확인한 뒤 저장하세요.",
+      invalid: "경로와 텍스트 크기(최대 64KiB)를 확인하세요.",
+      unsupported: "직접 소유한 일반 파일을 선택하세요.",
+      permission: "컴퓨터 제어가 변경됐습니다. 다시 확인하세요.",
+      busy: "진행 중인 저장을 먼저 완료하세요.",
+    };
+    addMessage("assistant", messages[result.reason] || "파일을 저장하지 못했습니다. 경로와 권한을 확인하세요.");
+  } catch {
+    addMessage("assistant", "파일을 저장하지 못했습니다. 컴퓨터 제어와 경로를 확인하세요.");
+  } finally {
+    fileWriteButton.disabled = false;
+  }
 });
 
 fileListButton.addEventListener("click", async () => {
