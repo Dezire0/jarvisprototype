@@ -11,8 +11,10 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import type { ModelAvailability } from "@/components/jarvis/model-settings";
 import type { ToolSection } from "@/components/jarvis/local-tools";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
+import { VoicePlaybackStatus, useVoiceOutput } from "@/components/jarvis/voice-output-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { voiceEngine, voiceEngineName, voiceLanguage, voiceTextLimit } from "@/lib/voice-output";
 import { formatMemorySources } from "@/lib/chat-memory";
 import { resolveScreenReviewCommand } from "@/lib/screen-review";
 import { resolveBrowserReviewCommand } from "@/lib/browser-review";
@@ -56,6 +58,7 @@ import {
   RefreshCwIcon,
   SquareIcon,
   StickyNoteIcon,
+  Volume2Icon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useState, type FC, type FormEvent, type Ref, type RefObject } from "react";
@@ -1074,7 +1077,20 @@ const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onO
 };
 
 const AssistantActionBar: FC = () => {
-  return (
+  const output = useVoiceOutput();
+  const ko = useKorean();
+  const id = useAuiState((state) => state.message.id);
+  const parts = useAuiState((state) => state.message.content);
+  const text = parts.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n").trim();
+  const language = voiceLanguage(text, ko ? "ko" : "en");
+  const engine = voiceEngine(output.settings?.providers[language]);
+  const provider = voiceEngineName(engine, ko);
+  const readLabel = engine === "system" ? (ko ? "기기에서 읽어주기" : "Read aloud on device")
+    : (ko ? `${provider}로 읽어주기` : `Read aloud with ${provider}`);
+  const playback = output.playback?.id === id ? output.playback : null;
+  const playing = playback?.status === "loading" || playback?.status === "playing";
+
+  return <>
     <ActionBarPrimitive.Root
       hideWhenRunning
       autohide="not-last"
@@ -1101,7 +1117,7 @@ const AssistantActionBar: FC = () => {
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton
-            tooltip="More"
+            tooltip={ko ? "더 보기" : "More"}
             className="data-[state=open]:bg-accent"
           >
             <MoreHorizontalIcon />
@@ -1112,6 +1128,18 @@ const AssistantActionBar: FC = () => {
           align="start"
           className="aui-action-bar-more-content z-50 min-w-36 overflow-hidden rounded-2xl border border-border/80 bg-popover/95 p-1.5 text-popover-foreground shadow-xl backdrop-blur"
         >
+          {output.settings && text && engine !== "off" && (
+            <ActionBarMorePrimitive.Item disabled={playing} onSelect={() => void output.play(id, text, language, engine)}
+              className="aui-action-bar-more-item flex cursor-pointer select-none items-center gap-2 rounded-xl px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">
+              <Volume2Icon className="size-4 shrink-0" aria-hidden="true" />
+              <span>
+                {readLabel}
+                {text.length > voiceTextLimit && <span className="block text-xs text-muted-foreground">
+                  {ko ? `처음 ${voiceTextLimit}자` : `First ${voiceTextLimit} characters`}
+                </span>}
+              </span>
+            </ActionBarMorePrimitive.Item>
+          )}
           <ActionBarPrimitive.ExportMarkdown asChild>
             <ActionBarMorePrimitive.Item className="aui-action-bar-more-item flex cursor-pointer select-none items-center gap-2 rounded-xl px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">
               <DownloadIcon className="size-4" />
@@ -1121,7 +1149,13 @@ const AssistantActionBar: FC = () => {
         </ActionBarMorePrimitive.Content>
       </ActionBarMorePrimitive.Root>
     </ActionBarPrimitive.Root>
-  );
+    {playback && <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+      <VoicePlaybackStatus playback={playback} ko={ko} />
+      {playing && <Button type="button" size="sm" variant="ghost" onClick={() => output.stop(id)}>
+        {ko ? "읽어주기 중지" : "Stop reading"}
+      </Button>}
+    </div>}
+  </>;
 };
 
 const UserMessage: FC = () => {

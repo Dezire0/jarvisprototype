@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useChatHistory } from "@/app/jarvis-runtime-provider";
+import { VoiceOutputSettingsButton } from "@/components/jarvis/voice-output-settings";
 import type { SidebarHistory } from "@/lib/chat-history";
 import { isWorkspaceLanguage, useWorkspaceLocale, WORKSPACE_LANGUAGES, type WorkspaceLanguage } from "@/lib/workspace-language";
 import { LoginModal } from "@/components/jarvis/login-modal";
@@ -755,6 +756,7 @@ export function ThreadListSidebar({
               <span>{t("모델 설정", "Model settings")}</span>
             </button>
           )}
+          <VoiceOutputSettingsButton />
 
           <div className="flex flex-col gap-0.5">
             <Button

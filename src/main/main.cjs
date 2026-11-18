@@ -48,6 +48,7 @@ const { createAutomationAdapter } = require("./platform-adapters.cjs");
 const { SettingsStore } = require("./settings-store.cjs");
 const { SttService } = require("./stt-service.cjs");
 const { TtsService } = require("./tts-service.cjs");
+const { synthesizeWorkspaceVoice } = require("./workspace-voice.cjs");
 const { UpdaterService } = require("./updater-service.cjs");
 
 const piiManager = require("./pii-manager.cjs");
@@ -1299,7 +1300,8 @@ ipcMain.handle("assistant:end-popup-drag", async () => {
   return endPopupDrag();
 });
 
-ipcMain.handle("assistant:speak", async (_event, payload) => {
+ipcMain.handle("assistant:speak", async (event, payload) => {
+  requireAssistantWindow(event);
   if (assistantMuted) {
     return {
       muted: true
@@ -1309,19 +1311,33 @@ ipcMain.handle("assistant:speak", async (_event, payload) => {
   return ensureReadyServices().services.tts.synthesize(payload);
 });
 
-ipcMain.handle("assistant:get-mute-state", async () => ({
-  muted: assistantMuted
-}));
+ipcMain.handle("assistant:speak-workspace", async (event, payload) => {
+  requireDesktopAccountFrame(event);
+  const account = accountSession.active;
+  if (!account) return { status: "failed" };
+  if (assistantMuted) return { status: "muted" };
+  const result = await synthesizeWorkspaceVoice(ensureReadyServices().services.tts, payload);
+  if (accountSession.active !== account || assistantMuted || !isDesktopWindow(event)) return { status: "muted" };
+  return result;
+});
 
-ipcMain.handle("assistant:set-mute-state", async (_event, payload) => {
+ipcMain.handle("assistant:get-mute-state", async (event) => {
+  requireAssistantWindow(event);
+  return { muted: assistantMuted };
+});
+
+ipcMain.handle("assistant:set-mute-state", async (event, payload) => {
+  requireAssistantWindow(event);
   return setAssistantMuted(payload?.muted, "renderer");
 });
 
-ipcMain.handle("assistant:toggle-mute", async () => {
+ipcMain.handle("assistant:toggle-mute", async (event) => {
+  requireAssistantWindow(event);
   return toggleAssistantMuted("renderer");
 });
 
-ipcMain.handle("assistant:get-tts-settings", async () => {
+ipcMain.handle("assistant:get-tts-settings", async (event) => {
+  if (!isDesktopWindow(event)) throw new Error("Open Voice output in the Jarvis desktop window.");
   const { services: liveServices } = ensureReadyServices();
   const status = await liveServices.tts.status();
 
@@ -1331,7 +1347,8 @@ ipcMain.handle("assistant:get-tts-settings", async () => {
   };
 });
 
-ipcMain.handle("assistant:save-tts-settings", async (_event, payload) => {
+ipcMain.handle("assistant:save-tts-settings", async (event, payload) => {
+  if (!isDesktopWindow(event)) throw new Error("Open Voice output in the Jarvis desktop window.");
   const { services: liveServices } = ensureReadyServices();
   const settings = await liveServices.settings.updateTtsSettings(payload);
   const status = await liveServices.tts.status();

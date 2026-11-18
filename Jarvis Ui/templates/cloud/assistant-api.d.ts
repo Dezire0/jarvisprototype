@@ -1,4 +1,5 @@
 import type { ConversationModelDraft, ConversationModelSettings, ModelAvailability, ModelConnectionResult } from "@/components/jarvis/model-settings";
+import type { VoiceOutputSettings, VoicePayload, VoiceResponse } from "@/lib/voice-output";
 
 export {};
 
@@ -12,6 +13,12 @@ declare global {
       getConversationModelSettings?: () => Promise<{ settings: ConversationModelSettings; availability: ModelAvailability }>;
       saveConversationModelSettings?: (draft: ConversationModelDraft) => Promise<{ settings: ConversationModelSettings }>;
       testConversationModel?: () => Promise<ModelConnectionResult>;
+      getTtsSettings?: () => Promise<{ settings: VoiceOutputSettings }>;
+      saveTtsSettings?: (draft: VoiceOutputSettings) => Promise<{ settings: VoiceOutputSettings }>;
+      speakWorkspace?: (payload: VoicePayload) => Promise<VoiceResponse>;
+      getMuteState?: () => Promise<{ muted: boolean }>;
+      setMuteState?: (state: { muted: boolean }) => Promise<{ muted: boolean }>;
+      onMuteState?: (callback: (state: { muted: boolean }) => void) => (() => void);
       getLivePreview: () => Promise<{
         ok?: boolean;
         source?: string;
