@@ -1,4 +1,6 @@
+const { gameLibraryGuidance } = require("./game-service.cjs");
 const { projectGuidance } = require("./code-project-service.cjs");
+const gameCommands = require("./assistant/game-commands.json");
 const projectCommands = require("./assistant/project-commands.json");
 const {
   chat: officialChat,
@@ -2842,14 +2844,13 @@ const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
 ]);
 
 class AssistantService {
-  constructor({ automation, browser, computerControl, credentials, extensions, files, games, managedCloudChat = defaultManagedCloudChat, memory, obs, openClaw, readAccountSession, screen, tts, settings, threadId }) {
+  constructor({ automation, browser, computerControl, credentials, extensions, files, managedCloudChat = defaultManagedCloudChat, memory, obs, openClaw, readAccountSession, screen, tts, settings, threadId }) {
     this.automation = automation;
     this.browser = browser;
     this.computerControl = computerControl;
     this.credentials = credentials;
     this.extensions = extensions || null;
     this.files = files;
-    this.games = games || null;
     this.memory = memory || null;
     this.obs = obs;
     this.openClaw = openClaw || null;
@@ -6410,121 +6411,8 @@ class AssistantService {
     };
   }
 
-  async handleGameRoute(input, route) {
-    if (!this.games || typeof this.games.listInstalledGames !== "function") {
-      throw new Error("Game management is not available in this build.");
-    }
-
-    const language = detectReplyLanguage(input);
-    const platform = route.platform || detectGamePlatform(input);
-    const query = cleanupParsedText(route.query || extractGameName(input));
-
-    if ((route.route === "game_install" || route.route === "game_update") && !query) {
-      return this.beginClarification(
-        input,
-        {
-          ...route,
-          platform
-        },
-        language === "ko"
-          ? route.route === "game_install"
-            ? "어떤 게임을 설치할까요?"
-            : "어떤 게임을 업데이트할까요?"
-          : route.route === "game_install"
-            ? "Which game should I install?"
-            : "Which game should I update?",
-        {
-          field: "query",
-          kind: route.route,
-          language
-        }
-      );
-    }
-
-    let data;
-    let fallback;
-    const actions = [];
-
-    if (route.route === "game_list") {
-      data = await this.games.listInstalledGames({
-        platform
-      });
-
-      const preview = [
-        ...(data.steamGames || []).slice(0, 3).map((game) => game.name),
-        ...(data.epicGames || []).slice(0, 3).map((game) => game.name)
-      ].filter(Boolean).join(", ");
-
-      actions.push(this.makeAction("game_list", platform));
-      fallback =
-        language === "ko"
-          ? preview
-            ? `설치된 게임을 ${data.totalCount}개 찾았어요. 예를 들면 ${preview} 같은 항목이 있어요.`
-            : "지금 확인된 설치 게임이 없어요."
-          : preview
-            ? `I found ${data.totalCount} installed games, including ${preview}.`
-            : "I could not find any installed games right now.";
-    } else if (route.route === "game_install") {
-      data = await this.games.installGame({
-        gameName: query,
-        platform
-      });
-
-      if (data.launcherOpened) {
-        actions.push(this.makeAction("open_app", data.platform === "epic" ? "Epic Games Launcher" : "Steam"));
-      }
-
-      actions.push(this.makeAction("game_install", `${data.platform}:${data.gameName || query}`));
-      fallback =
-        language === "ko"
-          ? data.platform === "steam"
-            ? `Steam에서 ${data.gameName || query} 설치 흐름을 열어뒀어요.`
-            : `Epic 쪽에서 ${data.gameName || query} 설치 페이지를 열어뒀어요.`
-          : data.platform === "steam"
-            ? `I opened the Steam install flow for ${data.gameName || query}.`
-            : `I opened the Epic install page for ${data.gameName || query}.`;
-    } else {
-      data = await this.games.updateGame({
-        gameName: query,
-        platform
-      });
-
-      if (data.launcherOpened) {
-        actions.push(this.makeAction("open_app", data.platform === "epic" ? "Epic Games Launcher" : "Steam"));
-      }
-
-      actions.push(this.makeAction("game_update", `${data.platform}:${data.gameName || query || "all"}`));
-      fallback =
-        language === "ko"
-          ? data.platform === "steam"
-            ? query
-              ? `Steam에서 ${data.gameName || query} 업데이트 흐름을 열어뒀어요.`
-              : "Steam 다운로드와 업데이트 화면을 열어뒀어요."
-            : query
-              ? `Epic 쪽에서 ${data.gameName || query} 업데이트 확인 흐름을 열어뒀어요.`
-              : "Epic 업데이트 확인 흐름을 열어뒀어요."
-          : data.platform === "steam"
-            ? query
-              ? `I opened the Steam update flow for ${data.gameName || query}.`
-              : "I opened the Steam downloads and updates view."
-            : query
-              ? `I opened the Epic update flow for ${data.gameName || query}.`
-              : "I opened the Epic update flow.";
-    }
-
-    return {
-      reply: await this.polishCommandReply(
-        input,
-        {
-          actions,
-          details: data
-        },
-        fallback
-      ),
-      actions,
-      provider: "local",
-      details: data
-    };
+  async handleGameRoute(input) {
+    return gameLibraryGuidance(detectReplyLanguage(input));
   }
 
   async handleCodeProject(input) {
@@ -6753,6 +6641,10 @@ class AssistantService {
 
     const cleanInput = normalizeWhitespace(input);
     const command = cleanInput.toLowerCase();
+    for (const { ko, en, withTitle } of Object.values(gameCommands)) {
+      if (ko.includes(command) || withTitle?.ko.some((phrase) => command.startsWith(phrase + " "))) return gameLibraryGuidance("ko");
+      if (en.includes(command) || withTitle?.en.some((phrase) => command.startsWith(phrase + " "))) return gameLibraryGuidance("en");
+    }
     if (projectCommands.ko.includes(command)) return projectGuidance("ko");
     if (projectCommands.en.includes(command)) return projectGuidance("en");
     if (obsCommands.includes(command)) return this.obsGuidance(detectReplyLanguage(input));
