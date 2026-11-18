@@ -77,6 +77,14 @@ function AssistantWorkspace() {
   const currentTool = tools?.section;
   const toolTitle = currentTool && currentTool !== "index" ? toolName(currentTool, isKo) : toolsLabel;
 
+  useEffect(() => window.assistantAPI?.onFocusCommandInput?.(() => {
+    const input = inputRef.current;
+    if (input && !input.closest('[aria-hidden="true"], [inert]') &&
+        !document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) {
+      input.focus();
+    }
+  }), []);
+
   useLayoutEffect(() => {
     if (toolContent.current) toolContent.current.scrollTop = 0;
     if (currentTool && currentTool !== "index") heading.current?.focus();

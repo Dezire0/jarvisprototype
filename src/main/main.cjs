@@ -36,7 +36,7 @@ const {
   setExternalApiKeyProvider,
   setExternalLlmSettingsProvider
 } = require("./ollama-service.cjs");
-const { registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs");
+const { isLocalWorkspacePage, registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs");
 const { registerChatHistoryHandlers } = require("./chat-history-store.cjs");
 const { MemoryStore, createAccountMemoryResolver } = require("./memory-store.cjs");
 const { MacWakeSpeech } = require("./mac-wake-speech.cjs");
@@ -69,6 +69,8 @@ let updaterService;
 let popupStateCache = null;
 let popupDragState = null;
 let assistantMuted = false;
+const QUICK_INPUT_ACCELERATOR = "CommandOrControl+Shift+Space";
+const pendingCommandFocus = new WeakSet();
 const POPUP_ENABLED = String(process.env.JARVIS_POPUP_ENABLED || "0").trim() === "1";
 const DESKTOP_UI_MODE = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").trim().toLowerCase() === "next"
   ? "next"
@@ -598,6 +600,13 @@ function buildApplicationMenu() {
     {
       label: "Open Jarvis Desktop",
       click: () => openSettingsWindow()
+    },
+    {
+      id: "focus-command-input",
+      label: "Focus Message Input",
+      accelerator: !POPUP_ENABLED && !isolatedProfile ? QUICK_INPUT_ACCELERATOR : undefined,
+      registerAccelerator: false,
+      click: focusCommandInput
     }
   ];
 
@@ -883,6 +892,28 @@ function openSettingsWindow() {
   app.focus({
     steal: true
   });
+  return settingsWindow;
+}
+
+function focusCommandInput() {
+  const window = openSettingsWindow();
+  const contents = window.webContents;
+  const focus = () => {
+    pendingCommandFocus.delete(contents);
+    if (settingsWindow !== window || contents.isDestroyed()) return;
+    const url = contents.getURL();
+    if (url === legacySettingsUrl || (isLocalWorkspacePage(url, getDesktopUiUrl()) && new URL(url).pathname === "/")) {
+      contents.send("assistant:focus-command-input");
+    }
+  };
+  if (contents.isLoadingMainFrame() || !contents.getURL()) {
+    if (!pendingCommandFocus.has(contents)) {
+      pendingCommandFocus.add(contents);
+      contents.once("did-finish-load", focus);
+    }
+  } else {
+    focus();
+  }
 }
 
 function showPopup(status = "listening") {
@@ -1233,12 +1264,12 @@ app.whenReady().then(async () => {
   createSettingsWindow();
   openSettingsWindow();
   if (!isolatedProfile) {
-    globalShortcut.register("CommandOrControl+Shift+Space", () => {
+    globalShortcut.register(QUICK_INPUT_ACCELERATOR, () => {
       if (POPUP_ENABLED) {
         showPopup("listening");
         return;
       }
-      openSettingsWindow();
+      focusCommandInput();
     });
     globalShortcut.register("CommandOrControl+,", openSettingsWindow);
     globalShortcut.register("F4", () => toggleAssistantMuted("shortcut"));
@@ -1257,6 +1288,10 @@ app.whenReady().then(async () => {
 
 }).catch((error) => {
   console.error("Jarvis Desktop failed to initialize:", error);
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
 });
 
 app.on("will-quit", () => {
@@ -1596,7 +1631,7 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
   return {
     shortcut: isolatedProfile ? "" : POPUP_ENABLED
       ? "Cmd/Ctrl + Shift + Space · 빠른 패널 / Cmd/Ctrl + , · Jarvis 앱 / F4 · 자비스 음성 음소거"
-      : "Cmd/Ctrl + Shift + Space · Jarvis 앱 열기 / Cmd/Ctrl + , · Jarvis 앱 / F4 · 자비스 음성 음소거",
+      : "Cmd/Ctrl + Shift + Space · 메시지 입력 / Cmd/Ctrl + , · Jarvis 앱 / F4 · 자비스 음성 음소거",
     capabilities: {
       ...liveServices.automation.getCapabilities(),
       appCatalogCount: appCatalog?.totalCount || 0,

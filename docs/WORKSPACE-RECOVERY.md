@@ -2,6 +2,8 @@
 
 The desktop workspace opens with the conversation composer, voice controls, and shortcuts to Timer, Tasks, and Notes. Each shortcut opens the corresponding tool over the conversation and focuses its first control. Close Local tools to return to the same conversation. Open the sidebar to see threads, projects, and account settings. The interface uses the system typeface, system light/dark preference until a user chooses an appearance, and a visible focus treatment. Local tools also opens from the account screen.
 
+Use **Command+Shift+Space** on macOS or **Ctrl+Shift+Space** on Windows and Linux to bring Jarvis forward and focus the current command input. **Window → Focus Message Input** is also available from the desktop menu. An open dialog, sign-in, or plan selection keeps its own focus. Bringing an existing window forward preserves its draft and current conversation. On macOS, closing the last window keeps Jarvis available in the menu and by shortcut. Use **Quit Jarvis Desktop** or **Command+Q** to close the app. If you enable the optional floating Quick Panel, the global shortcut opens that panel and the Window menu can still focus the main input.
+
 ## Local tools
 
 Select **Local tools** in the workspace toolbar to see tools grouped by purpose. Type a name or keyword into **Find a tool**. Use the arrow keys to move to results. Press Enter to open a focused row or the only matching result. The back button restores the filter and focuses the row you opened. Closing the dialog returns focus to the original workspace control. Desktop-only tools indicate when computer control is required.
