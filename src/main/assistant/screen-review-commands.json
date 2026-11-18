@@ -1,0 +1,14 @@
+{
+  "read": {
+    "en": ["read screen", "read my screen", "screen ocr"],
+    "ko": ["화면 읽기", "화면 읽어줘", "화면 텍스트 읽기", "화면 텍스트 읽어줘"]
+  },
+  "summary": {
+    "en": ["summarize screen", "summarize my screen", "summarize the screen"],
+    "ko": ["화면 요약", "화면 요약해 줘", "화면 요약해줘"]
+  },
+  "study": {
+    "en": ["explain my screen", "explain the screen", "explain what is on my screen", "study my screen"],
+    "ko": ["화면 설명", "화면 설명해 줘", "화면 설명해줘", "화면 내용 설명", "화면 내용 설명해줘"]
+  }
+}

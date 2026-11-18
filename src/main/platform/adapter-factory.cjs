@@ -584,7 +584,6 @@ async function readDiscordVisibleMessagesMac(screen) {
     appName: resolution.resolvedTarget,
     conversationTitle: strippedTitle,
     isDirectMessage,
-    imagePath: capture.imagePath,
     ocrText: capture.text,
     messages: isDirectMessage ? parseVisibleDiscordMessages(capture.text) : []
   };

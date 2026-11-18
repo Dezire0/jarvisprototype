@@ -163,24 +163,10 @@ async function captureLivePreviewSnapshot() {
       }
     }
   } catch (_error) {
-    // Fall through to desktop screenshot below.
+    // Browser previews are optional.
   }
 
-  try {
-    const { imagePath } = await liveServices.screen.captureScreen();
-    const bytes = await fs.readFile(imagePath);
-    return {
-      ok: true,
-      source: "desktop-screen",
-      imageDataUrl: `data:image/png;base64,${bytes.toString("base64")}`
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      source: "unavailable",
-      error: error.message
-    };
-  }
+  return { ok: false, source: "unavailable" };
 }
 
 async function createServices() {
@@ -761,12 +747,13 @@ async function dispatchTool(tool, payload = {}) {
       };
     }
     case "screen:ocr": {
-      const data = await liveServices.screen.captureAndOcr();
-      return {
-        ok: true,
-        tool,
-        data
-      };
+      try {
+        return { ok: true, tool, data: await liveServices.screen.captureAndOcr() };
+      } catch (error) {
+        return { ok: false, tool, reason: ["SCREEN_CAPTURE_FAILED", "OCR_NOT_INSTALLED"].includes(error.code)
+          ? error.code
+          : "OCR_FAILED" };
+      }
     }
     case "screen:academic":
       return liveAssistant.handleScreenAcademic(
