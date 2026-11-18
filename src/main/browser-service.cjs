@@ -200,6 +200,50 @@ class BrowserService extends betaBrowser.BaseBrowserService {
     };
   }
 
+  async readPageForReview() {
+    const page = this.page;
+    if (!page || page.isClosed() || page.url() === "about:blank") {
+      return { ok: false, reason: "BROWSER_NO_PAGE" };
+    }
+    if (!/^https?:\/\//i.test(page.url())) {
+      return { ok: false, reason: "BROWSER_UNSUPPORTED_PAGE" };
+    }
+
+    const mainFrame = page.mainFrame();
+    let navigated = false;
+    const onNavigation = (frame) => {
+      if (frame === mainFrame) navigated = true;
+    };
+    page.on("framenavigated", onNavigation);
+    let deadline;
+    try {
+      const snapshot = await Promise.race([
+        page.locator("body").evaluate((body, limit) => {
+          if (location.protocol !== "http:" && location.protocol !== "https:") return null;
+          const text = body.innerText.trim();
+          const preview = text.slice(0, limit).replace(/[\uD800-\uDBFF]$/, "");
+          return {
+            title: document.title.trim().slice(0, 240),
+            origin: location.origin,
+            text: preview,
+            truncated: text.length > limit
+          };
+        }, 12000, { timeout: 4000 }),
+        new Promise((resolve) => { deadline = setTimeout(resolve, 4500, undefined); })
+      ]);
+      if (navigated || page !== this.page || page.isClosed()) return { ok: false, reason: "BROWSER_PAGE_CHANGED" };
+      if (snapshot === null) return { ok: false, reason: "BROWSER_UNSUPPORTED_PAGE" };
+      if (!snapshot) return { ok: false, reason: "BROWSER_READ_FAILED" };
+      return { ok: true, data: snapshot };
+    } catch {
+      return { ok: false, reason: navigated || page !== this.page || page.isClosed()
+        ? "BROWSER_PAGE_CHANGED" : "BROWSER_READ_FAILED" };
+    } finally {
+      clearTimeout(deadline);
+      page.off("framenavigated", onNavigation);
+    }
+  }
+
   async fillFirst(page, selectors, value) {
     const match = await this.findFirst(page, selectors);
 

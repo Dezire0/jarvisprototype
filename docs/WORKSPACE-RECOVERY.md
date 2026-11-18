@@ -98,6 +98,12 @@ In the desktop workspace, open **Local tools → Read screen** or enter `read sc
 
 Review and edit the recognized text, then use **Attach to draft**. Summary or study commands fill an empty message draft with the corresponding request. An existing draft stays intact. Send explicitly to let your configured model review the attached text. The attachment path handles history and cloud sync as it does for other file reviews. The legacy screen OCR control shows text for the current session, and its study control directs users to the workspace review flow.
 
+### Reviewing the current web page
+
+With Computer control enabled, open **Local tools → Read web page** or enter `read the current page`, `summarize the current page`, or the corresponding Korean command. **Read page** reads the currently tracked HTTP(S) page that Jarvis already has open. If no page is open, open one with Jarvis and return to the panel. The result shows the page title and origin, and up to 12,000 characters of editable plain text. A page change during the read asks you to try again.
+
+Review the text and choose **Attach to draft**. The original page, its title and its address stay in the review panel. The existing attachment flow sends the edited text when you choose **Send**. The summary command fills an empty composer with a summary request. The legacy Read page button shows its result in the current session.
+
 ### Controlling OBS
 
 With Computer control enabled, open **Local tools → OBS** or enter `OBS status`, `start stream`, or `방송 시작`. The panel shows the scene and broadcast state reported by the OBS WebSocket API. Connect explicitly to a WebSocket address. The default is the local OBS server at `ws://127.0.0.1:4455`. Enter any required WebSocket password in the local form. Use **Refresh** to read current state and **Switch scene** to apply your scene selection. [OBS WebSocket protocol](https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md#stream-requests)

@@ -1,0 +1,10 @@
+{
+  "read": {
+    "en": ["read web page", "read the web page", "read current page", "read the current page"],
+    "ko": ["웹 페이지 읽기", "현재 페이지 읽기", "현재 페이지 읽어줘", "현재 페이지 읽어 줘"]
+  },
+  "summary": {
+    "en": ["summarize web page", "summarize the web page", "summarize current page", "summarize the current page"],
+    "ko": ["웹 페이지 요약", "현재 페이지 요약", "현재 페이지 요약해줘", "현재 페이지 요약해 줘"]
+  }
+}

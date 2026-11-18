@@ -29,6 +29,7 @@ const {
 const { routeInputWithLlm } = require("./assistant/router.cjs");
 const { parseLocalFileRead, parseLocalFileWrite } = require("./assistant/local-file-command.cjs");
 const screenReviewCommands = require("./assistant/screen-review-commands.json");
+const browserReviewCommands = require("./assistant/browser-review-commands.json");
 const obsCommands = require("./assistant/obs-commands.json");
 const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
@@ -6786,6 +6787,9 @@ class AssistantService {
     const cleanInput = normalizeWhitespace(input);
     const command = cleanInput.toLowerCase();
     if (obsCommands.includes(command)) return this.obsGuidance(detectReplyLanguage(input));
+    if (Object.values(browserReviewCommands).some(({ ko, en }) => ko.includes(command) || en.includes(command))) {
+      return this.browserReviewGuidance(detectReplyLanguage(input));
+    }
     for (const phrases of Object.values(screenReviewCommands)) {
       if (phrases.ko.includes(command)) return this.screenReviewGuidance("ko");
       if (phrases.en.includes(command)) return this.screenReviewGuidance("en");
@@ -6808,6 +6812,13 @@ class AssistantService {
     const reply = language === "ko"
       ? "로컬 도구에서 OBS를 열어 방송 상태를 확인하고 시작 또는 종료를 선택하세요."
       : "Open OBS in Local tools, review the broadcast status, and choose Start or Stop.";
+    return { reply, language, provider: "local", actions: [] };
+  }
+
+  browserReviewGuidance(language) {
+    const reply = language === "ko"
+      ? "작업 공간의 로컬 도구에서 웹 페이지 읽기를 열고 내용을 확인하세요."
+      : "Open Read web page from Local tools in the workspace to review the page.";
     return { reply, language, provider: "local", actions: [] };
   }
 
