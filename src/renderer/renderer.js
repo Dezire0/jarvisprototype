@@ -496,7 +496,7 @@ function renderCurrentThread() {
     appendMessageThinking(body, message);
     appendMessagePreview(body, message);
 
-    const detail = message.filePreviewText ?? message.detail;
+    const detail = message.localPreviewText ?? message.detail;
     if (detail) {
       const detailBlock = document.createElement("pre");
       detailBlock.textContent = detail;
@@ -2086,7 +2086,7 @@ function stripWakeWord(text, wakeWord) {
 }
 
 async function handleAssistantResult(result, pendingMessageId = "") {
-  const filePreviewText = result.details?.filePreview?.text;
+  const localPreviewText = result.details?.filePreview?.text;
   const previewText = result.details?.showInlinePreview === true
     ? result.details?.ocrText || result.details?.text || result.details?.content || ""
     : "";
@@ -2096,7 +2096,7 @@ async function handleAssistantResult(result, pendingMessageId = "") {
       status: "done",
       content: result.reply || "처리를 마쳤어요.",
       detail: previewText,
-      filePreviewText,
+      localPreviewText,
       progressLabel: "",
       progressSteps: [],
       progressStepIndex: 0
@@ -2107,7 +2107,7 @@ async function handleAssistantResult(result, pendingMessageId = "") {
       "assistant",
       result.reply || "처리를 마쳤어요.",
       previewText,
-      { filePreviewText }
+      { localPreviewText }
     );
   }
 
@@ -2807,14 +2807,32 @@ appMenuButton.addEventListener("click", async () => {
 });
 
 ocrScreenButton.addEventListener("click", async () => {
-  const result = await invokeTool("screen:ocr", {}, "화면을 읽고 OCR을 실행했어요.");
-  renderActions([
-    {
-      type: "screen_ocr",
-      target: `chars:${result.data.text.length}`,
-      status: "executed"
+  if (!computerControlEnabled) {
+    addMessage("assistant", "화면을 읽으려면 컴퓨터 제어를 켜세요.");
+    return;
+  }
+  ocrScreenButton.disabled = true;
+  try {
+    const result = await window.assistantAPI.invokeTool("screen:ocr");
+    if (!result.ok) {
+      const errors = {
+        SCREEN_CAPTURE_FAILED: "화면을 캡처하지 못했습니다. 시스템의 화면 기록 설정을 확인하세요.",
+        OCR_NOT_INSTALLED: "화면 글자를 읽으려면 Tesseract를 설치하세요.",
+        OCR_FAILED: "화면 글자를 읽지 못했습니다. Tesseract와 언어 데이터를 확인하세요.",
+      };
+      addMessage("assistant", errors[result.reason] || errors.OCR_FAILED);
+      return;
     }
-  ]);
+    const { text, truncated } = result.data;
+    const reply = text
+      ? (truncated ? "화면 텍스트의 일부를 읽었습니다." : "화면 텍스트를 읽었습니다.")
+      : "화면에서 읽을 수 있는 텍스트를 찾지 못했습니다.";
+    addMessage("assistant", reply, "", { localPreviewText: text });
+  } catch {
+    addMessage("assistant", "화면을 읽지 못했습니다. 컴퓨터 제어 설정을 확인하세요.");
+  } finally {
+    ocrScreenButton.disabled = false;
+  }
 });
 
 academicScreenButton.addEventListener("click", async () => {
