@@ -54,8 +54,13 @@ async function fixture(t) {
       computerControl: { enabled: computerControl },
       readAccountSession: () => tier ? { token: tier + "-fixture", user: { id: tier, plan: tier } } : null,
       managedCloudChat: createManagedCloudChat({ enabled, baseUrl }),
+      memory: {
+        formatForPrompt: () => "private local fixture context",
+        getProjectContext: () => ({ name: "private project context" }),
+        searchConversation: () => [{ scope: "project", role: "user", content: "private conversation context" }],
+        searchDocuments: () => [{ scope: "project", path: "/fixture/report.txt", excerpt: "private document context" }],
+      },
     });
-    service.buildAugmentedUserPrompt = () => "private local fixture context";
     service.routeInput = async () => ({ route: "chat", language: "en" });
     service.handleAppOpen = () => assert.fail("Managed chat must remain text-only");
     return service;
@@ -84,6 +89,7 @@ test("the normal desktop turn uses the same managed request for both tiers after
     assert.equal(result.provider, "jarvis-cloud-" + model);
     assert.match(result.reply, /^Cloud reply/);
     assert.deepEqual(result.actions, []);
+    assert.equal(result.memorySources, undefined);
     const request = test.cloudRequests.at(-1);
     assert.equal(request.token, "Bearer " + tier + "-fixture");
     assert.deepEqual(request.data.messages, [
@@ -93,6 +99,7 @@ test("the normal desktop turn uses the same managed request for both tiers after
     assert.equal(JSON.stringify(request).includes("private local fixture context"), false);
   }
   assert.equal(test.directRequests.length, 2);
+  assert.ok(test.directRequests.every((request) => JSON.stringify(request).includes("private local fixture context")));
   assert.equal(test.cloudRequests.length, 2);
 });
 
@@ -102,12 +109,41 @@ test("the normal turn keeps direct success and avoids fallback while disabled, s
   const direct = await test.assistant({ tier: "free" }).handleInput("A question");
   assert.equal(direct.provider, "openai-compatible:fixture-direct");
   assert.equal(direct.reply, "Direct response");
+  assert.deepEqual(direct.memorySources, ["personal", "conversation"]);
   test.setDirectStatus(503);
 
   const temporary = test.assistant({ tier: "free" });
   await temporary.setSessionContext({ memoryMode: "temporary" });
   for (const service of [test.assistant({ tier: "free", enabled: false }), test.assistant({}), temporary]) {
     assert.equal((await service.handleInput("A question")).provider, "model-error");
+  }
+  assert.equal(test.cloudRequests.length, 0);
+});
+
+test("successful conversation receipts match the exact memory blocks sent to the configured model", async (t) => {
+  const test = await fixture(t);
+  test.setDirectStatus(200);
+  const markers = {
+    personal: "private local fixture context",
+    project: "private project context",
+    conversation: "private conversation context",
+    document: "private document context",
+  };
+  for (const [computerControl, memoryMode, sources] of [
+    [false, "persistent", ["personal", "project", "conversation"]],
+    [true, "persistent", ["personal", "project", "conversation", "document"]],
+    [true, "temporary", []],
+    [false, "temporary", []],
+  ]) {
+    const service = test.assistant({ tier: "free", computerControl });
+    await service.setSessionContext({ memoryMode, projectId: "fixture-project" });
+    const reply = await service.handleInput("A fixture question");
+    assert.equal(reply.reply, "Direct response");
+    assert.deepEqual(reply.memorySources, sources);
+    const prompt = JSON.stringify(test.directRequests.at(-1));
+    for (const [category, marker] of Object.entries(markers)) {
+      assert.equal(prompt.includes(marker), sources.includes(category), category);
+    }
   }
   assert.equal(test.cloudRequests.length, 0);
 });

@@ -27,7 +27,6 @@ const {
   findOfficialAppFallback: findConfiguredOfficialAppFallback
 } = require("./assistant/targets.cjs");
 const { routeInputWithLlm } = require("./assistant/router.cjs");
-const { composePromptContextBlocks } = require("./assistant/memory-context.cjs");
 const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
 
@@ -4682,8 +4681,13 @@ class AssistantService {
       .join("\n");
   }
 
-  buildPromptContextBlocks(userPrompt, extraContext = "", options = {}) {
+  prepareModelPrompt(userPrompt, extraContext = "", options = {}) {
     const blocks = [];
+    const memorySources = [];
+    function addMemoryBlock(source, text) {
+      blocks.push(text);
+      memorySources.push(source);
+    }
     const memorySnippet = options.includeMemory === false ? "" : this.buildLongTermMemorySnippet();
     const projectSnippet = options.includeProjectMemory === false ? "" : this.buildProjectMemorySnippet();
     const conversationSnippet =
@@ -4692,36 +4696,34 @@ class AssistantService {
       options.includeDocumentMemory === false ? "" : this.buildDocumentMemorySnippet(userPrompt);
 
     if (memorySnippet) {
-      blocks.push(`Known long-term user context:\n${memorySnippet}`);
+      addMemoryBlock("personal", `Known long-term user context:\n${memorySnippet}`);
     }
 
     if (projectSnippet) {
-      blocks.push(projectSnippet);
+      addMemoryBlock("project", projectSnippet);
     }
 
     if (conversationSnippet) {
-      blocks.push(`Relevant past conversation:\n${conversationSnippet}`);
+      addMemoryBlock("conversation", `Relevant past conversation:\n${conversationSnippet}`);
     }
 
     if (documentSnippet) {
-      blocks.push(`Relevant files and documents:\n${documentSnippet}`);
+      addMemoryBlock("document", `Relevant files and documents:\n${documentSnippet}`);
     }
 
     if (extraContext) {
       blocks.push(extraContext);
     }
 
-    return blocks;
+    const context = blocks.join("\n\n").trim();
+    return {
+      userPrompt: context ? `${context}\n\nUser request:\n${userPrompt}` : userPrompt,
+      memorySources
+    };
   }
 
   buildAugmentedUserPrompt(userPrompt, extraContext = "", options = {}) {
-    const contextText = composePromptContextBlocks(
-      this.buildPromptContextBlocks(userPrompt, extraContext, options)
-    );
-
-    return contextText
-      ? `${contextText}\n\nUser request:\n${userPrompt}`
-      : userPrompt;
+    return this.prepareModelPrompt(userPrompt, extraContext, options).userPrompt;
   }
 
   async rememberLongTermMemory(userText = "", assistantText = "") {
@@ -5686,10 +5688,15 @@ class AssistantService {
   }
 
   async replyWithModel(userPrompt, extraContext = "", options = {}) {
-    const includeHistory = options.includeHistory !== false;
-    const finalUserPrompt = this.buildAugmentedUserPrompt(userPrompt, extraContext, options);
+    const { reply } = await this.replyWithModelAndMemory(userPrompt, extraContext, options);
+    return reply;
+  }
 
-    return chat({
+  async replyWithModelAndMemory(input, extraContext, options) {
+    const includeHistory = options.includeHistory !== false;
+    const { userPrompt, memorySources } = this.prepareModelPrompt(input, extraContext, options);
+
+    const reply = await chat({
       systemPrompt: options.systemPrompt || buildBasePrompt(),
       tier: options.tier || "complex",
       provider: options.provider,
@@ -5699,8 +5706,10 @@ class AssistantService {
       localOnly: options.localOnly,
       throwOnFailure: options.throwOnFailure,
       history: includeHistory ? this.getRecentHistory() : [],
-      userPrompt: finalUserPrompt
+      userPrompt
     });
+    const modelRequired = reply === buildModelConnectionReply(userPrompt);
+    return { reply, modelRequired, memorySources: modelRequired ? [] : memorySources };
   }
 
   async routeInput(input) {
@@ -6706,7 +6715,7 @@ class AssistantService {
     const tier = chooseChatModelTier(input, this.getRecentHistory());
 
     try {
-      const modelReply = await this.replyWithModel(
+      const { reply, modelRequired, memorySources } = await this.replyWithModelAndMemory(
         input,
         [
           "Follow the conversation naturally.",
@@ -6728,9 +6737,10 @@ class AssistantService {
       );
 
       return {
-        reply: modelReply,
+        reply,
         actions: [],
-        provider: modelReply === buildModelConnectionReply(input) ? "model-required" : getTierProviderLabel(tier)
+        provider: modelRequired ? "model-required" : getTierProviderLabel(tier),
+        memorySources
       };
     } catch (error) {
       const cloud = await this.tryManagedCloudChat(input, language);
@@ -6789,6 +6799,7 @@ class AssistantService {
     }
 
     try {
+      const { userPrompt, memorySources } = this.prepareModelPrompt(input, "", { includeDocumentMemory: false });
       const reply = await officialChat({
         ...config,
         tier,
@@ -6799,11 +6810,11 @@ class AssistantService {
           "You cannot use tools, browse, open apps, inspect files, or perform computer actions.",
           "If asked to act on the computer, explain that computer control is off. Never claim to have performed the action."
         ].join(" "),
-        userPrompt: this.buildAugmentedUserPrompt(input, "", { includeDocumentMemory: false }),
+        userPrompt,
         history: this.getRecentHistory(),
         signal: AbortSignal.timeout(90000)
       });
-      return result(reply, `${config.provider}:${config.model}`);
+      return { ...result(reply, `${config.provider}:${config.model}`), memorySources };
     } catch {
       const cloud = await this.tryManagedCloudChat(input, language);
       if (cloud) return cloud;

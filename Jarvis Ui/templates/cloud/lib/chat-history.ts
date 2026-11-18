@@ -1,6 +1,7 @@
 "use client";
 
 import { readStoredAuthSession } from "@/components/jarvis/auth-session";
+import { normalizeMemorySources, type MemorySource } from "@/lib/chat-memory";
 import { isWorkspaceLanguage, type WorkspaceLanguage } from "@/lib/workspace-language";
 
 export type TransportMessage = {
@@ -10,6 +11,7 @@ export type TransportMessage = {
   createdAt: string;
   status?: "running" | "complete";
   provider?: string;
+  memorySources?: MemorySource[];
   actions?: unknown[];
   details?: unknown;
   attachmentReview?: boolean;
@@ -63,6 +65,9 @@ function completedTranscript(messages: TransportMessage[]): TransportMessage[] {
     createdAt: message.createdAt,
     status: "complete",
     provider: message.provider,
+    memorySources: message.role === "assistant" && !message.attachmentReview
+      ? normalizeMemorySources(message.memorySources)
+      : undefined,
     attachmentNames: message.attachmentNames,
     attachmentReview: message.attachmentReview,
     actions: message.actions?.flatMap((value) => {

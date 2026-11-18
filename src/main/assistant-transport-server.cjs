@@ -2,6 +2,7 @@ const http = require("node:http");
 const { SESSION_HEADER, isDesktopSessionToken, matchesDesktopToken } = require("./desktop-session.cjs");
 const { normalizeMemoryAccountId } = require("./memory-store.cjs");
 const { normalizeFileName, parseAssistantInput } = require("./assistant/chat-attachments.cjs");
+const { normalizeMemorySources } = require("./assistant/memory-context.cjs");
 const { maxFiles } = require("./assistant/attachment-contract.json");
 
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
@@ -170,6 +171,9 @@ function normalizeState(rawState = {}) {
         createdAt: typeof message.createdAt === "string" ? message.createdAt : new Date().toISOString(),
         status: message.status === "running" ? "running" : "complete",
         provider: typeof message.provider === "string" ? message.provider : "",
+        memorySources: message.role === "assistant" && message.status !== "running" && !message.attachmentReview
+          ? normalizeMemorySources(message.memorySources)
+          : [],
         attachmentReview: message.attachmentReview === true,
         attachmentNames: Array.isArray(message.attachmentNames)
           ? message.attachmentNames.slice(0, maxFiles).map(normalizeFileName).filter(Boolean)
@@ -383,6 +387,10 @@ function createAssistantTransportServer({
       writeStateField(res, assistantMessageIndex, "provider", provider);
       writeStateField(res, assistantMessageIndex, "actions", attachmentReview ? [] : result.actions || []);
       writeStateField(res, assistantMessageIndex, "details", attachmentReview ? null : result.details || null);
+      if (!attachmentReview && memoryContext.memoryMode !== "temporary") {
+        const sources = normalizeMemorySources(result?.memorySources);
+        if (sources.length) writeStateField(res, assistantMessageIndex, "memorySources", sources);
+      }
       writeFinish(res);
     } catch (error) {
       if (disconnected()) return;

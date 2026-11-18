@@ -13,6 +13,7 @@ import type { ToolSection } from "@/components/jarvis/local-tools";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatMemorySources } from "@/lib/chat-memory";
 import { LOCAL_COMMAND_EXAMPLE, resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportNotice, useTemporaryChat } from "@/app/jarvis-runtime-provider";
 import {
@@ -959,8 +960,11 @@ function ExecutionReceipt({ args, fallback }: { args: unknown; fallback: React.R
 }
 
 const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onOpenModelSettings }) => {
+  const isKo = useKorean();
   const attachmentReview = useAuiState((state) => state.message.metadata.custom?.attachmentReview === true);
   const provider = useAuiState((state) => state.message.metadata.custom?.provider);
+  const memorySources = useAuiState((state) => state.message.metadata.custom?.memorySources);
+  const memoryLabel = formatMemorySources(memorySources, isKo);
   const cloudModel = typeof provider === "string" && provider.startsWith("jarvis-cloud-gemini-")
     ? provider.slice("jarvis-cloud-".length)
     : "";
@@ -1000,6 +1004,12 @@ const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onO
         {(provider === "jarvis-cloud" || cloudModel) && (
           <p className="mt-2 wrap-break-word text-xs text-muted-foreground">
             Jarvis Cloud{cloudModel ? ` · ${cloudModel}` : ""}
+          </p>
+        )}
+
+        {memoryLabel && (
+          <p className="mt-2 wrap-break-word text-xs text-muted-foreground">
+            {isKo ? "모델에 보낸 기억" : "Saved memory sent"} · {memoryLabel}
           </p>
         )}
 

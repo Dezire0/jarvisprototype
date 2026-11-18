@@ -186,6 +186,7 @@ function toThreadMessages(state: TransportState): ThreadMessage[] {
             provider: message.provider || "local",
             details: message.details || null,
             attachmentReview: message.attachmentReview === true,
+            memorySources: message.status === "complete" && !message.attachmentReview ? message.memorySources ?? [] : [],
           },
         },
       };
