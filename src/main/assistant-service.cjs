@@ -28,6 +28,7 @@ const {
 } = require("./assistant/targets.cjs");
 const { routeInputWithLlm } = require("./assistant/router.cjs");
 const { parseLocalFileRead } = require("./assistant/local-file-command.cjs");
+const screenReviewCommands = require("./assistant/screen-review-commands.json");
 const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
 
@@ -4382,12 +4383,10 @@ class AssistantService {
       ? this.screen.captureAndOcr()
           .then((capture) => ({
             available: true,
-            imagePath: capture.imagePath,
             text: String(capture.text || "").slice(0, 2000)
           }))
           .catch((error) => ({
             available: false,
-            imagePath: "",
             text: "",
             message: error.message
           }))
@@ -6771,6 +6770,11 @@ class AssistantService {
     if (file) return this.handleLocalFilePreview(file.path, file.language);
 
     const cleanInput = normalizeWhitespace(input);
+    const command = cleanInput.toLowerCase();
+    for (const phrases of Object.values(screenReviewCommands)) {
+      if (phrases.ko.includes(command)) return this.screenReviewGuidance("ko");
+      if (phrases.en.includes(command)) return this.screenReviewGuidance("en");
+    }
     if (cleanInput && this.computerControl?.enabled === false) {
       const result = await this.handleModelConversation(cleanInput);
       return this.finalizeResponse(cleanInput, result, { route: "chat" });
@@ -6783,6 +6787,24 @@ class AssistantService {
       looksLikeModelIdentityQuestion,
       promoteFollowUpRoute
     });
+  }
+
+  screenReviewGuidance(language) {
+    const korean = language === "ko";
+    const reply = this.computerControl?.enabled
+      ? (korean ? "작업 공간의 로컬 도구에서 화면 읽기를 열고, 인식한 텍스트를 확인하세요."
+        : "Open Read screen from Local tools in the workspace and review the recognized text.")
+      : (korean ? "화면을 읽으려면 컴퓨터 제어를 켜세요."
+        : "Turn on computer control to read the screen.");
+    return { reply, language, provider: "local", actions: [] };
+  }
+
+  handleScreenSummary(input) {
+    return this.screenReviewGuidance(detectReplyLanguage(input));
+  }
+
+  handleScreenAcademic(input) {
+    return this.screenReviewGuidance(detectReplyLanguage(input));
   }
 
   async handleLocalFilePreview(path, language) {

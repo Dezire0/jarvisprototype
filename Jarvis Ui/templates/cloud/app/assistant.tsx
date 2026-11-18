@@ -13,19 +13,25 @@ import { ModelSettings, MODEL_SETTINGS_SAVED, type ModelAvailability } from "@/c
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
+import { ScreenReview } from "@/components/jarvis/screen-review";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { speakLocalResult } from "@/lib/local-speech";
 import { useLocalWorkspace } from "@/lib/use-local-workspace";
+import { resolveScreenReviewCommand, type ScreenReviewMode } from "@/lib/screen-review";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { WrenchIcon } from "lucide-react";
+import { useAuiState } from "@assistant-ui/react";
 import { useEffect, useRef, useState } from "react";
 import { JarvisRuntimeProvider } from "./jarvis-runtime-provider";
 
 export const Assistant = () => <JarvisRuntimeProvider><AssistantWorkspace /></JarvisRuntimeProvider>;
 
 function AssistantWorkspace() {
-  const [tools, setTools] = useState<{ section?: ToolSection } | null>(null);
+  const threadId = useAuiState((state) => state.threadListItem.id);
+  const [tools, setTools] = useState<
+    { section?: ToolSection } | { section: "screen"; mode: ScreenReviewMode; threadId: string } | null
+  >(null);
   const [computerControl, setComputerControl] = useState<boolean | null>(null);
   const [modelSettingsAvailable, setModelSettingsAvailable] = useState(false);
   const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
@@ -40,6 +46,11 @@ function AssistantWorkspace() {
   const isKo = locale.startsWith("ko");
   const toolsLabel = isKo ? "로컬 도구" : "Local tools";
   const weatherOpen = tools?.section === "weather";
+  const screenOpen = tools?.section === "screen";
+
+  useEffect(() => {
+    if (tools?.section === "screen" && tools.threadId !== threadId) setTools(null);
+  }, [tools, threadId]);
 
   useEffect(() => {
     const read = window.assistantAPI?.getConversationModelSettings;
@@ -77,6 +88,14 @@ function AssistantWorkspace() {
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    const mode = resolveScreenReviewCommand(text, hasAttachmentsOrQuote);
+    if (mode) {
+      localRun.current++;
+      setLocalResult(null);
+      toolsTrigger.current = inputRef.current;
+      setTools({ section: "screen", mode, threadId });
+      return "local";
+    }
     const command = resolveComposerCommand(text, hasAttachmentsOrQuote);
     if (!command) return "chat";
     const run = ++localRun.current;
@@ -183,11 +202,19 @@ function AssistantWorkspace() {
               }}
             >
               <DialogTitle className="jarvis-tools-dialog-title">
-                {weatherOpen ? (isKo ? "날씨" : "Weather") : toolsLabel}
+                {weatherOpen ? (isKo ? "날씨" : "Weather") : screenOpen ? (isKo ? "화면 읽기" : "Read screen") : toolsLabel}
               </DialogTitle>
-              {tools && (tools.section === "weather"
-                ? <WeatherPanel inDialog canUseBrowserLocation={!local.nativeStorage} />
-                : <LocalTools local={local} embedded initialSection={tools.section} />)}
+              {tools?.section === "weather" && <WeatherPanel inDialog canUseBrowserLocation={!local.nativeStorage} />}
+              {tools?.section === "screen" && tools.threadId === threadId && (
+                <ScreenReview mode={tools.mode} computerControl={computerControl} onAttached={() => {
+                  toolsTrigger.current = inputRef.current;
+                  setTools(null);
+                }} />
+              )}
+              {tools && tools.section !== "weather" && tools.section !== "screen" && (
+                <LocalTools local={local} embedded initialSection={tools.section}
+                  onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })} />
+              )}
             </DialogContent>
           </Dialog>
         </JarvisVoiceProvider>

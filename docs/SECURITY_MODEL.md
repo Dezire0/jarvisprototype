@@ -32,6 +32,8 @@ The current desktop chat main frame supplies the account namespace over its proc
 
 The Electron main process stores a separate consent choice for each desktop profile and defaults to off. Only the current desktop settings main frame can change the choice. Direct tool calls and live previews require the owned app window. When consent is off, chat uses a direct model and the tool dispatcher admits only enumerated app functions such as sign-in and model settings. Local tools and explicit attachment review remain available. Saved settings survive desktop UI port changes. A saved change discards cached action continuations before a later request. Work already running and separate OS permissions are handled independently.
 
+The workspace’s screen review opens without capturing. **Read text** starts the permission-checked OCR request. The captured pixels stay within the capture and OCR path. Users can edit the returned text before adding it as an attachment, and **Send** starts model review. Automatic progress previews display the workspace-managed browser when available.
+
 ## Safe Alternative to "Auto Login Everywhere"
 
 For websites and apps, the right pattern is:

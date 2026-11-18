@@ -1,11 +1,28 @@
-const fs = require("node:fs/promises");
-const os = require("node:os");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
-const { promisify } = require("node:util");
 const screenshot = require("screenshot-desktop");
 
-const execFileAsync = promisify(execFile);
+const MAX_OCR_BYTES = 16_000;
+
+function screenError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+function runTesseract(image, language) {
+  const searchPath = process.platform === "darwin"
+    ? [process.env.PATH, "/opt/homebrew/bin", "/usr/local/bin"].filter(Boolean).join(path.delimiter)
+    : process.env.PATH;
+  return new Promise((resolve, reject) => {
+    const child = execFile("tesseract", ["stdin", "stdout", "-l", language, "--psm", "6"], {
+      timeout: 12_000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+      env: { ...process.env, PATH: searchPath },
+    }, (error, stdout) => error ? reject(error) : resolve(stdout));
+    child.stdin.on("error", () => {});
+    child.stdin.end(image);
+  });
+}
 
 function normalizeOcrText(text = "") {
   return text
@@ -17,60 +34,47 @@ function normalizeOcrText(text = "") {
 }
 
 class ScreenService {
-  constructor({ tempRoot } = {}) {
-    this.tempRoot = tempRoot || path.join(os.tmpdir(), "jarvis-prototype");
+  constructor({ capture = screenshot, recognize = runTesseract } = {}) {
+    this.capture = capture;
+    this.recognize = recognize;
   }
 
   async captureScreen() {
-    await fs.mkdir(this.tempRoot, {
-      recursive: true
-    });
-
-    const imagePath = path.join(this.tempRoot, `screen-${Date.now()}.png`);
-    let image;
-
     try {
-      image = await screenshot({
-        format: "png"
-      });
-    } catch (error) {
-      throw new Error(
-        "Screen capture failed. On macOS, enable Screen Recording permission for Electron or Terminal and try again."
-      );
+      const image = await this.capture({ format: "png" });
+      if (Buffer.isBuffer(image) && image.length) return image;
+    } catch {
+      // Return an actionable message without including raw OS output.
     }
-
-    await fs.writeFile(imagePath, image);
-
-    return {
-      imagePath
-    };
+    throw screenError("SCREEN_CAPTURE_FAILED", "Screen capture failed. Check the desktop screen-capture settings.");
   }
 
-  async ocrImage(imagePath) {
-    const runOcr = async (lang) => {
-      const { stdout } = await execFileAsync("tesseract", [imagePath, "stdout", "-l", lang, "--psm", "6"]);
-      return normalizeOcrText(stdout);
+  async ocrImage(image) {
+    const readText = async () => {
+      try {
+        return await this.recognize(image, "eng+kor");
+      } catch (error) {
+        if (error.code === "ENOENT" || error.killed) throw error;
+        return this.recognize(image, "eng");
+      }
     };
-
     try {
-      const text = await runOcr("eng+kor");
-      return text;
-    } catch (_error) {
-      return runOcr("eng");
+      const bytes = Buffer.from(normalizeOcrText(await readText()), "utf8");
+      const truncated = bytes.length > MAX_OCR_BYTES;
+      const text = new TextDecoder().decode(bytes.subarray(0, MAX_OCR_BYTES), { stream: truncated });
+      return { text, truncated };
+    } catch (error) {
+      if (error.code === "ENOENT") throw screenError("OCR_NOT_INSTALLED", "Tesseract is required to read the screen.");
+      throw screenError("OCR_FAILED", "The screen text could not be recognized. Check Tesseract and its language data.");
     }
   }
 
   async captureAndOcr() {
-    const { imagePath } = await this.captureScreen();
-    const text = await this.ocrImage(imagePath);
-
-    return {
-      imagePath,
-      text
-    };
+    return this.ocrImage(await this.captureScreen());
   }
 }
 
 module.exports = {
-  ScreenService
+  ScreenService,
+  MAX_OCR_BYTES
 };
