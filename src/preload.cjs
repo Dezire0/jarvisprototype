@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   getComputerControl() {
     return ipcRenderer.invoke("assistant:get-computer-control");
   },
+  onFocusCommandInput(callback) {
+    const listener = () => callback();
+    ipcRenderer.on("assistant:focus-command-input", listener);
+    return () => ipcRenderer.removeListener("assistant:focus-command-input", listener);
+  },
   probeMacWakeSpeech(locale) {
     return ipcRenderer.invoke("assistant:probe-mac-wake-speech", locale);
   },

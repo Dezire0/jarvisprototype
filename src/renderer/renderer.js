@@ -2511,6 +2511,8 @@ window.assistantAPI.onWakeState((payload) => {
   setWakeState(payload.status);
 });
 
+window.assistantAPI.onFocusCommandInput(() => commandInput.focus());
+
 window.assistantAPI.onMuteState((payload) => {
   applyMuteState(payload?.muted);
 });
