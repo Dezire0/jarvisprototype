@@ -13,6 +13,10 @@ import {
 } from "react";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import type { ComposerCommandHandler } from "@/lib/local-workspace";
+import {
+  getRecognitionConstructor, resolveWakeUtterance, wakeFollowUpMs,
+  type BrowserRecognition, type WakeEngine,
+} from "@/lib/wake-word";
 
 type VoiceStatus =
   | "idle"
@@ -21,35 +25,6 @@ type VoiceStatus =
   | "processing"
   | "unsupported"
   | "error";
-
-type BrowserRecognition = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  maxAlternatives: number;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror:
-    | ((event: { error?: string | undefined; message?: string | undefined }) => void)
-    | null;
-  onresult:
-    | ((
-        event: {
-          resultIndex: number;
-          results: ArrayLike<
-            ArrayLike<{
-              transcript?: string | undefined;
-            }> & {
-              isFinal?: boolean | undefined;
-            }
-          >;
-        },
-      ) => void)
-    | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-};
 
 type AssistantApiBridge = {
   getBootstrap?: () => Promise<{
@@ -67,7 +42,7 @@ type AssistantApiBridge = {
   }>;
 };
 
-type VoiceSession = { threadId: string; keepContinuous: boolean };
+type VoiceSession = { threadId: string; keepContinuous: boolean; wakeEngine?: WakeEngine };
 
 type VoiceContextValue = {
   supported: boolean;
@@ -76,6 +51,9 @@ type VoiceContextValue = {
   error: string;
   reviewPending: boolean;
   continuous: boolean;
+  wakeEngine: WakeEngine | null;
+  awaitingWakeCommand: boolean;
+  armWake: (engine: WakeEngine) => void;
   waitingForReplyAudio: boolean;
   beginReplyAudio: () => (() => void) | null;
   onMicrophoneStart: (listener: () => void) => (() => void);
@@ -85,30 +63,6 @@ type VoiceContextValue = {
 };
 
 const VoiceContext = createContext<VoiceContextValue | null>(null);
-
-function getRecognitionConstructor():
-  | (new () => BrowserRecognition)
-  | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const recognition =
-    (
-      window as typeof window & {
-        SpeechRecognition?: new () => BrowserRecognition;
-        webkitSpeechRecognition?: new () => BrowserRecognition;
-      }
-    ).SpeechRecognition ||
-    (
-      window as typeof window & {
-        SpeechRecognition?: new () => BrowserRecognition;
-        webkitSpeechRecognition?: new () => BrowserRecognition;
-      }
-    ).webkitSpeechRecognition;
-
-  return recognition || null;
-}
 
 function getAssistantBridge(): AssistantApiBridge | null {
   if (typeof window === "undefined") {
@@ -145,6 +99,8 @@ export function JarvisVoiceProvider({
   const [error, setError] = useState("");
   const [reviewPending, setReviewPending] = useState(false);
   const [continuous, setContinuous] = useState(false);
+  const [wakeEngine, setWakeEngine] = useState<WakeEngine | null>(null);
+  const [awaitingWakeCommand, setAwaitingWakeCommand] = useState(false);
   const [waitingForReplyAudio, setWaitingForReplyAudio] = useState(false);
   const [sttProviderLabel, setSttProviderLabel] = useState("web-speech-only");
   const recognitionRef = useRef<BrowserRecognition | null>(null);
@@ -161,6 +117,7 @@ export function JarvisVoiceProvider({
   const recorderSilenceStartedAtRef = useRef(0);
   const shouldResumeRef = useRef(false);
   const sessionRef = useRef<VoiceSession | null>(null);
+  const wakeWindow = useRef<number | null>(null);
   const replyAudio = useRef<object | null>(null);
   const microphoneStartListeners = useRef(new Set<() => void>());
   const onMicrophoneStart = useCallback((listener: () => void) => {
@@ -215,26 +172,28 @@ export function JarvisVoiceProvider({
       unsubscribe();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", stopRecognition);
+      if (wakeWindow.current !== null) window.clearTimeout(wakeWindow.current);
       releaseVoiceSession();
     };
   }, [aui]);
 
   useEffect(() => {
     const session = sessionRef.current;
-    if (!continuous || isThreadRunning || status !== "idle" || waitingForReplyAudio || !session || !shouldResumeRef.current) {
+    if ((!continuous && !wakeEngine) || isThreadRunning || status !== "idle" ||
+        waitingForReplyAudio || !session || !shouldResumeRef.current) {
       return;
     }
 
     const restartTimer = window.setTimeout(() => {
       if (isCurrent(session) && shouldResumeRef.current && !replyAudio.current && !aui.thread().getState().isRunning) {
-        startRecognition(true);
+        startRecognition(continuous, wakeEngine ?? undefined);
       }
     }, 420);
 
     return () => {
       window.clearTimeout(restartTimer);
     };
-  }, [aui, continuous, isThreadRunning, status, waitingForReplyAudio]);
+  }, [aui, continuous, isThreadRunning, status, waitingForReplyAudio, wakeEngine]);
 
   function beginReplyAudio() {
     if (document.hidden || status === "starting" || status === "listening" || status === "processing" ||
@@ -317,11 +276,45 @@ export function JarvisVoiceProvider({
 
   function stopRecognition() {
     releaseVoiceSession();
+    disarmWake();
     setContinuous(false);
     setTranscript("");
     setError("");
     setReviewPending(false);
     setStatus((current) => current === "unsupported" ? current : "idle");
+  }
+
+  function clearWakeWindow() {
+    if (wakeWindow.current !== null) window.clearTimeout(wakeWindow.current);
+    wakeWindow.current = null;
+    setAwaitingWakeCommand(false);
+  }
+
+  function disarmWake() {
+    clearWakeWindow();
+    setWakeEngine(null);
+  }
+
+  function openWakeWindow() {
+    clearWakeWindow();
+    setAwaitingWakeCommand(true);
+    wakeWindow.current = window.setTimeout(clearWakeWindow, wakeFollowUpMs);
+  }
+
+  function failWake(reason: string) {
+    stopRecognition();
+    setStatus("error");
+    const ko = locale.startsWith("ko");
+    if (reason === "not-allowed" || reason === "service-not-allowed" || reason === "audio-capture") {
+      setError(ko ? "마이크를 사용할 수 없습니다. 시스템 권한과 입력 장치를 확인하세요."
+        : "Microphone unavailable. Check system permission and the input device.");
+    } else if (reason === "language-not-supported") {
+      setError(ko ? "기기 음성 인식 언어를 확인하고 호출어 듣기를 다시 시작하세요."
+        : "Check the on-device language pack and start Wake word again.");
+    } else {
+      setError(ko ? "음성 인식이 중지되었습니다. 호출어 듣기를 다시 시작하세요."
+        : "Speech recognition ended. Start Wake word again.");
+    }
   }
 
   function finalizeTranscript(value: string, session: VoiceSession) {
@@ -342,6 +335,7 @@ export function JarvisVoiceProvider({
     if (text || attachments.length || quote || aui.thread().getState().isRunning) {
       shouldResumeRef.current = false;
       setContinuous(false);
+      if (session.wakeEngine) disarmWake();
       composer.setText(text ? `${text}\n${normalized}` : normalized);
       setReviewPending(true);
       return;
@@ -349,13 +343,14 @@ export function JarvisVoiceProvider({
 
     const destination = runLocalCommand?.(normalized, {
       hasAttachmentsOrQuote: false,
-      allowSpeech: !session.keepContinuous,
+      allowSpeech: !session.keepContinuous && !session.wakeEngine,
     });
-    shouldResumeRef.current = session.keepContinuous && destination !== "retry";
+    shouldResumeRef.current = (session.keepContinuous || Boolean(session.wakeEngine)) && destination !== "retry";
     if (destination === "local") return;
     composer.setText(normalized);
     if (destination === "retry") {
       setContinuous(false);
+      if (session.wakeEngine) disarmWake();
       setReviewPending(true);
     } else {
       composer.send();
@@ -546,20 +541,33 @@ export function JarvisVoiceProvider({
     const Recognition = getRecognitionConstructor();
 
     if (!Recognition) {
+      if (session.wakeEngine) {
+        failWake("unavailable");
+        return;
+      }
       setStatus("unsupported");
       setError("현재 환경에서는 Web Speech 음성 인식을 사용할 수 없어요.");
       return;
     }
 
     const recognition = new Recognition();
+    if (session.wakeEngine === "device") {
+      if (!("processLocally" in recognition)) {
+        failWake("language-not-supported");
+        return;
+      }
+      recognition.processLocally = true;
+    }
     recognitionRef.current = recognition;
-    recognition.continuous = false;
-    recognition.interimResults = true;
+    recognition.continuous = Boolean(session.wakeEngine);
+    recognition.interimResults = !session.wakeEngine;
     recognition.maxAlternatives = 1;
     recognition.lang = locale;
 
+    let started = false;
     recognition.onstart = () => {
       if (!isCurrent(session)) return;
+      started = true;
       setError("");
       setTranscript("");
       setStatus("listening");
@@ -590,6 +598,18 @@ export function JarvisVoiceProvider({
         }
       }
 
+      if (session.wakeEngine) {
+        const wake = resolveWakeUtterance(finalTranscript, wakeWindow.current !== null);
+        if (wake.kind === "follow-up") openWakeWindow();
+        if (wake.kind === "command") {
+          finalReceived = true;
+          clearWakeWindow();
+          finalizeTranscript(wake.text, session);
+          recognition.stop();
+        }
+        return;
+      }
+
       const preview = (finalTranscript || partialTranscript).trim();
 
       if (preview) {
@@ -607,6 +627,11 @@ export function JarvisVoiceProvider({
       if (!isCurrent(session) || finalReceived) return;
       const reason = String(event?.error || event?.message || "unknown");
 
+      if (session.wakeEngine) {
+        if (reason === "no-speech" && started) return;
+        failWake(reason);
+        return;
+      }
       if (reason === "aborted") return;
       finalReceived = true;
 
@@ -639,6 +664,13 @@ export function JarvisVoiceProvider({
 
     recognition.onend = () => {
       if (!isCurrent(session)) return;
+      if (session.wakeEngine && !finalReceived) {
+        if (!started) {
+          failWake("unavailable");
+          return;
+        }
+        shouldResumeRef.current = true;
+      }
       finalReceived = true;
       if (recognitionRef.current === recognition) recognitionRef.current = null;
       setStatus((current) => current === "starting" || current === "listening" ? "idle" : current);
@@ -647,14 +679,14 @@ export function JarvisVoiceProvider({
     recognition.start();
   }
 
-  function startRecognition(keepContinuous = false) {
+  function startRecognition(keepContinuous = false, wake?: WakeEngine) {
     if (document.hidden) {
       stopRecognition();
       return;
     }
     microphoneStartListeners.current.forEach((listener) => listener());
     releaseVoiceSession();
-    const session = { threadId: currentThreadId(), keepContinuous };
+    const session = { threadId: currentThreadId(), keepContinuous, wakeEngine: wake };
     sessionRef.current = session;
     setError("");
     setTranscript("");
@@ -662,11 +694,15 @@ export function JarvisVoiceProvider({
     setStatus("starting");
 
     const start = async () => {
-      if (hasConfiguredAssistantStt()) await startRecorderRecognition(session);
+      if (!wake && hasConfiguredAssistantStt()) await startRecorderRecognition(session);
       else startBrowserRecognition(session);
     };
     void start().catch((error: unknown) => {
       if (!isCurrent(session)) return;
+      if (wake) {
+        failWake("unavailable");
+        return;
+      }
       releaseVoiceSession();
       setStatus("error");
       setError(error instanceof Error ? error.message : "음성 입력을 시작하지 못했습니다.");
@@ -680,13 +716,21 @@ export function JarvisVoiceProvider({
       return;
     }
 
+    disarmWake();
     setContinuous(true);
     startRecognition(true);
   }
 
   function startOnce() {
+    disarmWake();
     setContinuous(false);
     startRecognition(false);
+  }
+
+  function armWake(engine: WakeEngine) {
+    stopRecognition();
+    setWakeEngine(engine);
+    startRecognition(false, engine);
   }
 
   return (
@@ -698,6 +742,9 @@ export function JarvisVoiceProvider({
         error,
         reviewPending,
         continuous,
+        wakeEngine,
+        awaitingWakeCommand,
+        armWake,
         waitingForReplyAudio,
         beginReplyAudio,
         onMicrophoneStart,

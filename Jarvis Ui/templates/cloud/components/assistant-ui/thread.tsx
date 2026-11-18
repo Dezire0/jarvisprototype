@@ -11,6 +11,7 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import type { ModelAvailability } from "@/components/jarvis/model-settings";
 import type { ToolSection } from "@/components/jarvis/local-tools";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
+import { WakeWordButton } from "@/components/jarvis/wake-word-button";
 import { VoicePlaybackStatus, useVoiceOutput } from "@/components/jarvis/voice-output-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -354,6 +355,8 @@ const Composer: FC<{
     error,
     reviewPending,
     continuous,
+    wakeEngine,
+    awaitingWakeCommand,
     waitingForReplyAudio,
     startOnce,
     stop,
@@ -378,17 +381,24 @@ const Composer: FC<{
       : "Reading this PDF timed out. Choose a smaller file.",
   };
   const fileIssue = fileError ? fileIssues[fileError] : "";
+  const wakeListening = wakeEngine === "device"
+    ? (isKo ? "기기에서 “자비스”를 듣는 중" : "Listening for “Jarvis” on this device")
+    : (isKo ? "브라우저에서 “자비스”를 듣는 중" : "Listening for “Jarvis” with browser recognition");
+  const listening = wakeEngine
+    ? (awaitingWakeCommand ? (isKo ? "이어서 명령을 말하세요." : "Say your command.") : wakeListening)
+    : (transcript || (isKo ? "듣는 중" : "Listening"));
   const voiceSummary = error || (status === "starting"
     ? (isKo ? "마이크 준비 중" : "Getting the microphone ready")
     : status === "listening"
-      ? (transcript || (isKo ? "듣는 중" : "Listening"))
+      ? listening
       : status === "processing"
         ? (isKo ? "음성을 처리하는 중" : "Processing voice")
         : reviewPending && text
           ? (isKo ? "음성 입력을 초안에 추가했습니다." : "Voice input added to your draft.")
-          : continuous ? (waitingForReplyAudio
+          : continuous || wakeEngine ? (waitingForReplyAudio
             ? (isKo ? "읽어준 뒤 다시 듣습니다." : "Listening resumes after playback.")
-            : (isKo ? "연속 듣기" : "Continuous voice")) : "");
+            : wakeEngine ? (isKo ? "호출어 듣기 대기 중" : "Wake word on standby")
+              : (isKo ? "연속 듣기" : "Continuous voice")) : "");
 
   function routeSubmission(event: { preventDefault(): void }) {
     const composer = aui.composer();
@@ -399,7 +409,7 @@ const Composer: FC<{
     }
     const destination = runLocalCommand(text, {
       hasAttachmentsOrQuote: Boolean(attachments.length || quote),
-      allowSpeech: !continuous && status !== "listening" && status !== "processing",
+      allowSpeech: !continuous && !wakeEngine && status !== "listening" && status !== "processing",
     });
     if (destination === "chat") return;
     event.preventDefault();
@@ -450,6 +460,7 @@ const Composer: FC<{
               supported={supported}
               status={status}
               continuous={continuous}
+              wakeActive={Boolean(wakeEngine)}
               startOnce={startOnce}
               stop={stop}
               toggleContinuous={toggleContinuous}
@@ -469,6 +480,7 @@ const ComposerAction: FC<{
   supported: boolean;
   status: string;
   continuous: boolean;
+  wakeActive: boolean;
   startOnce: () => void;
   stop: () => void;
   toggleContinuous: () => void;
@@ -477,7 +489,7 @@ const ComposerAction: FC<{
   fileBlocked: boolean;
   onChooseFile: () => void;
 }> = ({
-  supported, status, continuous, startOnce, stop, toggleContinuous, onBeforeSend, isLocalCommand, fileBlocked, onChooseFile,
+  supported, status, continuous, wakeActive, startOnce, stop, toggleContinuous, onBeforeSend, isLocalCommand, fileBlocked, onChooseFile,
 }) => {
   const isKo = useKorean();
   const sendLabel = isLocalCommand
@@ -486,7 +498,7 @@ const ComposerAction: FC<{
   const continuousLabel = continuous
     ? (isKo ? "연속 듣기 중지" : "Stop continuous voice")
     : (isKo ? "연속 듣기 시작" : "Start continuous voice");
-  const voiceActive = status === "starting" || status === "listening" || status === "processing";
+  const voiceActive = !wakeActive && (status === "starting" || status === "listening" || status === "processing");
   const voiceLabel = voiceActive
     ? (isKo ? "음성 입력 중지" : "Stop voice input")
     : (isKo ? "음성 입력 시작" : "Start voice input");
@@ -494,6 +506,7 @@ const ComposerAction: FC<{
   return (
     <div className="aui-composer-action-wrapper relative flex items-center gap-2">
       <ComposerAddAttachment onChoose={onChooseFile} />
+      <WakeWordButton />
       <TooltipIconButton
         tooltip={continuousLabel}
         side="bottom"
