@@ -90,6 +90,8 @@ Cloud sync starts off for new profiles. When enabled, cloud search can open a se
 
 The desktop Assistant stores conversation recall, project context, indexed documents and saved personal context in a separate on-device store for each workspace account. Relevant excerpts can be included in requests to the configured model. The chat transcript and Assistant recall are separate stores. Legacy unscoped memory stays with the legacy desktop entry point because its account owner is unknown.
 
+Open **Saved memory** in the desktop sidebar to see counts and up to 12 previews in each of the four memory categories. You can inspect saved items while memory use is off. Choose **Clear saved memory**, review the counts and confirm **Clear on this device** to permanently empty this account's four saved-memory categories. Conversation history, account preferences and source documents use separate stores. New requests can remember new information when saved memory is enabled.
+
 In your profile, turn off **Use saved memory** and save to stop reading and updating that memory for new desktop requests. Work already underway follows the previous setting. The open conversation still provides its recent turns, and completed conversations are still saved in the sidebar. Cloud conversation sync has its own preference. Turning saved memory on again makes earlier saved memory available. The default is on. If the workspace cannot load its preferences, it keeps saved memory off for that session.
 
 The desktop workspace sends the preference as `memoryContext.savedMemory` on regular chat requests. The local transport and desktop transcript storage check the account against the current desktop session. Temporary chats retain their separate `memoryMode`.
