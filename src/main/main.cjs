@@ -26,6 +26,7 @@ const { DesktopAuthSession } = require("./desktop-auth-session.cjs");
 const { createDesktopSessionToken, attachDesktopChatHeader } = require("./desktop-session.cjs");
 const { DesktopUiServer } = require("./desktop-ui-server.cjs");
 const { ExtensionsService } = require("./extensions-service.cjs");
+const { FolderBrowser } = require("./folder-browser.cjs");
 const { FileService } = require("./file-service.cjs");
 const { GameService } = require("./game-service.cjs");
 const {
@@ -109,6 +110,35 @@ function bindDesktopApproval(event, code) {
       throw Object.assign(new Error("Desktop approval is no longer active."), { code });
     }
   };
+}
+
+const FOLDER_ERRORS = new Set(["FOLDER_CHANGED", "FOLDER_STALE", "FOLDER_PERMISSION", "UNSUPPORTED_FILE_PREVIEW"]);
+let folderBusy = false;
+
+async function dispatchFolderBrowser(event, { tool, payload = {} }) {
+  const assertAllowed = bindDesktopApproval(event, "FOLDER_PERMISSION");
+  if (folderBusy) return { ok: false, reason: "FOLDER_BUSY" };
+  folderBusy = true;
+  try {
+    assertAllowed();
+    const { folderBrowser } = ensureReadyServices().services;
+    if (tool === "folder:choose") {
+      const selection = await dialog.showOpenDialog(settingsWindow, {
+        title: payload.language === "ko" ? "찾아볼 폴더 선택" : "Choose a folder to browse",
+        properties: ["openDirectory"]
+      });
+      if (selection.canceled || selection.filePaths.length !== 1) return { ok: true, outcome: "cancelled" };
+      return { ok: true, data: await folderBrowser.choose(selection.filePaths[0], assertAllowed) };
+    }
+    return { ok: true, data: await folderBrowser.act({
+      action: payload.action, id: payload.id, revision: payload.revision, assertAllowed
+    }) };
+  } catch (error) {
+    const missing = ["ENOENT", "ENOTDIR", "ELOOP"].includes(error.code);
+    return { ok: false, reason: FOLDER_ERRORS.has(error.code) ? error.code : missing ? "FOLDER_CHANGED" : "FOLDER_FAILED" };
+  } finally {
+    folderBusy = false;
+  }
 }
 
 const APP_PICKER_ERRORS = new Set(["APPS_QUERY", "APPS_STALE", "APPS_CHANGED", "APPS_PERMISSION", "APPS_OPEN_FAILED"]);
@@ -446,6 +476,7 @@ async function createServices() {
   });
 
   services = {
+    folderBrowser: new FolderBrowser(files),
     appPicker,
     automation,
     browser,
@@ -1384,6 +1415,7 @@ ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
 ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   requireAssistantWindow(event);
   if (requiresComputerControl(request.tool)) requireComputerControl();
+  if (request.tool === "folder:choose" || request.tool === "folder:act") return dispatchFolderBrowser(event, request);
   if (request.tool === "apps:catalog" || request.tool === "apps:open-selected") return dispatchAppPicker(event, request);
   if (SPOTIFY_TOOL_NAMES.has(request.tool)) return dispatchSpotifyTool(event, request);
   if (GAME_TOOL_NAMES.has(request.tool)) return dispatchGameTool(event, request);

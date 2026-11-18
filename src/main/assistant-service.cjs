@@ -1,7 +1,9 @@
+const { folderGuidance } = require("./folder-browser.cjs");
 const { appPickerGuidance } = require("./app-picker.cjs");
 const { spotifyGuidance } = require("./spotify-service.cjs");
 const { gameLibraryGuidance } = require("./game-service.cjs");
 const { projectGuidance } = require("./code-project-service.cjs");
+const folderCommands = require("./assistant/folder-commands.json");
 const appPickerCommands = require("./assistant/app-picker-commands.json");
 const spotifyCommands = require("./assistant/spotify-commands.json");
 const gameCommands = require("./assistant/game-commands.json");
@@ -6174,55 +6176,7 @@ class AssistantService {
       };
     }
 
-    if (route.route === "file_read") {
-      if (!route.path) {
-        throw new Error("A file path is required.");
-      }
-
-      const data = await this.files.readFile(route.path);
-      await this.rememberDocumentInMemory(data.path, data.content);
-      const reply = await this.replyWithModel(
-        input,
-        `The user asked about a file. Here is its content:\n\n${data.content.slice(0, 12000)}`,
-        {
-          tier: "complex",
-          includeDocumentMemory: false
-        }
-      ).catch(() =>
-        detectReplyLanguage(input) === "ko"
-          ? `${data.path} 파일 내용을 읽어왔어요. 필요한 부분을 설명하거나 수정안도 도와드릴게요.`
-          : `I read ${data.path}. I can explain it or suggest edits if you want.`
-      );
-
-      return {
-        reply,
-        actions: [this.makeAction("file_read", data.path)],
-        provider: getTierProviderLabel("complex"),
-        details: {
-          ...data,
-          showInlinePreview: true
-        }
-      };
-    }
-
-    const data = await this.files.listDirectory(route.path || ".");
-    const fallback = detectReplyLanguage(input) === "ko"
-      ? `${data.path} 목록을 읽었어요.`
-      : `I listed ${data.path}.`;
-
-    return {
-      reply: await this.polishCommandReply(
-        input,
-        {
-          actions: [this.makeAction("file_list", data.path)],
-          details: data
-        },
-        fallback
-      ),
-      actions: [this.makeAction("file_list", data.path)],
-      provider: "local",
-      details: data
-    };
+    return folderGuidance(detectReplyLanguage(input));
   }
 
   async handleGameRoute(input) {
@@ -6455,6 +6409,8 @@ class AssistantService {
 
     const cleanInput = normalizeWhitespace(input);
     const command = cleanInput.toLowerCase();
+    if (folderCommands.ko.includes(command)) return folderGuidance("ko");
+    if (folderCommands.en.includes(command)) return folderGuidance("en");
     if (appPickerCommands.list.ko.includes(command) || appPickerCommands.find.ko.some((phrase) =>
       phrase === command || command.startsWith(phrase + " "))) return appPickerGuidance("ko");
     if (appPickerCommands.list.en.includes(command) || appPickerCommands.find.en.some((phrase) =>

@@ -2939,8 +2939,13 @@ obsSceneButton.addEventListener("click", () => void runObsAction("obs:scene", {
 }));
 
 fileReadButton.addEventListener("click", async () => {
-  const result = await invokeTool("file:read", { path: filePath.value.trim() }, "파일을 읽어왔어요.");
-  fileContent.value = result.data.content;
+  try {
+    const result = await window.assistantAPI.invokeTool("file:read", { path: filePath.value.trim() });
+    fileContent.value = result.data.content;
+    addMessage("assistant", "편집기에서 파일을 열었습니다.");
+  } catch {
+    addMessage("assistant", "파일을 열지 못했습니다. 경로와 권한을 확인하세요.");
+  }
 });
 
 fileWriteButton.addEventListener("click", async () => {
@@ -2972,7 +2977,13 @@ fileWriteButton.addEventListener("click", async () => {
 });
 
 fileListButton.addEventListener("click", async () => {
-  await invokeTool("file:list", { path: filePath.value.trim() || "." }, "폴더 목록을 읽어왔어요.");
+  try {
+    const result = await window.assistantAPI.invokeTool("file:list", { path: filePath.value.trim() || "." });
+    const entries = result.data.entries.map((entry) => entry.name);
+    addMessage("assistant", "폴더 목록을 읽었습니다.", "", { localPreviewText: entries.join("\n") });
+  } catch {
+    addMessage("assistant", "폴더 목록을 읽지 못했습니다. 경로와 권한을 확인하세요.");
+  }
 });
 
 async function bootstrap() {
