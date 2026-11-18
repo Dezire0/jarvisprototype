@@ -9,6 +9,7 @@ npm --prefix backend ci
 npm --prefix backend run check
 npm --prefix backend run test:auth
 npm --prefix backend run test:google
+npm --prefix backend run test:cloud
 ```
 
 The auth test creates a disposable local D1 database and generates its own signing keys. It checks registration, duplicate requests, existing account sign-in, account-scoped history, protected routes, and reauthentication after a key change. No production settings are required.
@@ -30,3 +31,10 @@ Google sign-in requires the Worker client ID and secret bindings and the registe
 Apply `0003_google_sign_in_attempts.sql` before activating the new Worker. It adds the attempt store and a unique nullable Google subject to users. Google-only legacy accounts with a verified authoritative Gmail or Workspace address retain their existing account after their first successful sign-in. Other existing email accounts require an explicit identity link. Sign in using the existing email credentials when available. [Google identity guidance](https://developers.google.com/identity/sign-in/web/backend-auth)
 
 The Worker and the app's Google sign-in UI need to be released together. The new Worker expects the new attempt protocol. Existing password sign-in and account IDs are preserved. Unfinished attempts expire after ten minutes. A completed attempt can be redeemed once or canceled from the original window.
+
+
+## Managed cloud chat
+
+The authenticated `/api/ai/chat` endpoint selects the current account's tier. Free uses `gemini-3.5-flash-lite`, and Pro uses `gemini-3.5-flash`. The same model IDs appear in `/api/ai/usage`. Set `JARVIS_CLOUD_FREE_MODEL` or `JARVIS_CLOUD_PRO_MODEL` as a Worker variable to substitute plain Gemini model IDs that support text generation. Set `GEMINI_API_KEY` as a private Worker secret. The provider key travels in the `x-goog-api-key` header to the Gemini API. [Google model catalog](https://ai.google.dev/gemini-api/docs/models) · [Google text generation API](https://ai.google.dev/api/generate-content)
+
+Free usage counts successful messages and Pro usage counts reported tokens. The UTC date resets the daily counts. Requests already in flight near the cap can finish concurrently. Each successful reply updates the account count atomically. Failed requests and empty provider responses leave usage unchanged. Errors expose service categories and status rather than provider bodies. The local tests use a mock provider and disposable D1 data.

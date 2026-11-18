@@ -36,6 +36,12 @@ Open **Model settings** in the sidebar to choose the provider and model. Save be
 
 Ollama accepts a server address such as `http://127.0.0.1:11434` and lists installed models on request. OpenAI-compatible servers that accept unauthenticated requests can use a custom address without a key. Leave a password field blank to retain its key. When you change the OpenAI-compatible server origin, supply its own key or leave the field blank to clear the old key. **Groq voice input** is configured separately when another provider handles chat. CLI-backed models depend on the user's CLI login and computer-control setting.
 
+### Optional Jarvis Cloud fallback
+
+Desktop conversation uses the configured model first. Set `JARVIS_ENABLE_CLOUD_AI_FALLBACK=1` in the desktop environment to allow ordinary signed-in conversations to use the managed Worker when the configured model fails. If no model has been selected, open **Model settings** to connect one. Use `JARVIS_CLOUD_API_BASE` to point a test or private installation at its Worker base URL. Use HTTPS or an HTTP loopback address for local testing.
+
+Fallback sends the current request and up to ten recent text turns in that account's conversation. The fallback returns text and labels a successful reply with **Jarvis Cloud** and its model. Temporary chats and attachment review use the configured model path. Free and Pro use the same account endpoint, and both draw on their respective Jarvis Cloud allowance. See the [Worker setup](../backend/README.md#managed-cloud-chat).
+
 ### Conversation history
 
 Sign in to the same account after reopening Jarvis to see saved conversations in the sidebar. Select a conversation to continue it, or find it through local search. Jarvis saves completed turns, thread titles and project grouping in the Electron app data directory under the signed-in account's namespace. The browser preview uses that account's storage at the current origin.
