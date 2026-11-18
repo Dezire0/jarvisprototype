@@ -1,4 +1,4 @@
-export type WakeEngine = "device" | "browser";
+export type WakeEngine = "mac" | "device" | "browser";
 export type WakeAvailability = "available" | "downloadable" | "downloading" | "unavailable";
 export const wakeFollowUpMs = 8000;
 
@@ -16,8 +16,8 @@ export type BrowserRecognition = {
     results: ArrayLike<ArrayLike<{ transcript?: string }> & { isFinal?: boolean }>;
   }) => void) | null;
   start: () => void;
-  stop: () => void;
-  abort: () => void;
+  stop: () => void | Promise<void>;
+  abort: () => void | Promise<void>;
 };
 
 type LocalSpeechOptions = { langs: string[]; processLocally: true };

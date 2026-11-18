@@ -381,7 +381,7 @@ const Composer: FC<{
       : "Reading this PDF timed out. Choose a smaller file.",
   };
   const fileIssue = fileError ? fileIssues[fileError] : "";
-  const wakeListening = wakeEngine === "device"
+  const wakeListening = wakeEngine && wakeEngine !== "browser"
     ? (isKo ? "기기에서 “자비스”를 듣는 중" : "Listening for “Jarvis” on this device")
     : (isKo ? "브라우저에서 “자비스”를 듣는 중" : "Listening for “Jarvis” with browser recognition");
   const listening = wakeEngine
