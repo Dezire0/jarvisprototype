@@ -6,7 +6,9 @@ The desktop workspace opens with the conversation composer, voice controls, and 
 
 Open `/tools` in a running desktop UI or select **Local tools**. The command field responds to Ctrl+K or Command+K.
 
-The conversation composer also recognizes structured timer, task, note and calculator commands. The label **Runs on this device** identifies the route before submission. Press Enter or use the arrow to run the command and view the result under the input. Select **Send to chat** to send the same text to the Assistant instead. A message with an attachment or quote follows the chat route. Voice input uses the same command routing. Try `10분 타이머 맞춰줘`, `note: Read the agenda`, `add task Review the draft`, or `calculate 16 * 3`.
+The conversation composer also recognizes structured timer, task, note and calculator commands. The label **Runs on this device** identifies the route before submission. Press Enter or use the arrow to run the command and view the result under the input. Select **Send to chat** to send the same text to the Assistant instead. A message with an attachment or quote follows the chat route. Voice input in an empty conversation draft uses the same command routing. Try `10분 타이머 맞춰줘`, `note: Read the agenda`, `add task Review the draft`, or `calculate 16 * 3`.
+
+When the conversation already has text, attachments or a quote, the final voice transcript joins the draft for review. The microphone control stops recording or discards a pending transcript. Changing conversations or leaving the workspace ends that listening session, including continuous listening. A result already handed to a transcription provider can finish there. Jarvis discards it if the session has ended. In the legacy renderer, Call Mode starts when you choose it in the current conversation.
 
 | Task | Examples |
 | --- | --- |
@@ -90,7 +92,7 @@ Provider references include [Ollama vision](https://docs.ollama.com/capabilities
 
 For a standalone browser preview, run Next on loopback and open `/tools`. Timer, notes, tasks, and calculations remain available in that browser. Live model chat and native operations require the Electron app and configured providers.
 
-Run `npm run check` and `npm run test:node` for syntax and regression checks. For the cloud plan browser check, install Playwright Chromium and start the bundled UI with `HOSTNAME=127.0.0.1 PORT=3310 node build/desktop-ui/templates/cloud/server.js`. Then run `JARVIS_UI_TEST_URL=http://127.0.0.1:3310 node --test tests/ui/cloud-plan.test.cjs`. The test uses a local account fixture.
+Run `npm run check` and `npm run test:node` for syntax and regression checks. For the cloud plan browser check, install Playwright Chromium and start the bundled UI with `HOSTNAME=127.0.0.1 PORT=3310 node build/desktop-ui/templates/cloud/server.js`. Then run `JARVIS_UI_TEST_URL=http://127.0.0.1:3310 node --test tests/ui/cloud-plan.test.cjs`. The test uses a local account fixture. Run the voice routing check on the same server with `JARVIS_UI_TEST_URL=http://127.0.0.1:3310 node --test tests/ui/voice-draft.test.cjs`. It uses synthetic recognition events.
 
 ## Capability inventory
 

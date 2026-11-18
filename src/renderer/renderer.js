@@ -138,8 +138,7 @@ const state = {
   recorderFallbackActive: false,
   recorderHeardSpeech: false,
   recorderSilenceStartedAt: 0,
-  recorderResolve: null,
-  recorderReject: null,
+  voiceGeneration: 0,
   wakeEnabled: false,
   callModeEnabled: false,
   waitingForVoiceCommand: false,
@@ -169,7 +168,6 @@ const state = {
 const VOICE_STORAGE_KEY = "jarvis-selected-voice";
 const LANGUAGE_STORAGE_KEY = "jarvis-speech-language";
 const SPEAK_REPLIES_KEY = "jarvis-speak-replies";
-const CALL_MODE_STORAGE_KEY = "jarvis-call-mode";
 const THREAD_STORAGE_KEY = "jarvis-thread-state-v2";
 
 function escapeHtml(text = "") {
@@ -354,6 +352,7 @@ function renderThreadList() {
       <span class="thread-list-preview">${escapeHtml(lastMessage?.content || "Start a new conversation")}</span>
     `;
     item.addEventListener("click", () => {
+      if (thread.id !== state.currentThreadId) cancelVoiceCapture();
       state.currentThreadId = thread.id;
       renderThreadList();
       renderCurrentThread();
@@ -530,18 +529,17 @@ function addMessage(role, content, detail = "", extras = {}) {
 }
 
 function updateMessage(messageId, patch = {}) {
-  const thread = getCurrentThread();
-  const message = thread.messages.find((entry) => entry.id === messageId);
-
-  if (!message) {
-    return;
-  }
+  const thread = state.threads.find((item) => item.messages.some((message) => message.id === messageId));
+  const message = thread?.messages.find((entry) => entry.id === messageId);
+  if (!message) return false;
 
   Object.assign(message, patch);
   thread.updatedAt = Date.now();
   renderThreadList();
-  renderCurrentThread();
   saveThreadState();
+  if (thread.id !== state.currentThreadId) return false;
+  renderCurrentThread();
+  return true;
 }
 
 async function refreshLivePreviewForMessage(messageId) {
@@ -1141,50 +1139,65 @@ function clearRecorderTimers() {
 
 async function disposeRecorderResources() {
   clearRecorderTimers();
-
-  if (state.recorderSource) {
-    try {
-      state.recorderSource.disconnect();
-    } catch (_error) {
-      // Ignore disconnect races while cleaning up.
-    }
-    state.recorderSource = null;
-  }
-
+  const source = state.recorderSource;
+  const context = state.recorderAudioContext;
+  const stream = state.recorderStream;
+  state.recorderSource = null;
   state.recorderAnalyser = null;
-
-  if (state.recorderAudioContext) {
-    try {
-      await state.recorderAudioContext.close();
-    } catch (_error) {
-      // Ignore close races while cleaning up.
-    }
-    state.recorderAudioContext = null;
-  }
-
-  if (state.recorderStream) {
-    state.recorderStream.getTracks().forEach((track) => track.stop());
-    state.recorderStream = null;
-  }
-
+  state.recorderAudioContext = null;
+  state.recorderStream = null;
   state.recorderMediaRecorder = null;
   state.recorderChunks = [];
-  state.recorderFallbackActive = false;
   state.recorderHeardSpeech = false;
   state.recorderSilenceStartedAt = 0;
+
+  try {
+    source?.disconnect();
+  } catch (_error) {
+    // The source may already be disconnected.
+  }
+  stream?.getTracks().forEach((track) => track.stop());
+  await context?.close().catch(() => {});
 }
 
-async function stopRecorderFallback() {
-  if (!state.recorderMediaRecorder || state.recorderMediaRecorder.state === "inactive") {
-    await disposeRecorderResources();
-    return;
-  }
+function isVoiceCurrent(generation) {
+  return generation === state.voiceGeneration && !document.hidden;
+}
 
-  await new Promise((resolve) => {
-    const mediaRecorder = state.recorderMediaRecorder;
-    mediaRecorder.addEventListener("stop", resolve, { once: true });
-    mediaRecorder.stop();
-  });
+function cancelVoiceCapture() {
+  const wasActive = state.recognitionMode !== "idle" || state.wakeEnabled ||
+    state.callModeEnabled || state.recorderFallbackActive || state.pendingRecognitionTimer;
+  state.voiceGeneration++;
+  state.pendingRecognitionStart = null;
+  clearPendingRecognitionTimer();
+  clearCommandTimeout();
+  const recognition = state.recognition;
+  state.recognition = null;
+  state.recognitionRunning = false;
+  state.recognitionMode = "idle";
+  state.waitingForVoiceCommand = false;
+  state.manualRecognitionReason = "";
+  state.wakeEnabled = false;
+  state.callModeEnabled = false;
+  state.recorderFallbackActive = false;
+
+  try {
+    recognition?.abort();
+  } catch (_error) {
+    // Recognition may already be idle.
+  }
+  stopRecorderFallback();
+  void disposeRecorderResources();
+  syncWakeButton();
+  syncCallModeButton();
+  syncVoiceOnceButton();
+  setWakeState("idle");
+  if (wasActive) updateVoiceStatus("음성 입력을 중지했어요.");
+}
+
+function stopRecorderFallback() {
+  const recorder = state.recorderMediaRecorder;
+  if (recorder && recorder.state !== "inactive") recorder.stop();
 }
 
 function resolveSpeechSession() {
@@ -1312,16 +1325,17 @@ function syncVoiceOnceButton() {
 
 function applyCallModeState(enabled) {
   state.callModeEnabled = Boolean(enabled);
-  localStorage.setItem(CALL_MODE_STORAGE_KEY, state.callModeEnabled ? "1" : "0");
   syncCallModeButton();
 }
 
 function requestRecognitionStart(mode, options = {}) {
   const { delayMs = 0, reason = "" } = options;
+  const generation = state.voiceGeneration;
   clearPendingRecognitionTimer();
 
   const startRequestedMode = () => {
     state.pendingRecognitionTimer = null;
+    if (!isVoiceCurrent(generation) || state.recorderFallbackActive) return;
 
     if (state.recognitionRunning) {
       state.pendingRecognitionStart = {
@@ -1366,11 +1380,7 @@ function normalizeManualTranscript(result) {
   return String(result?.text || "").trim();
 }
 
-async function transcribeRecorderChunks(language) {
-  const mediaRecorder = state.recorderMediaRecorder;
-  const chunks = state.recorderChunks.slice();
-  const mimeType = mediaRecorder?.mimeType || "audio/webm";
-
+async function transcribeRecorderChunks(chunks, mimeType, language, generation) {
   if (!chunks.length) {
     throw new Error("No voice audio was captured.");
   }
@@ -1379,6 +1389,7 @@ async function transcribeRecorderChunks(language) {
     type: mimeType
   });
   const arrayBuffer = await blob.arrayBuffer();
+  if (!isVoiceCurrent(generation)) return null;
   let binary = "";
   const bytes = new Uint8Array(arrayBuffer);
 
@@ -1393,12 +1404,11 @@ async function transcribeRecorderChunks(language) {
   });
 }
 
-async function startRecorderFallback(reason = "single-turn") {
+async function startRecorderFallback(reason, generation) {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
     throw new Error("이 환경에서는 녹음 기반 음성 입력을 사용할 수 없어요.");
   }
 
-  await stopRecorderFallback();
   clearPendingRecognitionTimer();
   clearCommandTimeout();
 
@@ -1410,6 +1420,12 @@ async function startRecorderFallback(reason = "single-turn") {
     }
   });
 
+  if (!isVoiceCurrent(generation)) {
+    stream.getTracks().forEach((track) => track.stop());
+    return "";
+  }
+
+  state.recorderStream = stream;
   const preferredMimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
     ? "audio/webm;codecs=opus"
     : MediaRecorder.isTypeSupported("audio/webm")
@@ -1419,15 +1435,14 @@ async function startRecorderFallback(reason = "single-turn") {
     ? new MediaRecorder(stream, { mimeType: preferredMimeType })
     : new MediaRecorder(stream);
   const audioContext = new AudioContext();
+  state.recorderAudioContext = audioContext;
   const analyser = audioContext.createAnalyser();
   analyser.fftSize = 2048;
   const source = audioContext.createMediaStreamSource(stream);
   source.connect(analyser);
 
-  state.recorderStream = stream;
   state.recorderMediaRecorder = mediaRecorder;
   state.recorderChunks = [];
-  state.recorderAudioContext = audioContext;
   state.recorderAnalyser = analyser;
   state.recorderSource = source;
   state.recorderFallbackActive = true;
@@ -1440,24 +1455,15 @@ async function startRecorderFallback(reason = "single-turn") {
   syncVoiceOnceButton();
   updateVoiceStatus(reason === "call-mode" ? "통화 모드로 듣는 중이에요..." : "한 번만 듣는 중이에요...");
 
-  const recordingDone = new Promise((resolve, reject) => {
-    state.recorderResolve = resolve;
-    state.recorderReject = reject;
-  });
-
   mediaRecorder.addEventListener("dataavailable", (event) => {
-    if (event.data && event.data.size > 0) {
+    if (isVoiceCurrent(generation) && event.data && event.data.size > 0) {
       state.recorderChunks.push(event.data);
     }
   });
 
-  mediaRecorder.addEventListener("stop", () => {
-    const resolve = state.recorderResolve;
-    state.recorderResolve = null;
-    state.recorderReject = null;
-    if (resolve) {
-      resolve();
-    }
+  const recordingDone = new Promise((resolve) => {
+    mediaRecorder.addEventListener("stop", () => resolve(true), { once: true });
+    mediaRecorder.addEventListener("error", () => resolve(false), { once: true });
   });
 
   mediaRecorder.start(250);
@@ -1466,16 +1472,17 @@ async function startRecorderFallback(reason = "single-turn") {
   const silenceThreshold = 18;
 
   state.recorderMaxTimeout = setTimeout(() => {
-    void stopRecorderFallback();
+    if (isVoiceCurrent(generation)) stopRecorderFallback();
   }, 12000);
 
   state.recorderSilenceTimeout = setTimeout(() => {
-    if (!state.recorderHeardSpeech) {
-      void stopRecorderFallback();
+    if (isVoiceCurrent(generation) && !state.recorderHeardSpeech) {
+      stopRecorderFallback();
     }
   }, 5000);
 
   state.recorderSilenceInterval = setInterval(() => {
+    if (!isVoiceCurrent(generation)) return;
     analyser.getByteTimeDomainData(samples);
 
     let sum = 0;
@@ -1507,60 +1514,60 @@ async function startRecorderFallback(reason = "single-turn") {
     }
 
     if (Date.now() - state.recorderSilenceStartedAt >= 1200) {
-      void stopRecorderFallback();
+      stopRecorderFallback();
     }
   }, 150);
 
-  await recordingDone;
-
-  try {
-    if (!state.recorderHeardSpeech) {
-      updateVoiceStatus(
-        state.callModeEnabled ? "아직 말씀이 없어서 다시 들을게요." : "말씀을 못 들었어요. 다시 시도해 주세요."
-      );
-      return "";
-    }
-
-    updateVoiceStatus("음성을 텍스트로 변환하고 있어요...");
-    const result = await transcribeRecorderChunks(speechLanguage.value);
-    return normalizeManualTranscript(result);
-  } finally {
-    await disposeRecorderResources();
-    state.recognitionRunning = false;
-    state.recognitionMode = "idle";
-    state.waitingForVoiceCommand = false;
-    syncVoiceOnceButton();
-    setWakeState("idle");
+  const recordingSucceeded = await recordingDone;
+  if (!isVoiceCurrent(generation)) return "";
+  const heardSpeech = state.recorderHeardSpeech;
+  const chunks = state.recorderChunks;
+  const mimeType = mediaRecorder.mimeType || "audio/webm";
+  await disposeRecorderResources();
+  if (!isVoiceCurrent(generation)) return "";
+  if (!recordingSucceeded) throw new Error("녹음을 마치지 못했어요. 다시 시도해 주세요.");
+  if (!heardSpeech) {
+    updateVoiceStatus(
+      state.callModeEnabled ? "아직 말씀이 없어서 다시 들을게요." : "말씀을 못 들었어요. 다시 시도해 주세요."
+    );
+    return "";
   }
+
+  updateVoiceStatus("음성을 텍스트로 변환하고 있어요...");
+  return normalizeManualTranscript(await transcribeRecorderChunks(chunks, mimeType, speechLanguage.value, generation));
 }
 
 async function runManualRecognitionFallback(reason = "single-turn") {
+  if (state.recorderFallbackActive) return;
+  const generation = state.voiceGeneration;
+  state.recorderFallbackActive = true;
+  state.recognitionMode = "manual";
+  state.waitingForVoiceCommand = true;
+  syncVoiceOnceButton();
+  let transcript = "";
   try {
-    const transcript = await startRecorderFallback(reason);
-
-    if (!transcript) {
-      if (state.callModeEnabled && reason === "call-mode" && !state.submitInFlight) {
-        requestRecognitionStart("manual", {
-          reason: "call-mode",
-          delayMs: 380
-        });
-      }
-      return;
-    }
-
-    updateVoiceStatus("말씀하신 내용을 처리하고 있어요...");
-    await submitCommandText(transcript, {
-      source: "voice"
-    });
+    transcript = await startRecorderFallback(reason, generation);
   } catch (error) {
-    updateVoiceStatus(`음성 입력 오류: ${error.message}`);
-
-    if (state.callModeEnabled && reason === "call-mode" && !state.submitInFlight) {
-      requestRecognitionStart("manual", {
-        reason: "call-mode",
-        delayMs: 520
-      });
+    if (isVoiceCurrent(generation)) updateVoiceStatus(`음성 입력 오류: ${error.message}`);
+  } finally {
+    if (isVoiceCurrent(generation)) {
+      await disposeRecorderResources();
+      if (isVoiceCurrent(generation)) {
+        state.recorderFallbackActive = false;
+        state.recognitionRunning = false;
+        state.recognitionMode = "idle";
+        state.waitingForVoiceCommand = false;
+        syncVoiceOnceButton();
+        setWakeState("idle");
+      }
     }
+  }
+
+  if (!isVoiceCurrent(generation)) return;
+  if (transcript) {
+    await submitVoiceTranscript(transcript, generation);
+  } else if (state.callModeEnabled && reason === "call-mode" && !state.submitInFlight) {
+    requestRecognitionStart("manual", { reason: "call-mode", delayMs: 380 });
   }
 }
 
@@ -2082,7 +2089,7 @@ async function handleAssistantResult(result, pendingMessageId = "") {
     : "";
 
   if (pendingMessageId) {
-    updateMessage(pendingMessageId, {
+    const visible = updateMessage(pendingMessageId, {
       status: "done",
       content: result.reply || "처리를 마쳤어요.",
       detail: previewText,
@@ -2090,6 +2097,7 @@ async function handleAssistantResult(result, pendingMessageId = "") {
       progressSteps: [],
       progressStepIndex: 0
     });
+    if (!visible) return;
   } else {
     addMessage(
       "assistant",
@@ -2103,12 +2111,27 @@ async function handleAssistantResult(result, pendingMessageId = "") {
   await speakText(result.reply || "", result.language || detectLanguage(result.reply || ""));
 }
 
+async function submitVoiceTranscript(transcript, generation) {
+  if (!isVoiceCurrent(generation)) return;
+  const draft = commandInput.value;
+  if (draft || state.submitInFlight) {
+    cancelVoiceCapture();
+    setCommandInputValue(draft ? `${draft}\n${transcript}` : transcript);
+    updateVoiceStatus("음성 입력을 초안에 추가했어요.");
+    return;
+  }
+
+  updateVoiceStatus("말씀하신 내용을 처리하고 있어요...");
+  await submitCommandText(transcript, { source: "voice", voiceGeneration: generation });
+}
+
 async function submitCommandText(input, options = {}) {
   if (!input) {
     return;
   }
 
   const source = options.source || "text";
+  const initialDraft = commandInput.value;
   const shouldResumeCall = state.callModeEnabled && source === "voice";
 
   addMessage("user", input);
@@ -2129,7 +2152,7 @@ async function submitCommandText(input, options = {}) {
     await handleAssistantResult(result, pendingMessageId);
   } catch (error) {
     stopAssistantProgress();
-    updateMessage(pendingMessageId, {
+    const visible = updateMessage(pendingMessageId, {
       status: "done",
       content: `처리 중 문제가 있었어요: ${error.message}`,
       progressLabel: "",
@@ -2140,18 +2163,20 @@ async function submitCommandText(input, options = {}) {
   } finally {
     state.submitInFlight = false;
     submitButton.disabled = false;
-    commandInput.value = "";
-    setWakeState("idle");
+    if (source !== "voice" && commandInput.value === initialDraft) commandInput.value = "";
+    const sameVoiceSession = source !== "voice" || isVoiceCurrent(options.voiceGeneration);
+    if (sameVoiceSession && state.recognitionMode === "idle") setWakeState("idle");
 
-    if (shouldResumeCall) {
+    if (shouldResumeCall && sameVoiceSession && state.callModeEnabled &&
+        state.recognitionMode === "idle" && !state.recorderFallbackActive) {
       updateVoiceStatus("이어서 듣고 있어요...");
       requestRecognitionStart("manual", {
         reason: "call-mode",
         delayMs: 380
       });
-    } else if (state.wakeEnabled) {
+    } else if (sameVoiceSession && state.wakeEnabled) {
       updateVoiceStatus("웨이크워드를 듣는 중이에요.");
-    } else if (!state.callModeEnabled) {
+    } else if (sameVoiceSession && !state.callModeEnabled && state.recognitionMode === "idle") {
       updateVoiceStatus("음성 대기 중이 아니에요.");
     }
   }
@@ -2186,11 +2211,14 @@ function buildRecognition() {
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
   recognition.onstart = () => {
+    if (state.recognition !== recognition) return;
     state.recognitionRunning = true;
     syncVoiceOnceButton();
   };
 
   recognition.onresult = async (event) => {
+    const generation = state.voiceGeneration;
+    if (state.recognition !== recognition || !isVoiceCurrent(generation)) return;
     let finalTranscript = "";
 
     for (let index = event.resultIndex; index < event.results.length; index += 1) {
@@ -2216,10 +2244,7 @@ function buildRecognition() {
         state.waitingForVoiceCommand = false;
         clearCommandTimeout();
         syncVoiceOnceButton();
-        updateVoiceStatus("이어서 말씀하신 내용을 실행할게요...");
-        await submitCommandText(followUpCommand, {
-          source: "voice"
-        });
+        await submitVoiceTranscript(followUpCommand, generation);
       }
 
       return;
@@ -2229,13 +2254,11 @@ function buildRecognition() {
       state.waitingForVoiceCommand = false;
       state.manualRecognitionReason = state.manualRecognitionReason || "single-turn";
       syncVoiceOnceButton();
-      updateVoiceStatus("말씀하신 내용을 처리하고 있어요...");
-      await submitCommandText(transcript, {
-        source: "voice"
-      });
+      await submitVoiceTranscript(transcript, generation);
       return;
     }
 
+    if (state.recognitionMode !== "wake" || state.submitInFlight) return;
     const wakeWord = detectWakeWord(transcript);
 
     if (!wakeWord) {
@@ -2245,10 +2268,7 @@ function buildRecognition() {
     const directCommand = stripWakeWord(transcript, wakeWord);
 
     if (directCommand) {
-      updateVoiceStatus("호출어를 감지했어요. 바로 실행할게요...");
-      await submitCommandText(directCommand, {
-        source: "voice"
-      });
+      await submitVoiceTranscript(directCommand, generation);
       return;
     }
 
@@ -2266,6 +2286,7 @@ function buildRecognition() {
   };
 
   recognition.onerror = (event) => {
+    if (state.recognition !== recognition) return;
     if (event.error === "aborted") {
       return;
     }
@@ -2290,6 +2311,7 @@ function buildRecognition() {
 
   const browserRecognitionOnError = recognition.onerror;
   recognition.onerror = (event) => {
+    if (state.recognition !== recognition) return;
     if (
       state.recognitionMode === "manual" &&
       ["network", "service-not-allowed", "audio-capture"].includes(event.error)
@@ -2329,6 +2351,11 @@ function buildRecognition() {
   };
 
   recognition.onend = () => {
+    if (state.recognition !== recognition) return;
+    if (state.recorderFallbackActive) {
+      state.recognitionRunning = false;
+      return;
+    }
     const previousMode = state.recognitionMode;
     const previousManualReason = state.manualRecognitionReason;
     const pendingStart = state.pendingRecognitionStart;
@@ -2341,11 +2368,7 @@ function buildRecognition() {
     syncVoiceOnceButton();
 
     if (pendingStart) {
-      setTimeout(() => {
-        requestRecognitionStart(pendingStart.mode, {
-          reason: pendingStart.reason
-        });
-      }, 140);
+      requestRecognitionStart(pendingStart.mode, { reason: pendingStart.reason, delayMs: 140 });
       return;
     }
 
@@ -2399,20 +2422,8 @@ function startWakeRecognition() {
 }
 
 function stopWakeRecognition() {
-  state.wakeEnabled = false;
-  state.waitingForVoiceCommand = false;
-  clearPendingRecognitionTimer();
-  clearCommandTimeout();
+  cancelVoiceCapture();
   updateVoiceStatus("웨이크워드는 꺼져 있어요.");
-  syncWakeButton();
-  syncVoiceOnceButton();
-
-  if (state.recognition) {
-    state.recognitionMode = "idle";
-    state.recognition.stop();
-  }
-
-  setWakeState("idle");
 }
 
 function startManualRecognition(reason = "single-turn") {
@@ -2486,8 +2497,9 @@ computerControlCheck.addEventListener("change", async () => {
     void refreshAppCatalog();
   }
 });
-window.addEventListener("beforeunload", () => {
-  void stopRecorderFallback();
+window.addEventListener("pagehide", cancelVoiceCapture);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) cancelVoiceCapture();
 });
 
 window.assistantAPI.onWakeState((payload) => {
@@ -2528,6 +2540,7 @@ missionButtons.forEach((button) => {
 });
 
 newThreadButton?.addEventListener("click", () => {
+  cancelVoiceCapture();
   const thread = createThreadRecord();
   state.threads = [thread, ...state.threads];
   state.currentThreadId = thread.id;
@@ -2563,6 +2576,10 @@ muteToggle?.addEventListener("click", async () => {
 
 voiceOnceButton.addEventListener("click", () => {
   try {
+    if (state.recognitionMode === "manual" || state.recorderFallbackActive) {
+      cancelVoiceCapture();
+      return;
+    }
     stopAudioPlayback();
     requestRecognitionStart("manual", {
       reason: state.callModeEnabled ? "call-mode" : "single-turn"
@@ -2576,14 +2593,7 @@ voiceCallToggle?.addEventListener("click", () => {
   try {
     if (state.callModeEnabled) {
       applyCallModeState(false);
-      clearPendingRecognitionTimer();
-
-      if (state.recognitionMode === "manual" && state.recognition) {
-        state.waitingForVoiceCommand = false;
-        syncVoiceOnceButton();
-        state.recognition.stop();
-      }
-
+      cancelVoiceCapture();
       updateVoiceStatus("통화 모드를 껐어요.");
       return;
     }
@@ -2902,7 +2912,6 @@ async function bootstrap() {
   const data = await window.assistantAPI.getBootstrap();
   const storedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
   const storedSpeakReplies = localStorage.getItem(SPEAK_REPLIES_KEY);
-  const storedCallMode = localStorage.getItem(CALL_MODE_STORAGE_KEY);
 
   loadThreadState();
   renderThreadList();
@@ -2918,7 +2927,7 @@ async function bootstrap() {
   }
 
   state.sttProviderLabel = String(data.providers?.stt || "web-speech-only");
-  applyCallModeState(storedCallMode !== "0");
+  syncCallModeButton();
 
   shortcutHint.textContent = data.shortcut;
   applyMuteState(data.mute?.muted);
@@ -2963,17 +2972,6 @@ async function bootstrap() {
 
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
-  }
-
-  if (state.callModeEnabled) {
-    try {
-      requestRecognitionStart("manual", {
-        reason: "call-mode",
-        delayMs: 650
-      });
-    } catch (error) {
-      updateVoiceStatus(error.message);
-    }
   }
 }
 
