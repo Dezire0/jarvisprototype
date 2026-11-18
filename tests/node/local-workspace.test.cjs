@@ -39,6 +39,9 @@ test("the composer keeps structured local operations on the device", () => {
     ["add task Review tomorrow", "task"],
     ["calculate 12 / 0", "calculate"],
     ["timer 25 hours", "timer"],
+    ["날씨", "weather"],
+    ["현재 날씨", "weather"],
+    ["weather", "weather"],
   ]) {
     assert.equal(resolveComposerCommand(text, false)?.kind ?? null, kind, text);
     assert.equal(resolveComposerCommand(text, true), null);
@@ -52,6 +55,7 @@ test("conversation, multi-line drafts and external actions retain the chat path"
     "remember how these types work",
     "calculate the annual cost",
     "What is the weather?",
+    "weather tomorrow in Seoul",
     "search for my site",
     "open gmail",
     "add task Research\nThen discuss the examples",

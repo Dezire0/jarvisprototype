@@ -194,7 +194,7 @@ export function parseLocalCommand(input: string): LocalCommand | null {
   return null;
 }
 
-export function resolveComposerCommand(input: string, hasAttachmentsOrQuote: boolean): Exclude<LocalCommand, { kind: "weather" }> | null {
+export function resolveComposerCommand(input: string, hasAttachmentsOrQuote: boolean): LocalCommand | null {
   const raw = localCommandText(input);
   if (hasAttachmentsOrQuote || raw.length > 600 || /[\r\n]/.test(raw)) return null;
   const command = parseLocalCommand(input);
@@ -207,6 +207,7 @@ export function resolveComposerCommand(input: string, hasAttachmentsOrQuote: boo
     case "reset":
     case "task":
     case "complete":
+    case "weather":
       return command;
     case "calculate":
       return /\d/.test(command.text) ? command : null;

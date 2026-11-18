@@ -448,6 +448,26 @@
 }
 .jarvis-tool-section:first-of-type { margin-top: 1.5rem; }
 .jarvis-tool-section h2 { font-size: 1rem; font-weight: 620; }
+.jarvis-weather-dialog-content {
+  display: grid;
+  gap: .55rem;
+  padding: 0 1rem 1rem;
+}
+.jarvis-weather-places {
+  display: grid;
+  gap: .125rem;
+}
+.jarvis-weather-places button {
+  width: 100%;
+  justify-content: start;
+  white-space: normal;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.jarvis-weather-attribution {
+  width: fit-content;
+  font-size: .8125rem;
+}
 
 .jarvis-timer-layout {
   display: flex;
