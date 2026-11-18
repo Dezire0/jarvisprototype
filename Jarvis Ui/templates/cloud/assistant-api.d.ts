@@ -47,6 +47,7 @@ declare global {
       saveChatHistory?: (accountId: string, serialized: string) => Promise<void>;
       readHostDiagnostics?: () => Promise<{ cpuPercent: number | null; memoryPercent: number | null }>;
       saveLocalWorkspace?: (serialized: string) => Promise<void>;
+      onFocusCommandInput?: (callback: () => void) => () => void;
       invokeTool: (tool: string, payload?: Record<string, unknown>) => Promise<unknown>;
       onUpdateStatus: (callback: (payload: unknown) => void) => (() => void) | void;
     };
