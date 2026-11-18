@@ -184,6 +184,12 @@ Expand the file names to review their plain-text content, then choose **Choose f
 
 The desktop `project:create` tool prepares the draft and returns its review ID. `project:save` accepts that ID and opens the native picker. `project:open` acts on the saved result for the current review ID. All three require the trusted desktop window and computer control.
 
+### Checking for app updates
+
+In Jarvis Desktop, open the sidebar and choose **Updates**. The row shows when a new version is available. The dialog reports the installed version, available version and download status. Choose **Check for updates** to query the configured release feed. The **Check for Updates** application menu also starts a check.
+
+On macOS, choose **Open GitHub releases** to open the configured repository in the default browser. Finish the update using the installer offered there. Native updates on supported Windows and Linux builds download through the app. Choose **Restart to install** when the download is ready. Other package types can open a platform installer. Keep any in-progress work before restarting.
+
 ### Reviewing attached files
 
 Use **Add Attachment** or drop files into the conversation composer. The composer shows a filename for each selected file. You can preview an image or remove a file before pressing send. Voice input places the transcription in the draft when attachments are present so you can review the submission.
@@ -208,6 +214,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | Protocol weather, spoken responses and appearance | Local tools and theme controls | Weather supports city selection in Electron and a browser current-location option. Physical location permissions and real speech output require manual verification |
 | Protocol telemetry, diagnostics and event stream | Local tools and Electron host diagnostics | On-demand host CPU and memory and recent local tool changes are available |
 | Chat, projects, local/cloud history and model settings | Next workspace and Assistant transport | Existing entry points retained. Chat stream, receipt and unavailable-transport flows checked against a local test assistant |
+| Desktop app updates | Updates panel, native menu and Electron updater | Manual GitHub release handoff on macOS and explicit installer or restart on supported platforms |
 | File attachments | Composer, local transport, direct model APIs | Selectable PDF text, other text documents and raster images use a bounded model-only review turn |
 | App discovery and explicit bundle launch | macOS app catalog, desktop picker and Electron IPC | Local catalog and selected bundle validation on macOS |
 | Direct browser opening and search | Open browser panel and Electron handoff | Opens HTTP(S) addresses and Google queries in the default browser with Computer control enabled |
