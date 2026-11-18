@@ -478,16 +478,13 @@
   gap: .55rem;
   padding: 0 1rem 1rem;
 }
-.jarvis-screen-review {
+.jarvis-text-tool {
   display: grid;
   gap: .75rem;
   padding: 0 1rem 1rem;
 }
-.jarvis-screen-text {
+.jarvis-text-tool-control {
   width: 100%;
-  min-height: 8rem;
-  max-height: 40dvh;
-  resize: vertical;
   border: 1px solid var(--jarvis-control-border);
   border-radius: .625rem;
   padding: .75rem;
@@ -495,7 +492,12 @@
   color: var(--foreground);
   line-height: 1.55;
 }
-.jarvis-screen-text:focus-visible {
+.jarvis-text-tool textarea {
+  min-height: 8rem;
+  max-height: 40dvh;
+  resize: vertical;
+}
+.jarvis-text-tool-control:focus-visible {
   outline: 2px solid var(--jarvis-focus);
   outline-offset: 1px;
 }

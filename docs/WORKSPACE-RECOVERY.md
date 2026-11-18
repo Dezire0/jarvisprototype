@@ -86,6 +86,12 @@ The desktop transport shows one message timeline. Chat supports copying assistan
 
 With desktop computer control enabled, an exact command such as `read file "/path/to/meeting notes.txt"` or `파일 "/경로/회의 메모.txt" 읽어줘` opens a local file preview under the reply. Expand it to read up to the first 16 KiB of a regular UTF-8 file. This preview does not use a model or add a document to memory. Its contents stay in the live workspace and are excluded from the saved transcript and later model requests. Like attachment review, conversations containing a path preview stay out of cloud conversation sync. The local transcript can retain the command and the receipt. For AI analysis, attach the file explicitly.
 
+### Saving a local text file
+
+Open **Local tools → Save file** in the desktop workspace, or enter `save file "/path/to/meeting notes.txt" ::: text` without an attachment or quote. The path and multiline text appear in an editor. With Computer control on, **Save** writes up to 64 KiB of UTF-8 text on this device. The editor and saved text stay outside the model request and conversation history.
+
+New files are created exclusively. For an existing regular file, the system confirmation shows its resolved path and defaults to **Cancel**. If the file changes while confirmation is open, Jarvis retains the draft and asks you to review again. The legacy editor uses the same confirmation. Automated file creation and project scaffolds use new paths. Use an absolute path to select a destination regardless of how Jarvis launched.
+
 ### Reading or summarizing the screen
 
 In the desktop workspace, open **Local tools → Read screen** or enter `read screen`, `summarize my screen`, `explain my screen`, or the corresponding Korean command. **Read text** captures one display using the existing Computer control and system screen-capture permissions and reads its text locally. It requires [Tesseract and language data](https://tesseract-ocr.github.io/tessdoc/Installation.html). The app streams the captured image to OCR and returns up to 16,000 bytes of recognized text. Automatic task previews are scoped to the app-managed browser.

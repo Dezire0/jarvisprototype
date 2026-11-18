@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatMemorySources } from "@/lib/chat-memory";
 import { resolveScreenReviewCommand } from "@/lib/screen-review";
+import { resolveFileSaveCommand } from "@/lib/file-save";
 import { LOCAL_COMMAND_EXAMPLE, resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportNotice, useTemporaryChat } from "@/app/jarvis-runtime-provider";
 import {
@@ -328,7 +329,8 @@ const Composer: FC<{
     state.composer.attachments.length || state.composer.quote,
   ));
   const localCommand = resolveComposerCommand(text, hasAttachmentsOrQuote) ||
-    resolveScreenReviewCommand(text, hasAttachmentsOrQuote);
+    resolveScreenReviewCommand(text, hasAttachmentsOrQuote) ||
+    resolveFileSaveCommand(text, hasAttachmentsOrQuote);
   const {
     supported,
     status,

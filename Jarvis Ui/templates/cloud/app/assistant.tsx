@@ -14,11 +14,13 @@ import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { ScreenReview } from "@/components/jarvis/screen-review";
+import { FileSave } from "@/components/jarvis/file-save";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { speakLocalResult } from "@/lib/local-speech";
 import { useLocalWorkspace } from "@/lib/use-local-workspace";
 import { resolveScreenReviewCommand, type ScreenReviewMode } from "@/lib/screen-review";
+import { resolveFileSaveCommand, type FileSaveDraft } from "@/lib/file-save";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { WrenchIcon } from "lucide-react";
 import { useAuiState } from "@assistant-ui/react";
@@ -30,7 +32,10 @@ export const Assistant = () => <JarvisRuntimeProvider><AssistantWorkspace /></Ja
 function AssistantWorkspace() {
   const threadId = useAuiState((state) => state.threadListItem.id);
   const [tools, setTools] = useState<
-    { section?: ToolSection } | { section: "screen"; mode: ScreenReviewMode; threadId: string } | null
+    { section?: ToolSection } |
+    { section: "screen"; mode: ScreenReviewMode; threadId: string } |
+    { section: "file-save"; draft: FileSaveDraft; threadId: string } |
+    null
   >(null);
   const [computerControl, setComputerControl] = useState<boolean | null>(null);
   const [modelSettingsAvailable, setModelSettingsAvailable] = useState(false);
@@ -47,9 +52,10 @@ function AssistantWorkspace() {
   const toolsLabel = isKo ? "로컬 도구" : "Local tools";
   const weatherOpen = tools?.section === "weather";
   const screenOpen = tools?.section === "screen";
+  const fileSaveOpen = tools?.section === "file-save";
 
   useEffect(() => {
-    if (tools?.section === "screen" && tools.threadId !== threadId) setTools(null);
+    if ((tools?.section === "screen" || tools?.section === "file-save") && tools.threadId !== threadId) setTools(null);
   }, [tools, threadId]);
 
   useEffect(() => {
@@ -88,6 +94,14 @@ function AssistantWorkspace() {
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    const fileDraft = resolveFileSaveCommand(text, hasAttachmentsOrQuote);
+    if (fileDraft) {
+      localRun.current++;
+      setLocalResult(null);
+      toolsTrigger.current = inputRef.current;
+      setTools({ section: "file-save", draft: fileDraft, threadId });
+      return "local";
+    }
     const mode = resolveScreenReviewCommand(text, hasAttachmentsOrQuote);
     if (mode) {
       localRun.current++;
@@ -143,6 +157,10 @@ function AssistantWorkspace() {
     localRun.current++;
     setLocalResult(null);
   }
+
+  const toolTitle = fileSaveOpen ? (isKo ? "파일 저장" : "Save file")
+    : screenOpen ? (isKo ? "화면 읽기" : "Read screen")
+      : weatherOpen ? (isKo ? "날씨" : "Weather") : toolsLabel;
 
   return (
     <JarvisExtensionsProvider>
@@ -202,7 +220,7 @@ function AssistantWorkspace() {
               }}
             >
               <DialogTitle className="jarvis-tools-dialog-title">
-                {weatherOpen ? (isKo ? "날씨" : "Weather") : screenOpen ? (isKo ? "화면 읽기" : "Read screen") : toolsLabel}
+                {toolTitle}
               </DialogTitle>
               {tools?.section === "weather" && <WeatherPanel inDialog canUseBrowserLocation={!local.nativeStorage} />}
               {tools?.section === "screen" && tools.threadId === threadId && (
@@ -211,9 +229,20 @@ function AssistantWorkspace() {
                   setTools(null);
                 }} />
               )}
-              {tools && tools.section !== "weather" && tools.section !== "screen" && (
+              {tools?.section === "file-save" && tools.threadId === threadId && (
+                <FileSave initial={tools.draft} computerControl={computerControl} onSaved={(path) => {
+                  localRun.current++;
+                  setLocalResult({ title: isKo ? "파일을 저장했습니다." : "File saved.", detail: path });
+                  toolsTrigger.current = inputRef.current;
+                  setTools(null);
+                }} />
+              )}
+              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "file-save" && (
                 <LocalTools local={local} embedded initialSection={tools.section}
-                  onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })} />
+                  onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })}
+                  onSaveFile={computerControl === null ? undefined : () => setTools({
+                    section: "file-save", draft: { path: "", content: "" }, threadId,
+                  })} />
               )}
             </DialogContent>
           </Dialog>

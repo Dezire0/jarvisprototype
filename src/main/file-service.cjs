@@ -9,6 +9,14 @@ function unsupportedPreview() {
   });
 }
 
+function fileWriteError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+function fileRevision(stats) {
+  return [stats.dev, stats.ino, stats.size, stats.mtimeNs, stats.ctimeNs, stats.mode].join(":");
+}
+
 class FileService {
   constructor({ workspaceRoot }) {
     this.workspaceRoot = workspaceRoot;
@@ -64,17 +72,60 @@ class FileService {
     }
   }
 
-  async writeFile(filePath, content) {
-    const resolvedPath = this.resolvePath(filePath);
-    await fs.mkdir(path.dirname(resolvedPath), {
-      recursive: true
-    });
-    await fs.writeFile(resolvedPath, content, "utf8");
+  async existingFileForWrite(filePath) {
+    const requested = path.resolve(this.resolvePath(filePath));
+    try {
+      const dir = await fs.realpath(path.dirname(requested));
+      const target = path.join(dir, path.basename(requested));
+      const stats = await fs.lstat(target, { bigint: true });
+      if (!stats.isFile() || (process.getuid && stats.uid !== BigInt(process.getuid()))) {
+        throw fileWriteError("FILE_UNSUPPORTED", "Choose a regular file you own.");
+      }
+      await fs.access(target, fs.constants.W_OK);
+      return { path: target, revision: fileRevision(stats), mode: Number(stats.mode & 0o777n) };
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
 
-    return {
-      path: resolvedPath,
-      bytes: Buffer.byteLength(content, "utf8")
-    };
+  async writeFile(filePath, content, { assertAllowed } = {}) {
+    if (typeof content !== "string") throw fileWriteError("FILE_UNSUPPORTED", "Text content is required.");
+    const resolvedPath = path.resolve(this.resolvePath(filePath));
+    assertAllowed?.();
+    await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+    return this.#publishFile(resolvedPath, content, { assertAllowed });
+  }
+
+  async replaceFile(snapshot, content, assertAllowed) {
+    return this.#publishFile(snapshot.path, content, { snapshot, assertAllowed });
+  }
+
+  async #publishFile(target, content, { snapshot, assertAllowed }) {
+    if (typeof content !== "string") throw fileWriteError("FILE_UNSUPPORTED", "Text content is required.");
+    const staging = await fs.mkdtemp(path.join(path.dirname(target), ".jarvis-save-"));
+    const stagedFile = path.join(staging, "content");
+    try {
+      await fs.writeFile(stagedFile, content, { encoding: "utf8", flag: "wx", mode: snapshot?.mode ?? 0o666 });
+      if (snapshot) {
+        await fs.chmod(stagedFile, snapshot.mode);
+        const current = await this.existingFileForWrite(target).catch((error) => {
+          if (error.code === "FILE_UNSUPPORTED") return null;
+          throw error;
+        });
+        if (current?.path !== snapshot.path || current.revision !== snapshot.revision) {
+          throw fileWriteError("FILE_CHANGED", "The file changed while replacement was pending.");
+        }
+        assertAllowed?.();
+        await fs.rename(stagedFile, target);
+      } else {
+        assertAllowed?.();
+        await fs.link(stagedFile, target);
+      }
+      return { path: target, bytes: Buffer.byteLength(content, "utf8") };
+    } finally {
+      await fs.rm(staging, { recursive: true, force: true }).catch(() => {});
+    }
   }
 
   async listDirectory(dirPath = ".") {

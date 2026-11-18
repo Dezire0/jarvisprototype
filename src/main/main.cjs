@@ -5,7 +5,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const fs = require("node:fs/promises");
 const electronBinary = require("electron");
-const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell, protocol } = electronBinary;
+const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, screen, session, safeStorage, shell, protocol } = electronBinary;
 const { configureDesktopProfile } = require("./desktop-profile.cjs");
 const isolatedProfile = configureDesktopProfile(app);
 
@@ -40,6 +40,7 @@ const { getSavedModelAvailability, testSavedModelConnection } = require("./model
 const { ObsService } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
+const { createLocalFileSaver } = require("./assistant/local-file-save.cjs");
 const { createAutomationAdapter } = require("./platform-adapters.cjs");
 const { SettingsStore } = require("./settings-store.cjs");
 const { SttService } = require("./stt-service.cjs");
@@ -69,6 +70,19 @@ const DESKTOP_UI_MODE = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").tri
 const computerControl = new ComputerControl(app.getPath("userData"));
 const legacySettingsUrl = pathToFileURL(path.join(__dirname, "../renderer/index.html")).href;
 const popupUrl = pathToFileURL(path.join(__dirname, "../renderer/popup.html")).href;
+const saveLocalFile = createLocalFileSaver({
+  async confirmReplacement(target, korean) {
+    const { response } = await dialog.showMessageBox(settingsWindow, {
+      type: "warning",
+      message: korean ? "기존 파일을 바꿀까요?" : "Replace the existing file?",
+      detail: target,
+      buttons: korean ? ["취소", "바꾸기"] : ["Cancel", "Replace"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    return response === 1;
+  }
+});
 
 function isDesktopWindow(event) {
   return isTrustedDesktopFrame(event, settingsWindow, getDesktopUiUrl(), legacySettingsUrl);
@@ -927,14 +941,6 @@ async function dispatchTool(tool, payload = {}) {
         data
       };
     }
-    case "file:write": {
-      const data = await liveServices.files.writeFile(payload.path, payload.content || "");
-      return {
-        ok: true,
-        tool,
-        data
-      };
-    }
     case "file:list": {
       const data = await liveServices.files.listDirectory(payload.path || ".");
       return {
@@ -1230,6 +1236,16 @@ ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
 ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   requireAssistantWindow(event);
   if (requiresComputerControl(request.tool)) requireComputerControl();
+  if (request.tool === "file:write") {
+    const revision = computerControl.revision;
+    const accountId = accountSession.active?.user.id;
+    return saveLocalFile(ensureReadyServices().services.files, request.payload, () => {
+      if (!isDesktopWindow(event) || !computerControl.enabled || computerControl.revision !== revision ||
+          accountSession.active?.user.id !== accountId) {
+        throw Object.assign(new Error("File write approval is no longer active."), { code: "FILE_PERMISSION_CHANGED" });
+      }
+    });
+  }
   return dispatchTool(request.tool, request.payload);
 });
 

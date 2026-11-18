@@ -27,7 +27,7 @@ const {
   findOfficialAppFallback: findConfiguredOfficialAppFallback
 } = require("./assistant/targets.cjs");
 const { routeInputWithLlm } = require("./assistant/router.cjs");
-const { parseLocalFileRead } = require("./assistant/local-file-command.cjs");
+const { parseLocalFileRead, parseLocalFileWrite } = require("./assistant/local-file-command.cjs");
 const screenReviewCommands = require("./assistant/screen-review-commands.json");
 const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
@@ -6331,7 +6331,14 @@ class AssistantService {
         throw new Error("A file path is required.");
       }
 
-      const data = await this.files.writeFile(route.path, route.content || "");
+      const data = await this.files.writeFile(route.path, route.content || "").catch((error) => {
+        if (error.code === "EEXIST") {
+          throw new Error(detectReplyLanguage(input) === "ko"
+            ? "이미 있는 파일입니다. 로컬 도구의 파일 저장에서 변경할 내용을 확인하세요."
+            : "That file exists. Open Save file in Local tools to review and replace it.");
+        }
+        throw error;
+      });
       await this.rememberDocumentInMemory(data.path, route.content || "");
       const fallback = detectReplyLanguage(input) === "ko"
         ? `${data.path}에 저장했어요.`
@@ -6766,6 +6773,15 @@ class AssistantService {
   }
 
   async handleInput(input) {
+    const save = parseLocalFileWrite(input);
+    if (save) return {
+      reply: save.language === "ko"
+        ? "로컬 도구의 파일 저장에서 경로와 내용을 확인하세요."
+        : "Open Save file in Local tools to review the path and text.",
+      provider: "local",
+      language: save.language,
+      actions: [],
+    };
     const file = parseLocalFileRead(input);
     if (file) return this.handleLocalFilePreview(file.path, file.language);
 

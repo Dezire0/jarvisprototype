@@ -91,7 +91,7 @@ export function ScreenReview({ mode, computerControl, onAttached }: {
   }
 
   return (
-    <div className="jarvis-screen-review">
+    <div className="jarvis-text-tool">
       <p className="jarvis-result-detail">
         {t("기본 화면의 글자를 기기에서 읽습니다. 내용을 확인하고 첨부한 뒤 전송하면 모델에 전달됩니다.",
           "Jarvis reads text from the primary display on this device. Review and attach it, then send it to your model.")}
@@ -115,7 +115,7 @@ export function ScreenReview({ mode, computerControl, onAttached }: {
           {capture.truncated && <span className="text-muted-foreground">
             {t("텍스트 일부만 표시됩니다.", "Only part of the recognized text is shown.")}
           </span>}
-          <textarea ref={textArea} className="jarvis-screen-text" value={draft} maxLength={16000}
+          <textarea ref={textArea} className="jarvis-text-tool-control" value={draft} maxLength={16000}
             onChange={(event) => setDraft(event.target.value)} />
         </label>
       )}
