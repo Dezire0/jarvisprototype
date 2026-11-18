@@ -60,13 +60,13 @@ test("the local tools directory filters, opens focused tools, and restores the s
     const screenRow = directory.getByRole("button", { name: "Read screen", exact: true });
     await toolbar.press("Enter");
     await directory.getByRole("region", { name: "Apps and services" }).waitFor();
-    assert.equal(await directory.locator("[data-tool-id]").count(), 17);
+    assert.equal(await directory.locator("[data-tool-id]").count(), 18);
     assert.equal(await directory.getByRole("button", { name: "Open browser", exact: true }).count(), 1);
     await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Find a tool");
     await search.fill("nonesuch");
     await directory.getByText("No matching tools.").waitFor();
     await directory.getByRole("button", { name: "Clear search" }).click();
-    assert.equal(await directory.locator("[data-tool-id]").count(), 17);
+    assert.equal(await directory.locator("[data-tool-id]").count(), 18);
     await search.fill("ocr");
     assert.equal(await directory.locator("[data-tool-id]").count(), 1);
     await search.press("ArrowDown");
