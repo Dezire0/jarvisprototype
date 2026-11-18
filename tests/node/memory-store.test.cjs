@@ -86,6 +86,52 @@ test("MemoryStore loads an empty schema when nothing has been saved yet", async 
   await cleanup(root);
 });
 
+test("account memory review limits excerpts and clears a current revision without resurrecting old writes", async (t) => {
+  const { root } = await createTempApp();
+  t.after(() => cleanup(root));
+  const resolve = createAccountMemoryResolver(root);
+  const store = await resolve({ accountId: "review" });
+  const other = await resolve({ accountId: "other" });
+  await other.merge({ notes: { retained: "Other account" } });
+  await store.merge({ preferences: Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`pref-${i}`, "Saved"])) });
+  await store.appendThreadTurns({ threadId: "thread", projectId: "plan", projectName: "Project name",
+    turns: [{ role: "user", content: "A".repeat(300) }] });
+  await store.rememberDocument({ path: "/private/marker/data.txt", title: "Saved notes", content: "A short excerpt" });
+  const review = store.review();
+  assert.equal(review.categories.personal.count, 16);
+  assert.equal(review.categories.personal.entries.length, 12);
+  assert.equal(review.categories.threads.entries[0].excerpt.length, 280);
+  assert.equal(review.categories.projects.entries[0].title, "Project name");
+  assert.deepEqual(review.categories.documents.entries[0], { title: "Saved notes", excerpt: "A short excerpt" });
+  assert.doesNotMatch(JSON.stringify(review), /\/private\/marker/);
+  await store.merge({ notes: { changed: "Another item" } });
+  assert.equal(await resolve.clear({ accountId: "review", revision: review.revision }), null);
+
+  const current = store.review();
+  await assert.rejects(resolve.clear({ accountId: "review", revision: current.revision, beforeCommit() { throw new Error("Account changed"); } }),
+    /Account changed/);
+  assert.deepEqual(store.review(), current);
+  assert.equal((await createAccountMemoryResolver(root)({ accountId: "review" })).review().categories.personal.count, 17);
+
+  const { promise, resolve: release } = Promise.withResolvers();
+  store.pendingWrite = promise;
+  const clearing = resolve.clear({ accountId: "review", revision: current.revision });
+  await new Promise(setImmediate);
+  assert.ok(store.resetPending);
+  const oldWrite = store.merge({ notes: { stale: "Retired write" } });
+  release();
+  const cleared = await clearing;
+  await oldWrite;
+  assert.ok(Object.values(cleared.categories).every(({ count }) => count === 0));
+  const replacement = await resolve({ accountId: "review" });
+  assert.notEqual(replacement, store);
+  assert.deepEqual(replacement.review(), cleared);
+  assert.deepEqual(await store.appendThreadTurns({ threadId: "old", turns: [{ role: "user", content: "Retired request" }] }), []);
+  assert.equal(await store.rememberDocument({ path: "/tmp/stale", content: "Retired document" }), null);
+  assert.equal(other.getSnapshot().notes.retained.value, "Other account");
+  assert.deepEqual((await createAccountMemoryResolver(root)({ accountId: "review" })).getStoreSnapshot(), createEmptyStoreState());
+});
+
 test("MemoryStore migrates legacy personal memory files into the structured schema", async () => {
   const { app, root } = await createTempApp();
   const legacyPayload = {

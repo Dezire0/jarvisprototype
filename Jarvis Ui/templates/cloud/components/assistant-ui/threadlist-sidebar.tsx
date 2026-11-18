@@ -28,6 +28,7 @@ import { isWorkspaceLanguage, useWorkspaceLocale, WORKSPACE_LANGUAGES, type Work
 import { LoginModal } from "@/components/jarvis/login-modal";
 import { DesktopUpdateControl } from "@/components/jarvis/desktop-update-control";
 import { ConversationCleanup } from "@/components/jarvis/conversation-cleanup";
+import { SavedMemoryControl } from "@/components/jarvis/saved-memory-control";
 import {
   clearAuthSession,
   restoreAuthSession,
@@ -739,6 +740,7 @@ export function ThreadListSidebar({
             </button>
           )}
           <VoiceOutputSettingsButton />
+          <SavedMemoryControl accountId={history.accountId} useSavedMemory={history.profile.savedMemory} />
           <DesktopUpdateControl />
 
           <div className="flex flex-col gap-0.5">

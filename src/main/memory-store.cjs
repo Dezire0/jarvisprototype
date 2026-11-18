@@ -1,6 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { createHash } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 
 const MEMORY_SECTIONS = [
   "identity",
@@ -19,6 +19,7 @@ const MAX_PROJECT_FILES = 36;
 const MAX_DOCUMENT_CHUNKS = 48;
 const DOCUMENT_CHUNK_SIZE = 900;
 const DOCUMENT_CHUNK_OVERLAP = 120;
+const MEMORY_PREVIEW_LIMIT = 12;
 const SEARCH_TOKEN_PATTERN = /[a-z0-9가-힣]+/gi;
 
 function isPlainObject(value) {
@@ -643,12 +644,57 @@ function normalizeStoreState(input = {}) {
   return base;
 }
 
+function previewSavedMemory(state) {
+  const personal = { count: 0, entries: [] };
+  function visit(section, keys) {
+    for (const [key, entry] of Object.entries(section)) {
+      const prefix = [...keys, key];
+      if (!Object.hasOwn(entry, "value")) {
+        visit(entry, prefix);
+        continue;
+      }
+      personal.count++;
+      if (personal.entries.length < MEMORY_PREVIEW_LIMIT) personal.entries.push({
+        title: trimStoredText(prefix.join(" › "), 180),
+        excerpt: entry.value
+      });
+    }
+  }
+  for (const section of MEMORY_SECTIONS) visit(state.personalMemory[section], []);
+
+  function recent(records, toPreview) {
+    const entries = Object.values(records);
+    return {
+      count: entries.length,
+      entries: entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, MEMORY_PREVIEW_LIMIT).map(toPreview)
+    };
+  }
+  return {
+    personal,
+    threads: recent(state.threads, (thread) => ({
+      title: thread.title,
+      excerpt: trimStoredText(thread.turns.at(-1)?.content, 280)
+    })),
+    projects: recent(state.projects, (project) => ({
+      title: project.name,
+      excerpt: trimStoredText(project.recentTopics[0]?.text, 280)
+    })),
+    documents: recent(state.documents, (document) => ({
+      title: document.title,
+      excerpt: trimStoredText(document.chunks[0]?.text, 280)
+    }))
+  };
+}
+
 class MemoryStore {
   constructor({ app, memoryPath = path.join(app.getPath("userData"), "jarvis-memory.json") }) {
     this.memoryPath = memoryPath;
     this.state = createEmptyStoreState();
     this.cache = this.state.personalMemory;
     this.pendingWrite = Promise.resolve();
+    this.revision = randomUUID();
+    this.resetPending = null;
+    this.retired = false;
   }
 
   async load() {
@@ -667,22 +713,55 @@ class MemoryStore {
     return this.getSnapshot();
   }
 
-  async writeState() {
-    this.state.schemaVersion = CURRENT_SCHEMA_VERSION;
-    this.cache = this.state.personalMemory;
-    const serialized = JSON.stringify(this.state, null, 2);
+  async writeSnapshot(state, beforeCommit) {
+    const serialized = JSON.stringify(state, null, 2);
     const write = this.pendingWrite.then(async () => {
       await fs.mkdir(path.dirname(this.memoryPath), { recursive: true, mode: 0o700 });
       const temporaryPath = this.memoryPath + ".tmp";
-      await fs.writeFile(temporaryPath, serialized, { encoding: "utf8", mode: 0o600 });
-      await fs.rename(temporaryPath, this.memoryPath);
+      try {
+        await fs.writeFile(temporaryPath, serialized, { encoding: "utf8", mode: 0o600 });
+        beforeCommit?.();
+        await fs.rename(temporaryPath, this.memoryPath);
+      } catch (error) {
+        await fs.rm(temporaryPath, { force: true }).catch(() => {});
+        throw error;
+      }
     });
     this.pendingWrite = write.catch(() => {});
     await write;
   }
 
+  async writeState() {
+    this.state.schemaVersion = CURRENT_SCHEMA_VERSION;
+    this.cache = this.state.personalMemory;
+    this.revision = randomUUID();
+    await this.writeSnapshot(this.state);
+  }
+
   async writeCache() {
-    await this.writeState();
+    while (this.resetPending) await this.resetPending;
+    if (!this.retired) await this.writeState();
+  }
+
+  review() {
+    return { revision: this.revision, categories: previewSavedMemory(this.state) };
+  }
+
+  async clearReviewed(revision, beforeCommit) {
+    if (revision !== this.revision || this.resetPending || this.retired) return false;
+    const { promise, resolve } = Promise.withResolvers();
+    this.resetPending = promise;
+    try {
+      await this.writeSnapshot(createEmptyStoreState(), beforeCommit);
+      this.state = createEmptyStoreState();
+      this.cache = this.state.personalMemory;
+      this.retired = true;
+      this.revision = randomUUID();
+      return true;
+    } finally {
+      this.resetPending = null;
+      resolve();
+    }
   }
 
   getSnapshot() {
@@ -698,6 +777,8 @@ class MemoryStore {
   }
 
   async merge(update = {}) {
+    while (this.resetPending) await this.resetPending;
+    if (this.retired) return this.getSnapshot();
     const normalized = normalizeMemory(update);
     let changed = false;
 
@@ -861,6 +942,8 @@ class MemoryStore {
   }
 
   async setThreadContext(context = {}) {
+    while (this.resetPending) await this.resetPending;
+    if (this.retired) return null;
     const memoryMode = context.memoryMode === "temporary" ? "temporary" : "persistent";
     const threadId = normalizeId(context.threadId);
 
@@ -895,6 +978,8 @@ class MemoryStore {
   }
 
   async appendThreadTurns(options = {}) {
+    while (this.resetPending) await this.resetPending;
+    if (this.retired) return [];
     const memoryMode = options.memoryMode === "temporary" ? "temporary" : "persistent";
     const threadId = normalizeId(options.threadId);
     const turns = Array.isArray(options.turns) ? options.turns : [];
@@ -1019,6 +1104,8 @@ class MemoryStore {
   }
 
   async rememberDocument(options = {}) {
+    while (this.resetPending) await this.resetPending;
+    if (this.retired) return null;
     const memoryMode = options.memoryMode === "temporary" ? "temporary" : "persistent";
     const documentPath = trimStoredText(options.path, 800);
 
@@ -1123,7 +1210,7 @@ function normalizeMemoryAccountId(accountId) {
 
 function createAccountMemoryResolver(directory) {
   const stores = new Map();
-  return async ({ accountId, memoryMode, savedMemory }) => {
+  async function resolve({ accountId, memoryMode, savedMemory }) {
     if (savedMemory === false || memoryMode === "temporary" || !normalizeMemoryAccountId(accountId)) return null;
     if (!stores.has(accountId)) {
       const key = createHash("sha256").update(accountId).digest("hex");
@@ -1134,7 +1221,15 @@ function createAccountMemoryResolver(directory) {
       }));
     }
     return stores.get(accountId);
+  }
+  resolve.clear = async ({ accountId, revision, beforeCommit }) => {
+    const store = await resolve({ accountId });
+    if (!store || !await store.clearReviewed(revision, beforeCommit)) return null;
+    const replacement = new MemoryStore({ memoryPath: store.memoryPath });
+    stores.set(accountId, Promise.resolve(replacement));
+    return replacement.review();
   };
+  return resolve;
 }
 
 module.exports = {

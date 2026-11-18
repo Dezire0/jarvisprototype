@@ -172,6 +172,12 @@ test("only the active account resolves an Assistant and disabled recall gets a s
   assert.equal(await send({ accountId: "account-b" }), 200);
   assert.deepEqual(instances, [["account-a", true], ["account-a", false], ["account-b", true]]);
   assert.deepEqual(conversations, [true, false, false, true].map((enabled) => [enabled, ["Visible earlier message"]]));
+  server.invalidateSavedMemory("account-a");
+  assert.equal(await send({ accountId: "account-b" }), 200);
+  activeAccount = "account-a";
+  assert.equal(await send({ accountId: "account-a", savedMemory: false }), 200);
+  assert.equal(await send({ accountId: "account-a" }), 200);
+  assert.deepEqual(instances, [["account-a", true], ["account-a", false], ["account-b", true], ["account-a", true]]);
 });
 
 test("assistant validates session and JSON before resolving or invoking a thread", async (t) => {
