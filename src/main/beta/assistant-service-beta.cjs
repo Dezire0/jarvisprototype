@@ -1,3 +1,4 @@
+const { appPickerGuidance } = require("../app-picker.cjs");
 const { spotifyGuidance } = require("../spotify-service.cjs");
 const { gameLibraryGuidance } = require("../game-service.cjs");
 const { projectGuidance } = require("../code-project-service.cjs");
@@ -3665,20 +3666,7 @@ class AssistantService {
   }
 
   async handleAppList(input) {
-    const data = await this.automation.listInstalledApps({
-      limit: 400
-    });
-    const preview = data.apps.slice(0, 18).map((app) => app.name).join(", ");
-    const fallback = detectReplyLanguage(input) === "ko"
-      ? `설치된 앱을 ${data.totalCount}개 읽어왔어요. 예를 들면 ${preview}${data.totalCount > data.apps.length ? " 등" : ""}이 있어요.`
-      : `I found ${data.totalCount} installed apps. Examples include ${preview}${data.totalCount > data.apps.length ? ", and more." : "."}`;
-
-    return {
-      reply: fallback,
-      actions: [this.makeAction("app_list", `count:${data.totalCount}`)],
-      provider: "local",
-      details: data
-    };
+    return appPickerGuidance(detectReplyLanguage(input));
   }
 
   async handleAppAction(input, route) {

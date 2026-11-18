@@ -17,6 +17,7 @@ if (!hasSingleInstanceLock) {
 
 const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
+const { AppPicker } = require("./app-picker.cjs");
 const { BrowserService } = require("./browser-service.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
 const { ComputerControl, COMPUTER_CONTROL_OFF, isTrustedDesktopFrame, requiresComputerControl } = require("./computer-control.cjs");
@@ -108,6 +109,22 @@ function bindDesktopApproval(event, code) {
       throw Object.assign(new Error("Desktop approval is no longer active."), { code });
     }
   };
+}
+
+const APP_PICKER_ERRORS = new Set(["APPS_QUERY", "APPS_STALE", "APPS_CHANGED", "APPS_PERMISSION", "APPS_OPEN_FAILED"]);
+
+async function dispatchAppPicker(event, { tool, payload = {} }) {
+  const assertAllowed = bindDesktopApproval(event, "APPS_PERMISSION");
+  try {
+    const { appPicker } = ensureReadyServices().services;
+    const data = tool === "apps:catalog"
+      ? await appPicker.search({ query: payload.query, refresh: payload.refresh, assertAllowed })
+      : await appPicker.open({ id: payload.id, revision: payload.revision, assertAllowed });
+    return { ok: true, data };
+  } catch (error) {
+    return { ok: false, reason: APP_PICKER_ERRORS.has(error.code) ? error.code
+      : tool === "apps:open-selected" ? "APPS_OPEN_FAILED" : "APPS_SCAN_FAILED" };
+  }
 }
 
 const PROJECT_TOOL_NAMES = new Set(["project:create", "project:save", "project:open"]);
@@ -410,6 +427,10 @@ async function createServices() {
   const automation = createAutomationAdapter({
     screen: screenService
   });
+  const appPicker = new AppPicker({
+    listApps: (options) => automation.listInstalledApps(options),
+    launch: (location) => shell.openPath(location)
+  });
   const spotify = new SpotifyService({
     locateApp: async () => (await app.getApplicationInfoForProtocol("spotify:")).path,
     openAppPath: (location) => shell.openPath(location),
@@ -425,6 +446,7 @@ async function createServices() {
   });
 
   services = {
+    appPicker,
     automation,
     browser,
     codeProjects,
@@ -1362,6 +1384,7 @@ ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
 ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   requireAssistantWindow(event);
   if (requiresComputerControl(request.tool)) requireComputerControl();
+  if (request.tool === "apps:catalog" || request.tool === "apps:open-selected") return dispatchAppPicker(event, request);
   if (SPOTIFY_TOOL_NAMES.has(request.tool)) return dispatchSpotifyTool(event, request);
   if (GAME_TOOL_NAMES.has(request.tool)) return dispatchGameTool(event, request);
   if (PROJECT_TOOL_NAMES.has(request.tool)) return dispatchProjectTool(event, request);

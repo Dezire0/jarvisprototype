@@ -36,6 +36,8 @@ The workspace’s screen review opens without capturing. **Read text** starts th
 
 The desktop web page review reads an already-open HTTP(S) document in the Jarvis browser. The desktop checks the active window, account and computer control across the read. The renderer receives bounded plain text, a title and an origin. The panel keeps this content in memory. Attaching and sending the reviewed text use the existing attachment flow.
 
+The macOS app picker keeps a local catalog snapshot. Opening a result requires its current revision, ID and desktop authorization. The desktop checks the path and bundle metadata again before handing that exact path to macOS. The renderer provides a result ID.
+
 The Spotify panel uses a bounded search term or a validated Spotify content ID to construct its web destination. The macOS transport accepts a fixed set of commands and a validated track URI. Apple Events require the user's macOS automation permission and a running Spotify app. The main app entitlement allows macOS to request consent in signed builds. The renderers still invoke the trusted desktop checks. The desktop keeps the player state and track details in the open panel. Model routes guide to that panel. [Apple hardened runtime resource access](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime)
 
 The Games panel reads launcher records locally and shows game names. It sends a name to the selected store when the user requests a lookup. Steam installation handoffs require an app ID selected from the current search in the same desktop permission revision. Store and launcher targets are constructed in the main process. Conversation routes guide users to the panel.

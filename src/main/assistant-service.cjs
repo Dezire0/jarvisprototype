@@ -1,6 +1,8 @@
+const { appPickerGuidance } = require("./app-picker.cjs");
 const { spotifyGuidance } = require("./spotify-service.cjs");
 const { gameLibraryGuidance } = require("./game-service.cjs");
 const { projectGuidance } = require("./code-project-service.cjs");
+const appPickerCommands = require("./assistant/app-picker-commands.json");
 const spotifyCommands = require("./assistant/spotify-commands.json");
 const gameCommands = require("./assistant/game-commands.json");
 const projectCommands = require("./assistant/project-commands.json");
@@ -4237,6 +4239,11 @@ class AssistantService {
     }
 
     const candidates = await this.findAppCandidates(cleanRequestedApp);
+    const firstApp = candidates[0];
+    if (firstApp?.path && candidates.some((candidate) =>
+      candidate.path && candidate.path !== firstApp.path && candidate.name === firstApp.name)) {
+      return appPickerGuidance(language);
+    }
     const genericTokens = new Set([
       "adobe",
       "어도비",
@@ -5296,20 +5303,7 @@ class AssistantService {
   }
 
   async handleAppList(input) {
-    const data = await this.automation.listInstalledApps({
-      limit: 400
-    });
-    const preview = data.apps.slice(0, 18).map((app) => app.name).join(", ");
-    const fallback = detectReplyLanguage(input) === "ko"
-      ? `설치된 앱을 ${data.totalCount}개 읽어왔어요. 예를 들면 ${preview}${data.totalCount > data.apps.length ? " 등" : ""}이 있어요.`
-      : `I found ${data.totalCount} installed apps. Examples include ${preview}${data.totalCount > data.apps.length ? ", and more." : "."}`;
-
-    return {
-      reply: fallback,
-      actions: [this.makeAction("app_list", `count:${data.totalCount}`)],
-      provider: "local",
-      details: data
-    };
+    return appPickerGuidance(detectReplyLanguage(input));
   }
 
   async handleOpenTargets(input, route = {}) {
@@ -6461,6 +6455,10 @@ class AssistantService {
 
     const cleanInput = normalizeWhitespace(input);
     const command = cleanInput.toLowerCase();
+    if (appPickerCommands.list.ko.includes(command) || appPickerCommands.find.ko.some((phrase) =>
+      phrase === command || command.startsWith(phrase + " "))) return appPickerGuidance("ko");
+    if (appPickerCommands.list.en.includes(command) || appPickerCommands.find.en.some((phrase) =>
+      phrase === command || command.startsWith(phrase + " "))) return appPickerGuidance("en");
     if (spotifyCommands.open.ko.includes(command) || spotifyCommands.search.ko.some((phrase) =>
       phrase === command || command.startsWith(phrase + " "))) return spotifyGuidance("ko");
     if (spotifyCommands.open.en.includes(command) || spotifyCommands.search.en.some((phrase) =>

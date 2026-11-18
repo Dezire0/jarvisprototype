@@ -1,0 +1,10 @@
+{
+  "list": {
+    "en": ["apps", "installed apps", "list apps", "list installed apps", "show installed apps"],
+    "ko": ["앱 목록", "설치된 앱", "설치된 앱 목록", "설치된 앱 목록 보여줘"]
+  },
+  "find": {
+    "en": ["find an app", "find app", "search apps"],
+    "ko": ["앱 찾기", "앱 검색"]
+  }
+}
