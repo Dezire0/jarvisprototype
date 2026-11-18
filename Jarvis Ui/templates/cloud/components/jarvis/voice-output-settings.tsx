@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  deviceVoices, previewVoiceId, voiceEngine, voiceEngineName, voiceEngines, voiceSamples,
+  autoReadEngine, deviceVoices, previewVoiceId, voiceEngine, voiceEngineName, voiceEngines, voiceSamples,
   type VoiceEngine, type VoiceLanguage, type VoiceOutputSettings, type VoiceSection,
 } from "@/lib/voice-output";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
@@ -88,6 +88,7 @@ function VoiceSettingsForm({ ko }: { ko: boolean }) {
   </>;
 
   const engine = voiceEngine(draft.providers[language]);
+  const automatic = autoReadEngine(draft.autoRead?.[language], engine);
   const fields = providerFields[engine];
   const voices = deviceVoices(output.voices, language);
   const selectedVoice = draft.systemVoices[language];
@@ -140,13 +141,33 @@ function VoiceSettingsForm({ ko }: { ko: boolean }) {
         <label className="grid gap-1.5 text-sm">
           <span>{t("음성 엔진", "Voice engine")}</span>
           <select className={selectClass} value={engine} onChange={(event) => {
-            edit({ ...draft, providers: { ...draft.providers, [language]: voiceEngine(event.target.value) } });
+            const next = voiceEngine(event.target.value);
+            edit({
+              ...draft,
+              providers: { ...draft.providers, [language]: next },
+              autoRead: { ...draft.autoRead, [language]: autoReadEngine(automatic, next) },
+            });
           }}>
             {voiceEngines.map((option) => <option key={option} value={option}>{voiceEngineName(option, ko)}</option>)}
           </select>
         </label>
       </div>
-      {engine === "system" && <label className="grid gap-1.5 text-sm">
+      <label className="grid gap-1.5 text-sm">
+        <span>{t("새 답변 자동 읽기", "Read new replies automatically")}</span>
+        <select className={selectClass} value={automatic} disabled={engine === "off"} onChange={(event) => {
+          edit({ ...draft, autoRead: { ...draft.autoRead, [language]: autoReadEngine(event.target.value, engine) } });
+        }}>
+          <option value="off">{t("끄기", "Off")}</option>
+          <option value="system">{t("기기에서 읽기", "On this device")}</option>
+          {fields && <option value={engine}>{t(`${engineName}로 읽기`, `With ${engineName}`)}</option>}
+        </select>
+      </label>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {automatic !== "off" && automatic !== "system"
+          ? t(`일반 대화의 새 텍스트 답변을 ${engineName}에 보냅니다.`, `Sends new text replies in regular chats to ${engineName}.`)
+          : t("일반 대화의 새 텍스트 답변에 적용됩니다.", "Applies to new text replies in regular chats.")}
+      </p>
+      {(engine === "system" || automatic === "system") && <label className="grid gap-1.5 text-sm">
         <span>{t("설치된 기기 음성", "Installed device voice")}</span>
         <select className={selectClass} value={selectedVoice} onChange={(event) => {
           edit({ ...draft, systemVoices: { ...draft.systemVoices, [language]: event.target.value } });
@@ -158,10 +179,10 @@ function VoiceSettingsForm({ ko }: { ko: boolean }) {
         </select>
       </label>}
       {fields && <>
-        <p className="text-xs leading-relaxed text-muted-foreground">
+        {automatic !== engine && <p className="text-xs leading-relaxed text-muted-foreground">
           {t(`${engineName}로 읽기를 선택하면 해당 서비스에 텍스트가 전달됩니다.`,
             `Choosing to read with ${engineName} sends that text to its service.`)}
-        </p>
+        </p>}
         <details className="rounded-lg border border-border px-3 py-2" key={engine}>
           <summary className="cursor-pointer text-sm">{t("공급자 설정", "Provider settings")}</summary>
           <div className="mt-3 grid gap-3">
@@ -189,7 +210,7 @@ function VoiceSettingsForm({ ko }: { ko: boolean }) {
         : t("음성 설정을 저장하지 못했습니다. 다시 시도하세요.", "Couldn’t save voice settings. Try again.")}
     </p>}
     <VoicePlaybackStatus playback={playback} ko={ko} />
-    <DialogFooter>
+    <DialogFooter className="flex-row flex-wrap items-center justify-end">
       <DialogClose asChild><Button type="button" variant="ghost" disabled={saving}>{t("닫기", "Close")}</Button></DialogClose>
       <Button type="button" variant="outline" disabled={edited || saving || output.muted || engine === "off"} onClick={() => {
         if (playing) stop(previewVoiceId);

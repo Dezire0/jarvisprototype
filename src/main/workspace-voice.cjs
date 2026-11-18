@@ -4,13 +4,23 @@ function workspaceVoiceProvider(provider) {
   return typeof provider === "string" && Object.hasOwn(providers, provider) ? provider : "system";
 }
 
-async function synthesizeWorkspaceVoice(tts, payload) {
-  const { text, language, provider } = payload || {};
+function workspaceAutoReadEngine(preference, configured) {
+  const engine = workspaceVoiceProvider(configured);
+  if (engine === "off" || typeof preference !== "string" || !Object.hasOwn(providers, preference)) return "off";
+  return preference === "system" || preference === engine ? preference : "off";
+}
+
+async function synthesizeWorkspaceVoice(tts, payload, autoRead) {
+  const { text, language, provider, automatic } = payload || {};
   if (typeof text !== "string" || !text.trim() || text.length > maxTextLength ||
       (language !== "ko" && language !== "en") || typeof provider !== "string" ||
       !Object.hasOwn(providers, provider)) return { status: "invalid" };
 
-  if (provider !== workspaceVoiceProvider(tts.getRuntimeConfig().providers[language])) {
+  const config = tts.getRuntimeConfig();
+  const expected = automatic === true
+    ? workspaceAutoReadEngine(autoRead?.[language], config.providers[language])
+    : workspaceVoiceProvider(config.providers[language]);
+  if (provider !== expected) {
     return { status: "settings-changed" };
   }
   if (provider === "off" || provider === "system") return { status: provider };
@@ -26,4 +36,4 @@ async function synthesizeWorkspaceVoice(tts, payload) {
   }
 }
 
-module.exports = { workspaceVoiceProvider, synthesizeWorkspaceVoice };
+module.exports = { workspaceVoiceProvider, workspaceAutoReadEngine, synthesizeWorkspaceVoice };
