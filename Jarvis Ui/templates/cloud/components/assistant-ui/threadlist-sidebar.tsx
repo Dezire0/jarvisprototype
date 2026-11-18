@@ -26,7 +26,7 @@ import { VoiceOutputSettingsButton } from "@/components/jarvis/voice-output-sett
 import type { SidebarHistory } from "@/lib/chat-history";
 import { isWorkspaceLanguage, useWorkspaceLocale, WORKSPACE_LANGUAGES, type WorkspaceLanguage } from "@/lib/workspace-language";
 import { LoginModal } from "@/components/jarvis/login-modal";
-import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
+import { DesktopUpdateControl } from "@/components/jarvis/desktop-update-control";
 import {
   clearAuthSession,
   restoreAuthSession,
@@ -134,11 +134,6 @@ export function ThreadListSidebar({
   const [cloudSearchIndex, setCloudSearchIndex] = useState<
     Record<string, CloudSearchEntry>
   >({});
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [newVersion, setNewVersion] = useState("");
-  const [downloadUrl, setDownloadUrl] = useState(
-    "https://dexproject.pages.dev/",
-  );
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -184,24 +179,6 @@ export function ThreadListSidebar({
       if (cloudToken) void hydrateCloudIndex(cloudToken);
     })();
 
-    let unsubscribeUpdate: (() => void) | undefined;
-    if (typeof window !== "undefined" && (window as any).assistantAPI?.onUpdateStatus) {
-      unsubscribeUpdate = (window as any).assistantAPI.onUpdateStatus((status: any) => {
-        if (
-          status?.state === "available" &&
-          (status.mode === "installer" || status.mode === "disabled")
-        ) {
-          setNewVersion(status.availableVersion || "");
-          // 항상 공식 설치 페이지로 유도
-          setDownloadUrl("https://dexproject.pages.dev/");
-          setUpdateModalOpen(true);
-        }
-      }) as (() => void) | undefined;
-    }
-
-    return () => {
-      unsubscribeUpdate?.();
-    };
   }, []);
 
   useEffect(() => {
@@ -502,13 +479,6 @@ export function ThreadListSidebar({
         onSuccess={handleLoginSuccess}
       />
 
-      <MacUpdateModal
-        isOpen={updateModalOpen}
-        onClose={() => setUpdateModalOpen(false)}
-        version={newVersion}
-        downloadUrl={downloadUrl}
-      />
-
       <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
         <DialogContent className="border-border bg-background text-foreground sm:max-w-md">
           <DialogHeader>
@@ -757,6 +727,7 @@ export function ThreadListSidebar({
             </button>
           )}
           <VoiceOutputSettingsButton />
+          <DesktopUpdateControl />
 
           <div className="flex flex-col gap-0.5">
             <Button
