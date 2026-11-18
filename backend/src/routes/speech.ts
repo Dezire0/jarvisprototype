@@ -1,16 +1,10 @@
 import { Hono } from "hono";
-import { jwt } from "hono/jwt";
+import { requireSession, type SessionBindings, type SessionVariables } from "../session";
 
-const speech = new Hono<{ Bindings: { JWT_SECRET: string; GROQ_API_KEY: string } }>();
+const speech = new Hono<{ Bindings: SessionBindings & { GROQ_API_KEY: string }; Variables: SessionVariables }>();
 
 // Apply JWT middleware to secure the speech endpoint
-speech.use("/*", (c, next) => {
-  const jwtMiddleware = jwt({
-    secret: "jarvis-permanent-secret-key-2024-v1",
-    alg: "HS256",
-  });
-  return jwtMiddleware(c, next);
-});
+speech.use("/*", requireSession);
 
 speech.post("/transcribe", async (c) => {
   // In a real implementation, we would extract the audio blob/file from c.req

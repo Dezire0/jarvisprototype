@@ -1,6 +1,6 @@
 import { createAssistantStreamResponse } from "assistant-stream";
 import { Hono } from "hono";
-import { jwt } from "hono/jwt";
+import { requireSession, type SessionBindings, type SessionVariables } from "../session";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_MODEL = "gemini-1.5-flash";
@@ -11,14 +11,9 @@ const CHAT_SYSTEM_PROMPT =
 const DEFAULT_SYSTEM_PROMPT =
   "당신은 유능하고 친절한 AI 비서 Jarvis입니다. 한국어로 응답하세요.";
 
-type Bindings = {
+type Bindings = SessionBindings & {
   DB: D1Database;
-  JWT_SECRET: string;
   GEMINI_API_KEY: string;
-};
-
-type Variables = {
-  jwtPayload: { id: string };
 };
 
 type ChatMessage = {
@@ -70,16 +65,9 @@ type PersistedMessage = {
   createdAt: number;
 };
 
-const chat = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const chat = new Hono<{ Bindings: Bindings; Variables: SessionVariables }>();
 
-chat.use("/*", (c, next) => {
-  const jwtMiddleware = jwt({
-    secret: "jarvis-permanent-secret-key-2024-v1",
-    alg: "HS256",
-  });
-
-  return jwtMiddleware(c, next);
-});
+chat.use("/*", requireSession);
 
 chat.get("/threads", async (c) => {
   const userId = c.get("jwtPayload").id;

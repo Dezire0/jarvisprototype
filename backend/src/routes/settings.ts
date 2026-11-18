@@ -1,21 +1,14 @@
 import { Hono } from "hono";
-import { jwt } from "hono/jwt";
+import { requireSession, type SessionBindings, type SessionVariables } from "../session";
 import { drizzle } from "drizzle-orm/d1";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
 
-type Bindings = { DB: D1Database; JWT_SECRET: string };
-type Variables = { jwtPayload: { id: string } };
+type Bindings = SessionBindings & { DB: D1Database };
 
-const settings = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const settings = new Hono<{ Bindings: Bindings; Variables: SessionVariables }>();
 
-settings.use("/*", (c, next) => {
-  const jwtMiddleware = jwt({
-    secret: "jarvis-permanent-secret-key-2024-v1",
-    alg: "HS256",
-  });
-  return jwtMiddleware(c, next);
-});
+settings.use("/*", requireSession);
 
 // GET /api/settings/plan — Get user's current plan
 settings.get("/plan", async (c) => {
