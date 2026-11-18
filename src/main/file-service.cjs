@@ -42,13 +42,16 @@ class FileService {
     };
   }
 
-  async readPreview(filePath) {
+  async readPreview(filePath, { assertFile } = {}) {
     const resolvedPath = this.resolvePath(filePath);
     if (!(await fs.stat(resolvedPath)).isFile()) throw unsupportedPreview();
 
-    const file = await fs.open(resolvedPath, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+    const { O_RDONLY, O_NONBLOCK, O_NOFOLLOW } = fs.constants;
+    const file = await fs.open(resolvedPath, O_RDONLY | (O_NONBLOCK ?? 0) | (assertFile ? O_NOFOLLOW ?? 0 : 0));
     try {
-      if (!(await file.stat()).isFile()) throw unsupportedPreview();
+      const stats = await file.stat({ bigint: true });
+      if (!stats.isFile()) throw unsupportedPreview();
+      assertFile?.(stats);
       const buffer = Buffer.alloc(FILE_PREVIEW_BYTES + 1);
       let total = 0;
       while (total < buffer.length) {
@@ -57,6 +60,7 @@ class FileService {
         total += bytesRead;
       }
 
+      if (assertFile) assertFile(await file.stat({ bigint: true }));
       const truncated = total > FILE_PREVIEW_BYTES;
       let text;
       try {
@@ -146,5 +150,6 @@ class FileService {
 
 module.exports = {
   FileService,
-  FILE_PREVIEW_BYTES
+  FILE_PREVIEW_BYTES,
+  fileRevision
 };

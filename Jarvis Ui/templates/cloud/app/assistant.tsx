@@ -15,6 +15,8 @@ import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/component
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
 import { FileSave } from "@/components/jarvis/file-save";
+import { FolderBrowser } from "@/components/jarvis/folder-browser";
+import { isFolderCommand } from "@/lib/folder-command";
 import { AppPicker } from "@/components/jarvis/app-picker";
 import { resolveAppPickerCommand } from "@/lib/app-picker-command";
 import { SpotifyPanel } from "@/components/jarvis/spotify-panel";
@@ -46,6 +48,7 @@ function AssistantWorkspace() {
     { section?: ToolSection } |
     { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string } |
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
+    { section: "folder"; threadId: string } |
     { section: "obs" | "project-create" } |
     { section: "games"; initial: GameView; query?: string } |
     { section: "spotify" | "apps"; query?: string } |
@@ -69,7 +72,7 @@ function AssistantWorkspace() {
   const fileSaveOpen = tools?.section === "file-save";
 
   useEffect(() => {
-    if ((tools?.section === "screen" || tools?.section === "browser" || tools?.section === "file-save") && tools.threadId !== threadId) setTools(null);
+    if ((tools?.section === "screen" || tools?.section === "browser" || tools?.section === "file-save" || tools?.section === "folder") && tools.threadId !== threadId) setTools(null);
   }, [tools, threadId]);
 
   useEffect(() => {
@@ -108,6 +111,13 @@ function AssistantWorkspace() {
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    if (isFolderCommand(text, hasAttachmentsOrQuote)) {
+      localRun.current++;
+      setLocalResult(null);
+      toolsTrigger.current = inputRef.current;
+      setTools({ section: "folder", threadId });
+      return "local";
+    }
     const appPickerCommand = resolveAppPickerCommand(text, hasAttachmentsOrQuote);
     if (appPickerCommand) {
       localRun.current++;
@@ -211,7 +221,8 @@ function AssistantWorkspace() {
     setLocalResult(null);
   }
 
-  const toolTitle = tools?.section === "apps" ? (isKo ? "앱" : "Apps")
+  const toolTitle = tools?.section === "folder" ? (isKo ? "폴더 찾아보기" : "Browse files")
+    : tools?.section === "apps" ? (isKo ? "앱" : "Apps")
     : tools?.section === "spotify" ? "Spotify"
     : tools?.section === "games" ? (isKo ? "게임" : "Games")
     : tools?.section === "project-create" ? (isKo ? "코딩 프로젝트 만들기" : "Create coding project")
@@ -295,18 +306,20 @@ function AssistantWorkspace() {
                   setTools(null);
                 }} />
               )}
+              {tools?.section === "folder" && tools.threadId === threadId && <FolderBrowser computerControl={computerControl} />}
               {tools?.section === "apps" && <AppPicker initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "spotify" && <SpotifyPanel initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "games" && <GamesLibrary initial={tools.initial} initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "project-create" && <ProjectCreation computerControl={computerControl} />}
               {tools?.section === "obs" && <ObsControls computerControl={computerControl} />}
-              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && tools.section !== "games" && tools.section !== "spotify" && tools.section !== "apps" && (
+              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && tools.section !== "games" && tools.section !== "spotify" && tools.section !== "apps" && tools.section !== "folder" && (
                 <LocalTools local={local} embedded initialSection={tools.section}
                   onReadPage={computerControl === null ? undefined : () => setTools({ section: "browser", mode: "read", threadId })}
                   onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })}
                   onSaveFile={computerControl === null ? undefined : () => setTools({
                     section: "file-save", draft: { path: "", content: "" }, threadId,
                   })}
+                  onBrowseFiles={computerControl === null ? undefined : () => setTools({ section: "folder", threadId })}
                   onOpenApps={computerControl === null ? undefined : () => setTools({ section: "apps" })}
                   onOpenSpotify={computerControl === null ? undefined : () => setTools({ section: "spotify" })}
                   onOpenGames={computerControl === null ? undefined : () => setTools({ section: "games", initial: "library" })}

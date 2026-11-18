@@ -82,6 +82,14 @@ The proxy preserves streaming and reports HTTP 503 if the local Assistant is una
 
 The desktop transport shows one message timeline. Chat supports copying assistant replies and exporting Markdown. If a send fails or a response stops before finishing, select **Restore draft** to put the submitted text back in the composer for review. If you're already editing a draft, clear it first. Select attachments again before submitting a recovered request. Restoration does not send the text, and interrupted turns are excluded from the saved transcript.
 
+### Browsing a local folder
+
+Open **Local tools → Browse files**, or enter `browse files` or `폴더 찾아보기`. With Computer control on, select a folder using the system picker. Open listed folders and files within that root. **Parent folder** goes up within the selection. **Choose folder** can select a different root. The listing shows up to 200 regular files and folders and skips symbolic links. Refresh after moving or changing files.
+
+**Preview** shows up to 16 KiB of UTF-8 text in the panel. The file list and preview stay outside chat history and model requests. To send a file to the model, attach it explicitly. Model-classified file listings and reads guide to Browse files. Exact file preview commands still use the local preview.
+
+The desktop `folder:choose` tool opens the system picker. `folder:act` handles refresh, parent navigation, entry selection and preview using the current listing revision.
+
 ### Previewing a local file
 
 With desktop computer control enabled, an exact command such as `read file "/path/to/meeting notes.txt"` or `파일 "/경로/회의 메모.txt" 읽어줘` opens a local file preview under the reply. Expand it to read up to the first 16 KiB of a regular UTF-8 file. This preview does not use a model or add a document to memory. Its contents stay in the live workspace and are excluded from the saved transcript and later model requests. Like attachment review, conversations containing a path preview stay out of cloud conversation sync. The local transcript can retain the command and the receipt. For AI analysis, attach the file explicitly.
