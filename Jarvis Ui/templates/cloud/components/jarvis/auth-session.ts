@@ -24,7 +24,42 @@ export type AuthUser = {
 type StoredAuthSession = {
   token: string | null;
   user: AuthUser | null;
+  canRemember?: boolean;
+  remembered?: boolean;
+  status?: "unavailable" | "save-failed" | "read-failed";
 };
+
+type DesktopAccountBridge = {
+  restoreAccountSession(allowLegacy: boolean): Promise<StoredAuthSession>;
+  saveAccountSession(payload: { token: string; user: AuthUser; remember: boolean }): Promise<StoredAuthSession>;
+  clearAccountSession(): Promise<void>;
+};
+
+const EMPTY_SESSION = { token: null, user: null };
+let desktopSession: StoredAuthSession = EMPTY_SESSION;
+let accountOperation: Promise<unknown> = Promise.resolve();
+
+function desktopBridge() {
+  if (typeof window === "undefined") return undefined;
+  return (window as Window & { assistantAPI?: DesktopAccountBridge }).assistantAPI;
+}
+
+function runAccountOperation<T>(operation: () => Promise<T>) {
+  const next = accountOperation.then(operation);
+  accountOperation = next.catch(() => {});
+  return next;
+}
+
+function removeBrowserSessionCopies() {
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    storage.removeItem(AUTH_TOKEN_KEY);
+    storage.removeItem(AUTH_USER_KEY);
+  }
+}
+
+function notifySessionChanged() {
+  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED));
+}
 
 function readStorageSession(storage: Storage | undefined): StoredAuthSession {
   if (!storage) {
@@ -53,6 +88,8 @@ export function readStoredAuthSession(): StoredAuthSession {
     return { token: null, user: null };
   }
 
+  if (desktopBridge()) return desktopSession;
+
   const session = readStorageSession(window.sessionStorage);
   if (session.token && session.user) {
     return session;
@@ -70,7 +107,9 @@ export function isAuthRemembered(): boolean {
     return true;
   }
 
-  return window.localStorage.getItem(AUTH_REMEMBER_KEY) !== "0";
+  return desktopSession.token
+    ? desktopSession.remembered === true
+    : window.localStorage.getItem(AUTH_REMEMBER_KEY) !== "0";
 }
 
 export function setAuthRemembered(remember: boolean) {
@@ -82,94 +121,58 @@ export function setAuthRemembered(remember: boolean) {
 }
 
 export async function restoreAuthSession(): Promise<StoredAuthSession> {
-  const local = readStoredAuthSession();
-  if (local.token && local.user) {
-    return local;
-  }
+  const bridge = desktopBridge();
+  if (!bridge) return readStoredAuthSession();
 
-  if (
-    typeof window === "undefined" ||
-    !isAuthRemembered() ||
-    !(window as any).assistantAPI?.invokeTool
-  ) {
-    return local;
-  }
-
-  try {
-    const restored = (await (window as any).assistantAPI.invokeTool(
-      "auth:session-restore",
-    )) as {
-      token?: string | null;
-      user?: AuthUser | null;
-    };
-
-    const token = restored?.token || null;
-    const user = restored?.user || null;
-
-    if (token) {
-      window.localStorage.setItem(AUTH_TOKEN_KEY, token);
-    }
-    if (user) {
-      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-    }
-
-    return {
-      token,
-      user,
-    };
-  } catch {
-    return local;
-  }
+  return runAccountOperation(async () => {
+    removeBrowserSessionCopies();
+    desktopSession = await bridge.restoreAccountSession(window.localStorage.getItem(AUTH_REMEMBER_KEY) !== "0");
+    return desktopSession;
+  });
 }
 
 export async function persistAuthSession(
   token: string,
   user: AuthUser,
   options: { remember?: boolean } = {},
-) {
-  if (typeof window === "undefined") {
-    return;
-  }
+): Promise<StoredAuthSession> {
+  if (typeof window === "undefined") return EMPTY_SESSION;
 
   const remember = options.remember ?? true;
-  const targetStorage = remember ? window.localStorage : window.sessionStorage;
-  const otherStorage = remember ? window.sessionStorage : window.localStorage;
-
-  targetStorage.setItem(AUTH_TOKEN_KEY, token);
-  targetStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-  otherStorage.removeItem(AUTH_TOKEN_KEY);
-  otherStorage.removeItem(AUTH_USER_KEY);
-  setAuthRemembered(remember);
-  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED));
-
-  try {
-    if (remember) {
-      await (window as any).assistantAPI?.invokeTool("auth:session-save", {
-        token,
-        user,
-      });
-    } else {
-      await (window as any).assistantAPI?.invokeTool("auth:session-clear");
-    }
-  } catch {
-    // Keep browser storage as the fallback.
+  const bridge = desktopBridge();
+  if (bridge) {
+    return runAccountOperation(async () => {
+      removeBrowserSessionCopies();
+      desktopSession = await bridge.saveAccountSession({ token, user, remember });
+      setAuthRemembered(remember);
+      notifySessionChanged();
+      return desktopSession;
+    });
   }
+
+  const storage = remember ? window.localStorage : window.sessionStorage;
+  removeBrowserSessionCopies();
+  storage.setItem(AUTH_TOKEN_KEY, token);
+  storage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  setAuthRemembered(remember);
+  notifySessionChanged();
+  return { token, user, remembered: remember };
 }
 
 export async function clearAuthSession() {
-  if (typeof window === "undefined") {
+  if (typeof window === "undefined") return;
+
+  const bridge = desktopBridge();
+  if (bridge) {
+    await runAccountOperation(async () => {
+      removeBrowserSessionCopies();
+      await bridge.clearAccountSession();
+      desktopSession = EMPTY_SESSION;
+      notifySessionChanged();
+    });
     return;
   }
 
-  window.localStorage.removeItem(AUTH_TOKEN_KEY);
-  window.localStorage.removeItem(AUTH_USER_KEY);
-  window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
-  window.sessionStorage.removeItem(AUTH_USER_KEY);
-  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED));
-
-  try {
-    await (window as any).assistantAPI?.invokeTool("auth:session-clear");
-  } catch {
-    // Best effort.
-  }
+  removeBrowserSessionCopies();
+  notifySessionChanged();
 }

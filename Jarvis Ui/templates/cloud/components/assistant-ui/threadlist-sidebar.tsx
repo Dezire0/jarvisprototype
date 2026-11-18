@@ -29,7 +29,6 @@ import { LoginModal } from "@/components/jarvis/login-modal";
 import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 import {
   clearAuthSession,
-  persistAuthSession,
   restoreAuthSession,
   type AuthUser,
 } from "@/components/jarvis/auth-session";
@@ -125,6 +124,8 @@ export function ThreadListSidebar({
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => history.sidebar.selectedProjectId);
   const [loginOpen, setLoginOpen] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [logoutError, setLogoutError] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
   const [cloudSearchIndex, setCloudSearchIndex] = useState<
     Record<string, CloudSearchEntry>
   >({});
@@ -359,14 +360,22 @@ export function ThreadListSidebar({
 
   function handleLoginSuccess(user: AuthUser, token: string) {
     setAuthUser(user);
-    void persistAuthSession(token, user).then(() => hydrateCloudIndex(token));
+    void hydrateCloudIndex(token);
   }
 
   async function handleLogout() {
-    setAuthUser(null);
-    setCloudSearchIndex({});
-    setProfileOpen(false);
-    await clearAuthSession();
+    setLogoutPending(true);
+    setLogoutError(false);
+    try {
+      await clearAuthSession();
+      setAuthUser(null);
+      setCloudSearchIndex({});
+      setProfileOpen(false);
+    } catch {
+      setLogoutError(true);
+    } finally {
+      setLogoutPending(false);
+    }
   }
 
   async function handleSaveProfile() {
@@ -902,6 +911,7 @@ export function ThreadListSidebar({
               <Button
                 variant="ghost"
                 size="icon-sm"
+                disabled={logoutPending}
                 onClick={() => void handleLogout()}
                 className="shrink-0 rounded-xl text-foreground/75 hover:bg-zinc-100 hover:text-foreground dark:text-zinc-500 dark:hover:bg-[#212121] dark:hover:text-white"
                 title={t("로그아웃", "Logout")}
@@ -911,6 +921,11 @@ export function ThreadListSidebar({
             )}
           </div>
 
+          {logoutError && (
+            <p role="alert" className="mt-1 px-2 text-xs text-destructive">
+              {t("저장된 로그인 정보를 지우지 못했습니다. 로그아웃을 다시 시도하세요.", "Couldn’t clear the saved session. Try signing out again.")}
+            </p>
+          )}
           <div className="mt-2 flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
             <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">

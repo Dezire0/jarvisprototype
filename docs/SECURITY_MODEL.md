@@ -68,3 +68,11 @@ This gives a Jarvis-like experience without turning the assistant into a credent
 - changing account settings
 
 Tier 3 actions should require explicit confirmation and logging.
+
+## Desktop account session
+
+Electron keeps the active Jarvis account in main-process memory through UI reloads. “Auto login” stores the account and token together in an OS-encrypted record inside the desktop profile. Linux supports libsecret and KWallet here. With no supported backend, Jarvis offers sign-in for the current app session and discards it on quit. A failed persistent write can also fall back to that session mode when a previous record can be cleared. A failed sign-out is shown as an error so the user can retry.
+
+The desktop workspace clears obsolete token and user keys from its current Web Storage origin when it restores, saves, or clears a session. It can migrate a decryptable legacy native session. Sign-out writes an inactive marker when a previous record exists to prevent legacy restoration. Earlier loopback origins and the legacy native file may retain historical data. This migration updates the current profile's active record. The standalone web origin keeps its existing storage behavior.
+
+The browser and legacy planner return guidance to use the site's login form or Jarvis's saved-login flow when credentials are needed. The account session is handled by dedicated workspace IPC, outside the generic credential vault.

@@ -44,7 +44,7 @@ function buildBrowserAgentSystemPrompt(profile = TOOL_PROFILE_FULL_ACCESS) {
     `Allowed tools: ${tools}.`,
     "Prefer Playwright-style browser control first: observe the current page, use visible element ids, then click, type, press keys, or scroll.",
     "Use desktop tools when a local app, desktop coordinate, or shell step is truly needed.",
-    "Ask for secrets through pii.get instead of guessing or fabricating credentials.",
+    "Use the site’s login form or the saved-login flow. Never ask for credentials in chat.",
     "Think like a computer-use agent: observe, act once, verify, then continue.",
     "When the user goal is complete, set isFinal to true and provide finalMessage."
   ].join("\n");

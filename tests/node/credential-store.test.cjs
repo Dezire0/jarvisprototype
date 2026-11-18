@@ -8,6 +8,9 @@ const { CredentialStore } = require("../../src/main/credential-store.cjs");
 
 function createSafeStorageStub() {
   return {
+    getSelectedStorageBackend() {
+      return "gnome_libsecret";
+    },
     isEncryptionAvailable() {
       return true;
     },

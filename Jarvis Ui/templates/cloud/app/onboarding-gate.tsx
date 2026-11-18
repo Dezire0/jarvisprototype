@@ -64,6 +64,9 @@ export function OnboardingGate() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberLogin, setRememberLogin] = useState(true);
+  const [canRemember, setCanRemember] = useState(true);
+  const [storageWarning, setStorageWarning] = useState(false);
+  const [sessionOnly, setSessionOnly] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -117,20 +120,24 @@ export function OnboardingGate() {
     setSelectedPlan(selectInitialPlan(user || {}));
   }
 
-  async function handleRememberLoginChange(remember: boolean) {
+  function handleRememberLoginChange(remember: boolean) {
     setRememberLogin(remember);
     setAuthRemembered(remember);
+  }
 
-    if (!remember) {
-      await clearAuthSession();
-    }
+  async function saveNewSession(token: string, user: AuthUser) {
+    const session = await persistAuthSession(token, user, {
+      remember: canRemember && rememberLogin,
+    });
+    setStorageWarning(session.status === "save-failed");
+    setSessionOnly(session.canRemember !== undefined && !session.remembered);
+    syncSelectedPlan(user);
+    setStep(resolveFreshAuthStep(user));
   }
 
   async function acceptGoogleSession(token: string, user: AuthUser) {
     const nextUser = { ...user, settings: { planConfirmed: false } };
-    await persistAuthSession(token, nextUser, { remember: rememberLogin });
-    syncSelectedPlan(nextUser);
-    setStep(resolveFreshAuthStep(nextUser));
+    await saveNewSession(token, nextUser);
   }
 
   const currentPlan = planCards[selectedPlan];
@@ -167,6 +174,12 @@ export function OnboardingGate() {
         }
 
         const session = await restoreAuthSession();
+        setCanRemember(session.canRemember !== false);
+        setStorageWarning(session.status === "save-failed");
+        setSessionOnly(Boolean(session.token) && session.canRemember !== undefined && !session.remembered);
+        if (session.status === "read-failed") {
+          setAuthError(t("저장된 로그인 정보를 열 수 없습니다. 다시 로그인해 주세요.", "Couldn’t open your saved session. Sign in again."));
+        }
         if (session.token && session.user) {
           const user = session.user as AuthUser;
           syncSelectedPlan(user);
@@ -228,11 +241,11 @@ export function OnboardingGate() {
         },
       };
 
-      await persistAuthSession(token, nextUser, {
-        remember: rememberLogin,
-      });
-      syncSelectedPlan(nextUser);
-      setStep(resolveFreshAuthStep(nextUser));
+      try {
+        await saveNewSession(token, nextUser);
+      } catch {
+        setAuthError(t("로그인 상태를 설정하지 못했습니다. 다시 시도해 주세요.", "Couldn’t start your session. Try again."));
+      }
     } catch {
       setAuthError(t("네트워크 오류", "Network error"));
     } finally {
@@ -273,9 +286,12 @@ export function OnboardingGate() {
 
       const updatedUser = markPlanConfirmed(session.user, selectedPlan) as AuthUser;
 
-      await persistAuthSession(session.token, updatedUser, {
-        remember: isAuthRemembered(),
-      });
+      try {
+        await persistAuthSession(session.token, updatedUser, { remember: isAuthRemembered() });
+      } catch {
+        setSetupError(t("로그인 상태를 갱신하지 못했습니다. 다시 시도해 주세요.", "Couldn’t update your session. Try again."));
+        return;
+      }
       setStep("ready");
     } catch {
       setSetupError(t("계정 서비스에 연결하지 못했습니다. 다시 시도하세요.", "Couldn’t reach the account service. Try again."));
@@ -327,13 +343,18 @@ export function OnboardingGate() {
             <label className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
               <input
                 type="checkbox"
-                checked={rememberLogin}
-                disabled={googleBusy}
-                onChange={(e) => void handleRememberLoginChange(e.target.checked)}
+                checked={canRemember && rememberLogin}
+                disabled={authLoading || googleBusy || !canRemember}
+                onChange={(e) => handleRememberLoginChange(e.target.checked)}
                 className="size-4 accent-primary"
               />
               <span>{t("자동 로그인", "Auto login")}</span>
             </label>
+            {!canRemember && (
+              <p className="text-xs text-muted-foreground">
+                {t("앱을 종료할 때까지 로그인 상태가 유지됩니다.", "You’ll stay signed in until you quit Jarvis.")}
+              </p>
+            )}
             <Button disabled={authLoading || googleBusy} className="jarvis-send h-11 font-medium active:scale-[.98]">{authLoading ? <LoaderCircleIcon className="animate-spin" /> : t("이메일로 계속하기", "Continue with Email")}</Button>
             
             <GoogleSignIn disabled={authLoading} onBusyChange={setGoogleBusy} onSession={acceptGoogleSession} />
@@ -435,6 +456,13 @@ export function OnboardingGate() {
         </div>
 
         <div className="mt-12 flex flex-col items-center gap-4">
+          {sessionOnly && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {storageWarning
+                ? t("로그인 정보를 저장하지 못했습니다. 앱을 종료하면 다시 로그인해야 합니다.", "Your session couldn’t be saved. Sign in again after quitting Jarvis.")
+                : t("앱을 종료할 때까지 로그인 상태가 유지됩니다.", "You’ll stay signed in until you quit Jarvis.")}
+            </p>
+          )}
           {setupError && <p role="alert" className="jarvis-auth-error">{setupError}</p>}
           <Button
             disabled={setupLoading}

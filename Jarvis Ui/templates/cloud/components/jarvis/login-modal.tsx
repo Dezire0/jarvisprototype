@@ -103,7 +103,8 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
     }
   }
 
-  function acceptGoogleSession(token: string, user: AuthUser) {
+  async function acceptGoogleSession(token: string, user: AuthUser) {
+    await persistAuthSession(token, user);
     onSuccess(user, token);
     onClose();
   }
