@@ -44,11 +44,12 @@ export function StandaloneLocalTools() {
   return <LocalTools local={local} />;
 }
 
-export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onSaveFile, onOpenObs }: {
+export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs }: {
   local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: Exclude<ToolSection, "weather">;
   onReadScreen?: () => void;
+  onReadPage?: () => void;
   onSaveFile?: () => void;
   onOpenObs?: () => void;
 }) {
@@ -257,6 +258,9 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
           </button>
           {onReadScreen && <button type="button" className="jarvis-toolbar-link" onClick={onReadScreen}>
             {t("화면 읽기", "Read screen")}
+          </button>}
+          {onReadPage && <button type="button" className="jarvis-toolbar-link" onClick={onReadPage}>
+            {t("웹 페이지 읽기", "Read web page")}
           </button>}
           {onSaveFile && <button type="button" className="jarvis-toolbar-link" onClick={onSaveFile}>
             {t("파일 저장", "Save file")}

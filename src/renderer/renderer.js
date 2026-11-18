@@ -2841,7 +2841,29 @@ academicScreenButton.addEventListener("click", async () => {
 });
 
 browserReadButton.addEventListener("click", async () => {
-  await invokeTool("browser:read", {}, "현재 브라우저 페이지를 읽어왔어요.");
+  try {
+    const result = await window.assistantAPI.invokeTool("browser:read");
+    if (!result.ok) {
+      const errors = {
+        BROWSER_NO_PAGE: "Jarvis에서 웹 페이지를 연 뒤 다시 읽어보세요.",
+        BROWSER_PAGE_CHANGED: "읽는 동안 페이지가 바뀌었습니다. 다시 읽어보세요.",
+        BROWSER_UNSUPPORTED_PAGE: "HTTP 또는 HTTPS 웹 페이지를 열어주세요.",
+        BROWSER_PERMISSION: "컴퓨터 제어 설정을 확인하세요."
+      };
+      addMessage("assistant", errors[result.reason] || "웹 페이지를 읽지 못했습니다. 다시 시도하세요.");
+      return;
+    }
+    const { title, origin, text, truncated } = result.data;
+    if (!text) {
+      addMessage("assistant", "페이지에서 읽을 수 있는 글을 찾지 못했습니다.");
+      return;
+    }
+    addMessage("assistant", truncated ? "웹 페이지의 일부를 읽었습니다." : "웹 페이지를 읽었습니다.", "", {
+      localPreviewText: [title, origin, "", text].join("\n")
+    });
+  } catch {
+    addMessage("assistant", "웹 페이지를 읽지 못했습니다. 컴퓨터 제어 설정을 확인하세요.");
+  }
 });
 
 async function runObsAction(tool, payload = {}) {

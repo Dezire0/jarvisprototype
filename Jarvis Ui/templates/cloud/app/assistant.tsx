@@ -13,7 +13,7 @@ import { ModelSettings, MODEL_SETTINGS_SAVED, type ModelAvailability } from "@/c
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
-import { ScreenReview } from "@/components/jarvis/screen-review";
+import { TextReview } from "@/components/jarvis/text-review";
 import { FileSave } from "@/components/jarvis/file-save";
 import { ObsControls } from "@/components/jarvis/obs-controls";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -21,6 +21,7 @@ import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, t
 import { speakLocalResult } from "@/lib/local-speech";
 import { useLocalWorkspace } from "@/lib/use-local-workspace";
 import { resolveScreenReviewCommand, type ScreenReviewMode } from "@/lib/screen-review";
+import { resolveBrowserReviewCommand } from "@/lib/browser-review";
 import { resolveFileSaveCommand, type FileSaveDraft } from "@/lib/file-save";
 import { isObsCommand } from "@/lib/obs-commands";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
@@ -35,7 +36,7 @@ function AssistantWorkspace() {
   const threadId = useAuiState((state) => state.threadListItem.id);
   const [tools, setTools] = useState<
     { section?: ToolSection } |
-    { section: "screen"; mode: ScreenReviewMode; threadId: string } |
+    { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string } |
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
     { section: "obs" } |
     null
@@ -58,7 +59,7 @@ function AssistantWorkspace() {
   const fileSaveOpen = tools?.section === "file-save";
 
   useEffect(() => {
-    if ((tools?.section === "screen" || tools?.section === "file-save") && tools.threadId !== threadId) setTools(null);
+    if ((tools?.section === "screen" || tools?.section === "browser" || tools?.section === "file-save") && tools.threadId !== threadId) setTools(null);
   }, [tools, threadId]);
 
   useEffect(() => {
@@ -112,12 +113,13 @@ function AssistantWorkspace() {
       setTools({ section: "file-save", draft: fileDraft, threadId });
       return "local";
     }
-    const mode = resolveScreenReviewCommand(text, hasAttachmentsOrQuote);
+    const browserMode = resolveBrowserReviewCommand(text, hasAttachmentsOrQuote);
+    const mode = browserMode ?? resolveScreenReviewCommand(text, hasAttachmentsOrQuote);
     if (mode) {
       localRun.current++;
       setLocalResult(null);
       toolsTrigger.current = inputRef.current;
-      setTools({ section: "screen", mode, threadId });
+      setTools({ section: browserMode ? "browser" : "screen", mode, threadId });
       return "local";
     }
     const command = resolveComposerCommand(text, hasAttachmentsOrQuote);
@@ -169,6 +171,7 @@ function AssistantWorkspace() {
   }
 
   const toolTitle = tools?.section === "obs" ? "OBS" : fileSaveOpen ? (isKo ? "파일 저장" : "Save file")
+    : tools?.section === "browser" ? (isKo ? "웹 페이지 읽기" : "Read web page")
     : screenOpen ? (isKo ? "화면 읽기" : "Read screen")
       : weatherOpen ? (isKo ? "날씨" : "Weather") : toolsLabel;
 
@@ -233,8 +236,8 @@ function AssistantWorkspace() {
                 {toolTitle}
               </DialogTitle>
               {tools?.section === "weather" && <WeatherPanel inDialog canUseBrowserLocation={!local.nativeStorage} />}
-              {tools?.section === "screen" && tools.threadId === threadId && (
-                <ScreenReview mode={tools.mode} computerControl={computerControl} onAttached={() => {
+              {(tools?.section === "screen" || tools?.section === "browser") && tools.threadId === threadId && (
+                <TextReview key={tools.section} source={tools.section} mode={tools.mode} computerControl={computerControl} onAttached={() => {
                   toolsTrigger.current = inputRef.current;
                   setTools(null);
                 }} />
@@ -248,8 +251,9 @@ function AssistantWorkspace() {
                 }} />
               )}
               {tools?.section === "obs" && <ObsControls computerControl={computerControl} />}
-              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "file-save" && tools.section !== "obs" && (
+              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && (
                 <LocalTools local={local} embedded initialSection={tools.section}
+                  onReadPage={computerControl === null ? undefined : () => setTools({ section: "browser", mode: "read", threadId })}
                   onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })}
                   onSaveFile={computerControl === null ? undefined : () => setTools({
                     section: "file-save", draft: { path: "", content: "" }, threadId,
