@@ -265,10 +265,15 @@ function writeAuthCallbackPage(res) {
 </html>`);
 }
 
-function createThreadAssistantResolver(createAssistantForThread) {
+function createThreadAssistantResolver(createAssistantForThread, computerControl) {
   const cache = new Map();
+  let revision = computerControl?.revision;
 
   return (context) => {
+    if (revision !== computerControl?.revision) {
+      cache.clear();
+      revision = computerControl?.revision;
+    }
     const { accountId, threadId, memoryMode } = context;
     const cacheKey = JSON.stringify([accountId, threadId, memoryMode]);
 
@@ -287,6 +292,7 @@ function createAssistantTransportServer({
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
   sessionToken,
+  computerControl,
   createAssistantForThread,
   onAuthCallback,
   allowDynamicPort = true
@@ -297,7 +303,7 @@ function createAssistantTransportServer({
     throw new Error("createAssistantForThread is required.");
   }
 
-  const resolveAssistant = createThreadAssistantResolver(createAssistantForThread);
+  const resolveAssistant = createThreadAssistantResolver(createAssistantForThread, computerControl);
   let server = null;
   let activePort = Number(port);
 
@@ -353,7 +359,7 @@ function createAssistantTransportServer({
       provider: "",
       attachmentReview,
       actions: [],
-      details: attachmentReview ? null : buildRunningMessageDetails(userText)
+      details: attachmentReview || computerControl?.enabled === false ? null : buildRunningMessageDetails(userText)
     };
     const nextState = {
       messages: [

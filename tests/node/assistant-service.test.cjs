@@ -10,6 +10,24 @@ const {
   extractAppName
 } = require("../../src/main/assistant-service.cjs");
 
+test("computer control off bypasses the planner, action continuations, and extensions", async () => {
+  const assistant = new AssistantService({ computerControl: { enabled: false } });
+  const blocked = () => assert.fail("No computer action path should start");
+  assistant.continuePendingClarification = blocked;
+  assistant.continuePendingBrowserContinuation = blocked;
+  assistant.continuePendingSensitiveConfirmation = blocked;
+  assistant.continuePendingWorkspaceMessage = blocked;
+  assistant.maybeHandleExtensionWebhook = blocked;
+  assistant.routeInput = blocked;
+  assistant.handleModelConversation = async (input) => ({
+    reply: "Text-only answer to " + input,
+    actions: [],
+  });
+  const result = await assistant.handleInput("Open an app");
+  assert.deepEqual(result, { reply: "Text-only answer to Open an app", actions: [] });
+  assert.equal(assistant.getRecentHistory().length, 2);
+});
+
 test("chooseChatModelTier keeps short casual prompts on the fast tier", () => {
   assert.equal(chooseChatModelTier("오늘 저녁 뭐 먹을까?"), "fast");
   assert.equal(chooseChatModelTier("크롬 열어줘"), "fast");

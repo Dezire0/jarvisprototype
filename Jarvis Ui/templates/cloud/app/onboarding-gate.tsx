@@ -41,7 +41,6 @@ import {
   setAuthRemembered,
   type AuthUser,
 } from "@/components/jarvis/auth-session";
-import { ComputerConsentGate } from "@/components/jarvis/computer-consent-gate";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { LocalToolsLink } from "@/components/jarvis/local-tools-link";
 import { Assistant } from "./assistant";
@@ -364,7 +363,7 @@ export function OnboardingGate() {
   }
 
   if (step === "ready") {
-    return <ComputerConsentGate><Assistant /></ComputerConsentGate>;
+    return <Assistant />;
   }
 
   // ─── Step 1: Auth (Login/Register) ───

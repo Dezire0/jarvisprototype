@@ -99,6 +99,15 @@
             </div>
           </section>
 
+          <section class="sidebar-panel">
+            <label class="checkbox">
+              <input id="computerControlCheck" type="checkbox" disabled />
+              <span>컴퓨터 제어 허용</span>
+            </label>
+            <p class="sidebar-hint">켜면 요청에 따라 앱, 브라우저, 화면과 파일을 사용할 수 있습니다.</p>
+            <p class="sidebar-hint" id="computerControlStatus" role="status"></p>
+          </section>
+
           <section class="sidebar-panel sidebar-threads">
             <div class="section-head sidebar-section-head">
               <div>
@@ -506,23 +515,6 @@
           <button type="button" class="secondary" id="updateBannerLaterButton">Later</button>
           <button type="button" id="updateBannerPrimaryButton">Download now</button>
         </div>
-      </section>
-    </div>
-
-    <div class="consent-modal" id="computerConsentModal" hidden aria-live="polite">
-      <div class="consent-modal__backdrop"></div>
-      <section class="consent-modal__card" role="dialog" aria-modal="true" aria-labelledby="computerConsentTitle">
-        <p class="eyebrow">Computer Control</p>
-        <h2 id="computerConsentTitle">Jarvis 컴퓨터 작업 동의</h2>
-        <p>
-          Jarvis는 사용자의 요청을 수행하기 위해 브라우저, 앱, 키보드 입력, 화면 읽기, 파일 작업을 실행할 수 있습니다.
-          이 동의 이후에는 사용자가 요청한 컴퓨터 작업을 동의된 작업으로 보고 진행합니다.
-        </p>
-        <label class="consent-check">
-          <input id="computerConsentCheck" type="checkbox" />
-          <span>민감한 정보 입력, 결제, 구매 같은 최종 행동은 실행 직전에 다시 확인받는 조건으로 동의합니다.</span>
-        </label>
-        <button type="button" id="computerConsentAcceptButton" disabled>동의하고 시작</button>
       </section>
     </div>
 

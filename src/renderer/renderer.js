@@ -49,9 +49,9 @@ const updateBannerMessage = document.getElementById("updateBannerMessage");
 const updateBannerDetail = document.getElementById("updateBannerDetail");
 const updateBannerPrimaryButton = document.getElementById("updateBannerPrimaryButton");
 const updateBannerLaterButton = document.getElementById("updateBannerLaterButton");
-const computerConsentModal = document.getElementById("computerConsentModal");
-const computerConsentCheck = document.getElementById("computerConsentCheck");
-const computerConsentAcceptButton = document.getElementById("computerConsentAcceptButton");
+const computerControlCheck = document.getElementById("computerControlCheck");
+const computerControlStatus = document.getElementById("computerControlStatus");
+let computerControlEnabled = false;
 const planModal = document.getElementById("planModal");
 const planModalBackdrop = document.getElementById("planModalBackdrop");
 const planModalCloseButton = document.getElementById("planModalCloseButton");
@@ -176,7 +176,6 @@ const LANGUAGE_STORAGE_KEY = "jarvis-speech-language";
 const SPEAK_REPLIES_KEY = "jarvis-speak-replies";
 const CALL_MODE_STORAGE_KEY = "jarvis-call-mode";
 const THREAD_STORAGE_KEY = "jarvis-thread-state-v2";
-const COMPUTER_CONSENT_KEY = "jarvis-computer-control-consent-v1";
 
 function escapeHtml(text = "") {
   return text
@@ -784,20 +783,13 @@ function renderResultPrompts(details = {}) {
   }
 }
 
-function hasComputerConsent() {
-  return localStorage.getItem(COMPUTER_CONSENT_KEY) === "accepted";
-}
-
-function syncComputerConsentGate() {
-  const accepted = hasComputerConsent();
-  if (computerConsentModal) {
-    computerConsentModal.hidden = accepted;
-  }
-  if (commandInput) {
-    commandInput.disabled = !accepted;
-  }
-  if (submitButton) {
-    submitButton.disabled = !accepted || state.submitInFlight;
+async function loadComputerControl() {
+  try {
+    computerControlEnabled = await window.assistantAPI.getComputerControl();
+    computerControlCheck.checked = computerControlEnabled;
+    computerControlCheck.disabled = false;
+  } catch {
+    computerControlStatus.textContent = "컴퓨터 제어 설정을 읽지 못했습니다.";
   }
 }
 
@@ -2144,11 +2136,6 @@ async function submitCommandText(input, options = {}) {
     return;
   }
 
-  if (!hasComputerConsent()) {
-    syncComputerConsentGate();
-    return;
-  }
-
   const source = options.source || "text";
   const shouldResumeCall = state.callModeEnabled && source === "voice";
 
@@ -2159,7 +2146,7 @@ async function submitCommandText(input, options = {}) {
     progressStepIndex: 0,
     progressLabel: ""
   });
-  startAssistantProgress(pendingMessageId, input);
+  if (computerControlEnabled) startAssistantProgress(pendingMessageId, input);
   state.submitInFlight = true;
   setWakeState("listening");
   submitButton.disabled = true;
@@ -2182,7 +2169,6 @@ async function submitCommandText(input, options = {}) {
     state.submitInFlight = false;
     submitButton.disabled = false;
     commandInput.value = "";
-    syncComputerConsentGate();
     setWakeState("idle");
 
     if (shouldResumeCall) {
@@ -2511,15 +2497,22 @@ updateBannerPrimaryButton?.addEventListener("click", () => {
 
   void handleUpdateBannerAction(state);
 });
-computerConsentCheck?.addEventListener("change", () => {
-  computerConsentAcceptButton.disabled = !computerConsentCheck.checked;
-});
-computerConsentAcceptButton?.addEventListener("click", () => {
-  if (!computerConsentCheck.checked) {
-    return;
+computerControlCheck.addEventListener("change", async () => {
+  computerControlCheck.disabled = true;
+  computerControlStatus.textContent = "";
+  try {
+    computerControlEnabled = await window.assistantAPI.setComputerControl(computerControlCheck.checked);
+    computerControlStatus.textContent = computerControlEnabled ? "켰습니다." : "껐습니다.";
+  } catch {
+    computerControlStatus.textContent = "변경 내용을 저장하지 못했습니다. 다시 시도하세요.";
+  } finally {
+    computerControlCheck.checked = computerControlEnabled;
+    computerControlCheck.disabled = false;
   }
-  localStorage.setItem(COMPUTER_CONSENT_KEY, "accepted");
-  syncComputerConsentGate();
+  if (computerControlEnabled) {
+    void refreshCredentialList();
+    void refreshAppCatalog();
+  }
 });
 planModalBackdrop?.addEventListener("click", hidePlanModal);
 planModalCloseButton?.addEventListener("click", hidePlanModal);
@@ -2949,7 +2942,7 @@ async function bootstrap() {
   loadThreadState();
   renderThreadList();
   renderCurrentThread();
-  syncComputerConsentGate();
+  await loadComputerControl();
 
   if (storedLanguage) {
     speechLanguage.value = storedLanguage;
@@ -2980,8 +2973,10 @@ async function bootstrap() {
   ]);
   renderActions([]);
 
-  refreshCredentialList();
-  refreshAppCatalog();
+  if (computerControlEnabled) {
+    void refreshCredentialList();
+    void refreshAppCatalog();
+  }
   loadConversationModelSettings();
   refreshWebUiStatus();
   loadTtsSettings();
