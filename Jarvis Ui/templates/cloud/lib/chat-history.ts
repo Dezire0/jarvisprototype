@@ -1,6 +1,7 @@
 "use client";
 
 import { readStoredAuthSession } from "@/components/jarvis/auth-session";
+import { isWorkspaceLanguage, type WorkspaceLanguage } from "@/lib/workspace-language";
 
 export type TransportMessage = {
   id: string;
@@ -32,7 +33,9 @@ type Snapshot = {
   threads: ThreadHistory[];
   sidebar: SidebarHistory;
   cloudSync?: boolean;
+  profile?: { name: string; language: WorkspaceLanguage };
 };
+type Profile = NonNullable<Snapshot["profile"]> & { cloudSync: boolean };
 
 const EMPTY_SIDEBAR: SidebarHistory = { projects: [], threadMetaById: {}, selectedProjectId: null };
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
@@ -43,7 +46,10 @@ function readSnapshot(raw: string | null): Snapshot {
   const data = JSON.parse(raw) as Snapshot;
   if (data?.version !== 1 || !Array.isArray(data.threads) || !Array.isArray(data.sidebar?.projects) ||
       !data.sidebar.threadMetaById || typeof data.sidebar.threadMetaById !== "object" ||
-      data.threads.some((thread) => !thread?.remoteId || !Array.isArray(thread.messages))) {
+      data.threads.some((thread) => !thread?.remoteId || !Array.isArray(thread.messages)) ||
+      (data.profile !== undefined &&
+        (typeof data.profile?.name !== "string" || data.profile.name.length > 80 ||
+          !isWorkspaceLanguage(data.profile.language)))) {
     throw new Error("Invalid conversation history.");
   }
   return data;
@@ -76,8 +82,11 @@ export class ChatHistory {
   private revision = 0;
   private pendingWrite = Promise.resolve();
   private pendingCloud = Promise.resolve();
-  private syncPreferenceSaved = true;
-  cloudSync: boolean;
+  private pendingSyncChanges = 0;
+  private syncWriteFailed = false;
+  private preferences: Profile;
+  get profile(): Readonly<Profile> { return this.preferences; }
+  get cloudSync() { return this.preferences.cloudSync; }
   sidebar: SidebarHistory;
 
   static async open(accountId: string, onError: (failed: boolean) => void) {
@@ -89,8 +98,9 @@ export class ChatHistory {
       const write = native
         ? (value: string) => bridge.saveChatHistory!(accountId, value)
         : async (value: string) => { window.localStorage.setItem(browserKey, value); };
+      const history = new ChatHistory(accountId, readSnapshot(raw), write, onError);
       onError(false);
-      return new ChatHistory(accountId, readSnapshot(raw), write, onError);
+      return history;
     } catch {
       onError(true);
       return new ChatHistory(accountId, { version: 1, threads: [], sidebar: EMPTY_SIDEBAR }, null, onError);
@@ -104,7 +114,15 @@ export class ChatHistory {
     private onError: (failed: boolean) => void,
   ) {
     this.sidebar = snapshot.sidebar;
-    this.cloudSync = snapshot.cloudSync === true;
+    const { user } = readStoredAuthSession();
+    const previous = user?.id === accountId ? user : null;
+    const previousName = typeof previous?.name === "string" ? previous.name.trim().slice(0, 80) : "";
+    const previousLanguage = previous?.settings?.language;
+    this.preferences = {
+      name: snapshot.profile?.name ?? previousName,
+      language: snapshot.profile?.language ?? (isWorkspaceLanguage(previousLanguage) ? previousLanguage : "auto"),
+      cloudSync: snapshot.cloudSync === true,
+    };
     this.saved = new Map(snapshot.threads.map((thread) => [thread.remoteId, thread]));
   }
 
@@ -130,41 +148,57 @@ export class ChatHistory {
   }
 
   cloudToken() {
-    if (!this.cloudSync || !this.syncPreferenceSaved) return null;
+    if (!this.cloudSync || this.pendingSyncChanges || this.syncWriteFailed) return null;
     const session = readStoredAuthSession();
     return session.user?.id === this.accountId ? session.token : null;
   }
 
-  async setCloudSync(enabled: boolean) {
-    if (enabled === this.cloudSync && this.syncPreferenceSaved) return true;
+  async saveProfile(patch: Partial<Profile>) {
     if (!this.write) return false;
-    this.syncPreferenceSaved = false;
-    this.cloudSync = enabled;
-    this.update(true);
+    const changesSync = patch.cloudSync !== undefined;
+    if (changesSync) this.pendingSyncChanges++;
     try {
-      await this.pendingWrite;
-      this.syncPreferenceSaved = true;
+      await this.persist(patch);
+      if (changesSync) this.syncWriteFailed = false;
       return true;
     } catch {
-      if (enabled) this.cloudSync = false;
+      if (changesSync) this.syncWriteFailed = true;
       return false;
+    } finally {
+      if (changesSync) this.pendingSyncChanges--;
     }
   }
 
   private update(save: boolean) {
     this.revision++;
     this.listeners.forEach((listener) => listener());
-    if (!save || !this.write) return;
-    const threads = this.localThreads();
-    const ids = new Set(threads.map((thread) => thread.remoteId));
-    const sidebar = {
-      ...this.sidebar,
-      threadMetaById: Object.fromEntries(Object.entries(this.sidebar.threadMetaById).filter(([id]) => ids.has(id))),
-    };
-    const snapshot = { version: 1, threads, sidebar, cloudSync: this.cloudSync } satisfies Snapshot;
+    if (save && this.write) void this.persist();
+  }
+
+  private persist(patch?: Partial<Profile>) {
     const write = this.write;
-    this.pendingWrite = this.pendingWrite.catch(() => {}).then(() => write(JSON.stringify(snapshot)));
-    void this.pendingWrite.then(() => this.onError(false), () => this.onError(true));
+    if (!write) throw new Error("Conversation storage is unavailable.");
+    const pending = this.pendingWrite.catch(() => {}).then(async () => {
+      const threads = this.localThreads();
+      const ids = new Set(threads.map((thread) => thread.remoteId));
+      const sidebar = {
+        ...this.sidebar,
+        threadMetaById: Object.fromEntries(Object.entries(this.sidebar.threadMetaById).filter(([id]) => ids.has(id))),
+      };
+      const next = { ...this.preferences, ...patch };
+      const snapshot = {
+        version: 1, threads, sidebar, cloudSync: next.cloudSync,
+        profile: { name: next.name, language: next.language },
+      } satisfies Snapshot;
+      await write(JSON.stringify(snapshot));
+      if (patch) {
+        this.preferences = next;
+        this.update(false);
+      }
+    });
+    this.pendingWrite = pending;
+    void pending.then(() => this.onError(false), () => this.onError(true));
+    return pending;
   }
 
   setSidebar(sidebar: SidebarHistory) {

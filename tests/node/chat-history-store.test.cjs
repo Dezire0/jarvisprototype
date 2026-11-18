@@ -30,6 +30,27 @@ test("history persists by account, writes in order, and survives a failed replac
   assert.equal(await reopened.read("account-3"), null);
 });
 
+test("profile settings are validated, isolated by account, and written atomically with the sync preference", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "jarvis-profile-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new ChatHistoryStore(directory);
+  const preferences = (name, language, cloudSync) => JSON.stringify({
+    ...JSON.parse(snapshot("Existing thread")),
+    profile: { name, language },
+    cloudSync,
+  });
+  const original = preferences("One", "ko", true);
+  const other = preferences("Two", "en", false);
+  await store.write("account-1", original);
+  await store.write("account-2", other);
+  await assert.rejects(store.write("account-1", preferences("One", "invalid", false)), /Invalid conversation/);
+  await assert.rejects(store.write("account-1", preferences("a".repeat(81), "en", false)), /Invalid conversation/);
+  await mkdir(store.filePath("account-1") + ".tmp");
+  await assert.rejects(store.write("account-1", preferences("Renamed", "en", false)));
+  assert.equal(await store.read("account-1"), original);
+  assert.equal(await store.read("account-2"), other);
+});
+
 test("conversation storage only trusts the current chat main frame", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "jarvis-history-ipc-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

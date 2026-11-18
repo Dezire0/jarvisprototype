@@ -3,6 +3,7 @@ import {
   ComposerAttachments,
   UserMessageAttachments,
 } from "@/components/assistant-ui/attachment";
+import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
@@ -92,8 +93,9 @@ type LivePreviewSnapshot = {
   url?: string;
 };
 
-function prefersKorean(language?: string) {
-  return language === "ko" || (typeof navigator !== "undefined" && navigator.language.startsWith("ko"));
+function useKorean(language?: string) {
+  const locale = useWorkspaceLocale();
+  return language === "ko" || (language !== "en" && locale.startsWith("ko"));
 }
 
 export const Thread: FC<{
@@ -106,7 +108,7 @@ export const Thread: FC<{
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyError = useChatHistoryError();
   const temporary = useTemporaryChat();
-  const isKo = prefersKorean();
+  const isKo = useKorean();
 
   return (
     <ThreadPrimitive.Root
@@ -186,7 +188,7 @@ function TransportFeedback({ focusInput }: { focusInput: () => void }) {
   const aui = useAui();
   const input = useAuiState((state) => state.thread.composer.text);
   const busyDraft = useAuiState((state) => Boolean(state.thread.composer.attachments.length || state.thread.composer.quote));
-  const isKo = prefersKorean();
+  const isKo = useKorean();
   if (!notice) return null;
 
   const titles = {
@@ -284,7 +286,7 @@ const Composer: FC<{
     toggleContinuous,
   } = useJarvisVoice();
 
-  const isKo = prefersKorean();
+  const isKo = useKorean();
   const fileIssues = {
     format: isKo ? "텍스트 문서, PDF, PNG·JPEG·WebP 이미지를 첨부할 수 있습니다."
       : "Attach a text document, a PDF, or a PNG, JPEG, or WebP image.",
@@ -397,16 +399,22 @@ const ComposerAction: FC<{
 }> = ({
   supported, status, continuous, startOnce, stop, toggleContinuous, onBeforeSend, isLocalCommand, fileBlocked, onChooseFile,
 }) => {
-  const isKo = prefersKorean();
+  const isKo = useKorean();
   const sendLabel = isLocalCommand
     ? (isKo ? "기기에서 명령 실행" : "Run command on this device")
     : (isKo ? "메시지 보내기" : "Send message");
+  const continuousLabel = continuous
+    ? (isKo ? "연속 듣기 중지" : "Stop continuous voice")
+    : (isKo ? "연속 듣기 시작" : "Start continuous voice");
+  const voiceLabel = status === "listening"
+    ? (isKo ? "음성 입력 중지" : "Stop voice input")
+    : (isKo ? "음성 입력 시작" : "Start voice input");
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center gap-2">
       <ComposerAddAttachment onChoose={onChooseFile} />
       <TooltipIconButton
-        tooltip={continuous ? "Stop continuous voice" : "Start continuous voice"}
+        tooltip={continuousLabel}
         side="bottom"
         type="button"
         variant="ghost"
@@ -415,14 +423,14 @@ const ComposerAction: FC<{
           continuous && "jarvis-icon-active",
         )}
         onClick={toggleContinuous}
-        aria-label="Toggle continuous voice mode"
+        aria-label={continuousLabel}
         aria-pressed={continuous}
         disabled={!supported}
       >
         <AudioLinesIcon className="size-4" />
       </TooltipIconButton>
       <TooltipIconButton
-        tooltip={status === "listening" ? "Stop voice input" : "Voice input"}
+        tooltip={voiceLabel}
         side="bottom"
         type="button"
         variant="ghost"
@@ -431,7 +439,7 @@ const ComposerAction: FC<{
           status === "listening" && "jarvis-icon-active",
         )}
         onClick={status === "listening" ? stop : startOnce}
-        aria-label={status === "listening" ? "Stop voice input" : "Start voice input"}
+        aria-label={voiceLabel}
         aria-pressed={status === "listening"}
         disabled={!supported || status === "processing"}
       >
@@ -486,7 +494,7 @@ const AssistantRunStatus: FC = () => {
     ((state.message.metadata as any)?.custom?.details || null) as AssistantResultDetails | null,
   );
   const [preview, setPreview] = useState<LivePreviewSnapshot | null>(null);
-  const isKo = prefersKorean();
+  const isKo = useKorean();
   useEffect(() => {
     let active = true;
 
@@ -596,7 +604,7 @@ const CredentialPromptCard: FC<{ prompt: CredentialPromptDetails }> = ({ prompt 
   const [submit, setSubmit] = useState(Boolean(prompt.submitDefault));
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
-  const isKo = prefersKorean(prompt.language);
+  const isKo = useKorean(prompt.language);
   const site = prompt.site || prompt.siteOrUrl || (isKo ? "이 사이트" : "this site");
 
   async function fillLogin(event: FormEvent<HTMLFormElement>) {
@@ -713,7 +721,7 @@ const VerificationPromptCard: FC<{ prompt: VerificationPromptDetails }> = ({ pro
   const [submit, setSubmit] = useState(Boolean(prompt.submitDefault));
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
-  const isKo = prefersKorean(prompt.language);
+  const isKo = useKorean(prompt.language);
   const isCaptcha = prompt.kind === "captcha";
   const label = isCaptcha ? (isKo ? "캡차 문자" : "CAPTCHA text") : isKo ? "인증 코드" : "verification code";
 
@@ -857,11 +865,12 @@ const ACTION_STATES: Record<string, [string, string]> = {
 };
 
 function ExecutionReceipt({ args, fallback }: { args: unknown; fallback: React.ReactNode }) {
+  const isKo = useKorean();
   if (!args || typeof args !== "object") return fallback;
   const action = args as Record<string, unknown>;
   if (typeof action.type !== "string" || typeof action.status !== "string") return fallback;
 
-  const t = (labels: [string, string]) => labels[prefersKorean() ? 0 : 1];
+  const t = (labels: [string, string]) => labels[isKo ? 0 : 1];
   const label = Object.hasOwn(ACTION_LABELS, action.type)
     ? t(ACTION_LABELS[action.type])
     : action.type.replace(/[_.-]+/g, " ").slice(0, 72);
