@@ -1,56 +1,102 @@
 "use client";
 
-import { EarIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ChevronDownIcon, MicIcon, SquareIcon } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { macWakeAvailability } from "@/lib/mac-wake-speech";
 import { getRecognitionConstructor, installWakeLanguage, localWakeAvailability, type WakeAvailability, type WakeEngine } from "@/lib/wake-word";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 
-export function WakeWordButton() {
+export function ComposerVoiceControls() {
   const voice = useJarvisVoice();
   const locale = useWorkspaceLocale();
   const ko = locale.startsWith("ko");
+  const t = (korean: string, english: string) => ko ? korean : english;
   const [open, setOpen] = useState(false);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const active = Boolean(voice.wakeEngine);
-  const title = ko ? "호출어" : "Wake word";
-  const label = active ? (ko ? "호출어 듣기 중지" : "Stop wake word") : title;
+  const [showWake, setShowWake] = useState(false);
+  const wakePanel = useId();
+  const mic = useRef<HTMLButtonElement>(null);
+  const focusMicOnClose = useRef(false);
+  const wakeActive = Boolean(voice.wakeEngine);
+  const active = wakeActive || voice.continuous ||
+    voice.status === "starting" || voice.status === "listening" || voice.status === "processing";
+  const wakeStop = t("호출어 듣기 중지", "Stop wake word");
+  const continuousLabel = voice.continuous
+    ? t("연속 듣기 중지", "Stop continuous voice")
+    : t("연속 듣기 시작", "Start continuous voice");
+  const label = wakeActive ? wakeStop
+    : voice.continuous ? continuousLabel
+      : active ? t("음성 입력 중지", "Stop voice input")
+        : t("음성 입력 시작", "Start voice input");
+  const title = t("음성 옵션", "Voice options");
 
-  return <>
-    <TooltipIconButton ref={trigger} type="button" variant="ghost" side="bottom"
+  function applyMode(action: () => void) {
+    focusMicOnClose.current = true;
+    action();
+    setOpen(false);
+  }
+
+  return <div className="jarvis-voice-controls">
+    <TooltipIconButton ref={mic} type="button" variant="ghost" side="bottom"
       className={cn("jarvis-icon-button", active && "jarvis-icon-active")}
-      aria-label={label} aria-pressed={active} aria-haspopup={active ? undefined : "dialog"} tooltip={label}
-      onClick={() => { if (active) voice.stop(); else setOpen(true); }}>
-      <EarIcon className="size-4" aria-hidden="true" />
+      aria-label={label} aria-pressed={active} tooltip={label}
+      disabled={!voice.supported && !active}
+      onClick={active ? voice.stop : voice.startOnce}>
+      {active ? <SquareIcon className="size-3 fill-current" aria-hidden="true" />
+        : <MicIcon className="size-4" aria-hidden="true" />}
     </TooltipIconButton>
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md"
+    <Dialog open={open} onOpenChange={(next) => {
+      if (next) setShowWake(false);
+      setOpen(next);
+    }}>
+      <DialogTrigger asChild>
+        <TooltipIconButton type="button" variant="ghost" side="bottom" className="jarvis-icon-button jarvis-voice-options"
+          aria-label={title} tooltip={title}>
+          <ChevronDownIcon className="size-4" aria-hidden="true" />
+        </TooltipIconButton>
+      </DialogTrigger>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto motion-reduce:animate-none sm:max-w-sm"
         showCloseButton={false} onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          trigger.current?.focus();
+          if (focusMicOnClose.current && mic.current && !mic.current.disabled) {
+            event.preventDefault();
+            mic.current.focus();
+          }
+          focusMicOnClose.current = false;
         }}>
         <DialogHeader className="text-left">
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            {ko ? "“자비스”라고 부른 뒤 명령을 말하세요. 대화를 나가면 듣기가 멈춥니다."
-              : "Say “Jarvis” before your command. Listening stops when you leave this conversation."}
-          </DialogDescription>
+          <DialogDescription>{t("현재 대화에서만 듣습니다.", "Listening stops when you leave this conversation.")}</DialogDescription>
         </DialogHeader>
-        <WakeRecognitionChoices key={locale} locale={locale} start={(engine) => {
-          setOpen(false);
-          voice.armWake(engine);
-        }} />
+        <div className="jarvis-voice-mode">
+          <h3>{t("연속 듣기", "Continuous voice")}</h3>
+          <p>{t("보낸 명령의 응답을 마치면 다시 듣습니다.", "Listen again after each reply.")}</p>
+          <Button type="button" variant="outline" disabled={!voice.supported && !voice.continuous}
+            onClick={() => applyMode(voice.toggleContinuous)}>{continuousLabel}</Button>
+        </div>
+        <div className="jarvis-voice-mode">
+          <h3>{t("호출어", "Wake word")}</h3>
+          <p>{t("“자비스”라고 부른 뒤 명령을 말하세요.", "Say “Jarvis” before your command.")}</p>
+          {wakeActive ? (
+            <Button type="button" variant="outline" onClick={() => applyMode(voice.stop)}>{wakeStop}</Button>
+          ) : (
+            <Button type="button" variant="outline" aria-expanded={showWake} aria-controls={wakePanel}
+              onClick={() => setShowWake((shown) => !shown)}>{t("호출어 인식 방식 선택", "Choose wake recognition")}</Button>
+          )}
+          <div id={wakePanel} hidden={!showWake || wakeActive}>
+            {showWake && !wakeActive && <WakeRecognitionChoices key={locale} locale={locale}
+              start={(engine) => applyMode(() => voice.armWake(engine))} />}
+          </div>
+        </div>
         <DialogFooter><DialogClose asChild>
-          <Button type="button" variant="ghost">{ko ? "닫기" : "Close"}</Button>
+          <Button type="button" variant="ghost">{t("닫기", "Close")}</Button>
         </DialogClose></DialogFooter>
       </DialogContent>
     </Dialog>
-  </>;
+  </div>;
 }
 
 function WakeRecognitionChoices({ locale, start }: { locale: string; start: (engine: WakeEngine) => void }) {

@@ -11,7 +11,7 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 import type { ModelAvailability } from "@/components/jarvis/model-settings";
 import type { ToolSection } from "@/components/jarvis/local-tools";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
-import { WakeWordButton } from "@/components/jarvis/wake-word-button";
+import { ComposerVoiceControls } from "@/components/jarvis/composer-voice-controls";
 import { VoicePlaybackStatus, useVoiceOutput } from "@/components/jarvis/voice-output-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -45,7 +45,6 @@ import * as Avatar from "@radix-ui/react-avatar";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  AudioLinesIcon,
   CheckIcon,
   ClockIcon,
   ChevronLeftIcon,
@@ -53,7 +52,6 @@ import {
   CopyIcon,
   DownloadIcon,
   ListTodoIcon,
-  MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -349,7 +347,6 @@ const Composer: FC<{
     resolveGameCommand(text, hasAttachmentsOrQuote) ||
     isObsCommand(text, hasAttachmentsOrQuote) || isProjectCommand(text, hasAttachmentsOrQuote);
   const {
-    supported,
     status,
     transcript,
     error,
@@ -358,9 +355,6 @@ const Composer: FC<{
     wakeEngine,
     awaitingWakeCommand,
     waitingForReplyAudio,
-    startOnce,
-    stop,
-    toggleContinuous,
   } = useJarvisVoice();
 
   const isKo = useKorean();
@@ -386,7 +380,9 @@ const Composer: FC<{
     : (isKo ? "브라우저에서 “자비스”를 듣는 중" : "Listening for “Jarvis” with browser recognition");
   const listening = wakeEngine
     ? (awaitingWakeCommand ? (isKo ? "이어서 명령을 말하세요." : "Say your command.") : wakeListening)
-    : (transcript || (isKo ? "듣는 중" : "Listening"));
+    : (transcript || (continuous
+      ? (isKo ? "연속으로 듣는 중" : "Listening continuously")
+      : (isKo ? "듣는 중" : "Listening")));
   const voiceSummary = error || (status === "starting"
     ? (isKo ? "마이크 준비 중" : "Getting the microphone ready")
     : status === "listening"
@@ -457,13 +453,6 @@ const Composer: FC<{
               {voiceSummary}
             </div>
             <ComposerAction
-              supported={supported}
-              status={status}
-              continuous={continuous}
-              wakeActive={Boolean(wakeEngine)}
-              startOnce={startOnce}
-              stop={stop}
-              toggleContinuous={toggleContinuous}
               onBeforeSend={routeSubmission}
               isLocalCommand={Boolean(localCommand)}
               fileBlocked={fileLoading || fileUnreadable}
@@ -477,68 +466,22 @@ const Composer: FC<{
 };
 
 const ComposerAction: FC<{
-  supported: boolean;
-  status: string;
-  continuous: boolean;
-  wakeActive: boolean;
-  startOnce: () => void;
-  stop: () => void;
-  toggleContinuous: () => void;
   onBeforeSend: (event: { preventDefault(): void }) => void;
   isLocalCommand: boolean;
   fileBlocked: boolean;
   onChooseFile: () => void;
 }> = ({
-  supported, status, continuous, wakeActive, startOnce, stop, toggleContinuous, onBeforeSend, isLocalCommand, fileBlocked, onChooseFile,
+  onBeforeSend, isLocalCommand, fileBlocked, onChooseFile,
 }) => {
   const isKo = useKorean();
   const sendLabel = isLocalCommand
     ? (isKo ? "기기에서 명령 실행" : "Run command on this device")
     : (isKo ? "메시지 보내기" : "Send message");
-  const continuousLabel = continuous
-    ? (isKo ? "연속 듣기 중지" : "Stop continuous voice")
-    : (isKo ? "연속 듣기 시작" : "Start continuous voice");
-  const voiceActive = !wakeActive && (status === "starting" || status === "listening" || status === "processing");
-  const voiceLabel = voiceActive
-    ? (isKo ? "음성 입력 중지" : "Stop voice input")
-    : (isKo ? "음성 입력 시작" : "Start voice input");
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center gap-2">
       <ComposerAddAttachment onChoose={onChooseFile} />
-      <WakeWordButton />
-      <TooltipIconButton
-        tooltip={continuousLabel}
-        side="bottom"
-        type="button"
-        variant="ghost"
-        className={cn(
-          "jarvis-icon-button",
-          continuous && "jarvis-icon-active",
-        )}
-        onClick={toggleContinuous}
-        aria-label={continuousLabel}
-        aria-pressed={continuous}
-        disabled={!supported}
-      >
-        <AudioLinesIcon className="size-4" />
-      </TooltipIconButton>
-      <TooltipIconButton
-        tooltip={voiceLabel}
-        side="bottom"
-        type="button"
-        variant="ghost"
-        className={cn(
-          "jarvis-icon-button",
-          voiceActive && "jarvis-icon-active",
-        )}
-        onClick={voiceActive ? stop : startOnce}
-        aria-label={voiceLabel}
-        aria-pressed={voiceActive}
-        disabled={!supported}
-      >
-        <MicIcon className="size-4" />
-      </TooltipIconButton>
+      <ComposerVoiceControls />
       <AuiIf condition={(state) => !state.thread.isRunning}>
         <ComposerPrimitive.Send asChild disabled={fileBlocked}>
           <TooltipIconButton
