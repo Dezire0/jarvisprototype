@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { OPENAI_DEFAULT_ORIGIN, getOpenAIEndpointOrigin } = require("./openai-endpoint.cjs");
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MODEL = process.env.JARVIS_MODEL || "qwen3:14b";
@@ -194,6 +195,9 @@ function getOpenAICompatibleApiKey() {
     if (key) return key;
   }
 
+  const endpoint = defaultUrlForProvider("openai-compatible");
+  const environmentUrl = defaultOpenAICompatibleUrl();
+  if (getOpenAIEndpointOrigin(endpoint) !== getOpenAIEndpointOrigin(environmentUrl)) return "";
   return String(process.env.JARVIS_COMPLEX_LLM_API_KEY || process.env.OPENAI_API_KEY || "").trim();
 }
 
@@ -334,6 +338,16 @@ function isUnconfiguredAutoFallback({ tier = "complex", provider } = {}) {
   );
 }
 
+function isDirectConversationConfigured(config, tier = "complex") {
+  if (config.provider === "ollama") return !isUnconfiguredAutoFallback({ tier });
+  if (config.provider === "openai-compatible") {
+    if (config.apiKey) return true;
+    const origin = getOpenAIEndpointOrigin(config.url);
+    return Boolean(origin && new URL(origin).hostname !== new URL(OPENAI_DEFAULT_ORIGIN).hostname);
+  }
+  return ["gemini", "groq"].includes(config.provider) && Boolean(config.apiKey);
+}
+
 function defaultModelForProvider(provider = "ollama") {
   const settings = getExternalLlmSettings();
 
@@ -372,12 +386,7 @@ function defaultUrlForProvider(provider = "ollama") {
   const settings = getExternalLlmSettings();
 
   if (provider === "openai-compatible") {
-    const preferredUrl = pickFirstNonEmpty(settings?.openai?.baseUrl, process.env.JARVIS_COMPLEX_LLM_URL, process.env.OPENAI_BASE_URL);
-
-    return (
-      normalizeOpenAICompatibleUrl(looksLikeOllamaUrl(preferredUrl) ? process.env.OPENAI_BASE_URL : preferredUrl) ||
-      "https://api.openai.com/v1/chat/completions"
-    );
+    return normalizeOpenAICompatibleUrl(settings?.openai?.baseUrl) || defaultOpenAICompatibleUrl();
   }
 
   if (provider === "groq") {
@@ -397,6 +406,12 @@ function defaultUrlForProvider(provider = "ollama") {
   }
 
   return settings?.ollama?.url || OLLAMA_URL;
+}
+
+function defaultOpenAICompatibleUrl() {
+  const environmentUrl = pickFirstNonEmpty(process.env.JARVIS_COMPLEX_LLM_URL, process.env.OPENAI_BASE_URL);
+  return normalizeOpenAICompatibleUrl(looksLikeOllamaUrl(environmentUrl) ? process.env.OPENAI_BASE_URL : environmentUrl) ||
+    OPENAI_DEFAULT_ORIGIN + "/v1/chat/completions";
 }
 
 function defaultApiKeyForProvider(provider = "ollama") {
@@ -826,10 +841,18 @@ function extractAnthropicText(data) {
 }
 
 function getOllamaTagsUrl(chatUrl = OLLAMA_URL) {
-  const url = new URL(chatUrl || OLLAMA_URL);
-  url.pathname = "/api/tags";
+  const url = new URL(normalizeOllamaChatUrl(chatUrl));
+  url.pathname = url.pathname.replace(/\/api\/chat\/?$/i, "/api/tags");
+  if (!url.pathname.endsWith("/api/tags")) url.pathname = "/api/tags";
   url.search = "";
   url.hash = "";
+  return url.toString();
+}
+
+function normalizeOllamaChatUrl(value) {
+  const url = new URL(value || OLLAMA_URL);
+  if (url.pathname === "/") url.pathname = "/api/chat";
+  else if (/\/api\/?$/i.test(url.pathname)) url.pathname = url.pathname.replace(/\/$/, "") + "/chat";
   return url.toString();
 }
 
@@ -857,7 +880,8 @@ async function listInstalledModels({ forceRefresh = false, url = OLLAMA_URL } = 
   }
 
   const response = await fetch(tagsUrl, {
-    method: "GET"
+    method: "GET",
+    signal: AbortSignal.timeout(6000)
   });
 
   if (!response.ok) {
@@ -912,7 +936,7 @@ async function chatWithOllama({
 
     attemptedModels.add(candidateModel);
 
-    const response = await fetch(url, {
+    const response = await fetch(normalizeOllamaChatUrl(url), {
       method: "POST",
       signal,
       headers: {
@@ -927,7 +951,9 @@ async function chatWithOllama({
 
     if (response.ok) {
       const data = await response.json();
-      return data.message?.content?.trim() || "I am ready.";
+      const text = data.message?.content?.trim();
+      if (!text) throw new Error("Ollama returned an empty response.");
+      return text;
     }
 
     let detail = `status ${response.status}`;
@@ -1245,6 +1271,7 @@ module.exports = {
   normalizeProvider,
   resolveAvailableModel,
   resolveConfig,
+  isDirectConversationConfigured,
   isUnconfiguredAutoFallback,
   setExternalLlmSettingsProvider
 };

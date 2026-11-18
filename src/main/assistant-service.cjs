@@ -7,7 +7,8 @@ const {
   getExternalLlmSettings,
   getRequestedProviderForTier,
   resolveConfig,
-  isUnconfiguredAutoFallback
+  isUnconfiguredAutoFallback,
+  isDirectConversationConfigured
 } = require("./ollama-service.cjs");
 const { normalizeOpenClawBrowserPlan } = require("./openclaw-service.cjs");
 const {
@@ -82,7 +83,7 @@ const chat = async (options) => {
       effectiveOptions.provider
     );
     const directApiSelected = ["gemini", "groq", "openai-compatible"].includes(config.provider);
-    const directApiReady = directApiSelected && Boolean(config.apiKey);
+    const directApiReady = directApiSelected && isDirectConversationConfigured(config, effectiveOptions.tier);
     const needsModelConnection =
       !effectiveOptions.localOnly &&
       (isUnconfiguredAutoFallback({
@@ -6954,8 +6955,7 @@ class AssistantService {
     const tier = chooseChatModelTier(input, this.getRecentHistory());
     const config = resolveConfig({ tier });
     const result = (reply, provider) => ({ reply, actions: [], provider, language });
-    if (!["ollama", "gemini", "openai-compatible", "groq", "anthropic"].includes(config.provider) ||
-        (config.provider !== "ollama" && !config.apiKey) || isUnconfiguredAutoFallback({ tier })) {
+    if (!isDirectConversationConfigured(config, tier)) {
       return result(korean
         ? "모델 설정에서 직접 연결하는 API 모델이나 Ollama를 선택해 주세요. CLI 모델은 컴퓨터 제어가 켜져 있을 때 사용할 수 있습니다."
         : "Choose an API model or Ollama in Model settings. CLI models require computer control.",
@@ -6992,7 +6992,7 @@ class AssistantService {
     const supported = ["ollama", "gemini", "openai-compatible", "groq"].includes(config.provider);
     const reply = (text, provider = "attachment-error") => ({ reply: text, actions: [], provider });
 
-    if (!supported || isUnconfiguredAutoFallback({ tier: "complex" })) {
+    if (!supported || !isDirectConversationConfigured(config)) {
       return reply(korean
         ? "첨부 파일을 읽으려면 모델 설정에서 직접 연결하는 모델을 선택하세요."
         : "Choose a direct model in Model settings to review attached files.");
