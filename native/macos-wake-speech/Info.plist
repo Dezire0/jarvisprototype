@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>ai.jarvis.desktop.wake-speech</string>
+  <key>CFBundleName</key>
+  <string>Jarvis Wake Speech</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Jarvis uses the microphone when you enable wake phrase listening.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Jarvis uses on-device speech recognition to listen for your wake phrase.</string>
+</dict>
+</plist>

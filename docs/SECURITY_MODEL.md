@@ -50,6 +50,12 @@ OBS broadcast transitions require a trusted desktop window and a native confirma
 
 Direct file replacement requires the trusted desktop editor, active computer control, and a native confirmation tied to the resolved path and inspected file revision. The native handler checks the desktop/account context and file revision again before publishing. Automated file writes can only create a new destination. Publishing a new file uses an exclusive hard link on the destination filesystem. Replacement uses atomic rename after the revision check, so an external writer acting in the final check-to-rename interval is outside the revision guarantee.
 
+## macOS Wake Word
+
+The workspace starts native listening from a signed-in desktop main frame. Checking language support does not request permission or capture audio. Starting a session asks macOS for Speech Recognition and Microphone permission as needed. The helper requires Apple on-device speech recognition for every request and returns bounded text over a local process pipe. Ambient text is discarded by the wake parser. An accepted command follows the workspace's existing chat and local command paths. Browser speech recognition requires a separate selection.
+
+The desktop limits native capture to one session in the current visible workspace. Hiding or minimizing the workspace, navigating away, signing out or quitting stops the helper. The desktop waits for the helper process to close before routing an accepted command. The helper's audio-input entitlement applies to that binary alone.
+
 ## Safe Alternative to "Auto Login Everywhere"
 
 For websites and apps, the right pattern is:

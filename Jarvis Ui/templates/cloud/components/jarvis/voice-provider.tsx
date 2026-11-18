@@ -13,6 +13,7 @@ import {
 } from "react";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import type { ComposerCommandHandler } from "@/lib/local-workspace";
+import { createMacWakeRecognition } from "@/lib/mac-wake-speech";
 import {
   getRecognitionConstructor, resolveWakeUtterance, wakeFollowUpMs,
   type BrowserRecognition, type WakeEngine,
@@ -59,7 +60,7 @@ type VoiceContextValue = {
   onMicrophoneStart: (listener: () => void) => (() => void);
   startOnce: () => void;
   toggleContinuous: () => void;
-  stop: () => void;
+  stop: () => Promise<void> | null;
 };
 
 const VoiceContext = createContext<VoiceContextValue | null>(null);
@@ -104,6 +105,7 @@ export function JarvisVoiceProvider({
   const [waitingForReplyAudio, setWaitingForReplyAudio] = useState(false);
   const [sttProviderLabel, setSttProviderLabel] = useState("web-speech-only");
   const recognitionRef = useRef<BrowserRecognition | null>(null);
+  const nativeRelease = useRef<Promise<void> | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderChunksRef = useRef<Blob[]>([]);
   const recorderStreamRef = useRef<MediaStream | null>(null);
@@ -197,7 +199,7 @@ export function JarvisVoiceProvider({
 
   function beginReplyAudio() {
     if (document.hidden || status === "starting" || status === "listening" || status === "processing" ||
-        recorderStreamRef.current || replyAudio.current) return null;
+        recorderStreamRef.current || nativeRelease.current || replyAudio.current) return null;
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
     try { recognition?.abort(); } catch { /* Recognition may already have ended. */ }
@@ -266,22 +268,29 @@ export function JarvisVoiceProvider({
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
     try {
-      recognition?.abort();
+      const completion = recognition?.abort();
+      if (completion) {
+        const cleanup = completion.catch(() => {});
+        nativeRelease.current = cleanup;
+        void cleanup.then(() => { if (nativeRelease.current === cleanup) nativeRelease.current = null; });
+      }
     } catch {
       // Recognition may already have ended.
     }
     stopRecorderRecognition();
     void disposeRecorderResources();
+    return nativeRelease.current;
   }
 
   function stopRecognition() {
-    releaseVoiceSession();
+    const released = releaseVoiceSession();
     disarmWake();
     setContinuous(false);
     setTranscript("");
     setError("");
     setReviewPending(false);
     setStatus((current) => current === "unsupported" ? current : "idle");
+    return released;
   }
 
   function clearWakeWindow() {
@@ -305,7 +314,10 @@ export function JarvisVoiceProvider({
     stopRecognition();
     setStatus("error");
     const ko = locale.startsWith("ko");
-    if (reason === "not-allowed" || reason === "service-not-allowed" || reason === "audio-capture") {
+    if (reason === "speech-permission") {
+      setError(ko ? "시스템 설정의 개인정보 보호 및 보안 → 음성 인식에서 Jarvis 접근을 허용하세요."
+        : "Allow Jarvis in System Settings → Privacy & Security → Speech Recognition.");
+    } else if (reason === "microphone-permission" || reason === "not-allowed" || reason === "service-not-allowed" || reason === "audio-capture") {
       setError(ko ? "마이크를 사용할 수 없습니다. 시스템 권한과 입력 장치를 확인하세요."
         : "Microphone unavailable. Check system permission and the input device.");
     } else if (reason === "language-not-supported") {
@@ -537,10 +549,11 @@ export function JarvisVoiceProvider({
     }
   }
 
-  function startBrowserRecognition(session: VoiceSession) {
+  function startSpeechRecognition(session: VoiceSession) {
     const Recognition = getRecognitionConstructor();
+    const recognition = session.wakeEngine === "mac" ? createMacWakeRecognition() : Recognition ? new Recognition() : null;
 
-    if (!Recognition) {
+    if (!recognition) {
       if (session.wakeEngine) {
         failWake("unavailable");
         return;
@@ -550,7 +563,6 @@ export function JarvisVoiceProvider({
       return;
     }
 
-    const recognition = new Recognition();
     if (session.wakeEngine === "device") {
       if (!("processLocally" in recognition)) {
         failWake("language-not-supported");
@@ -604,8 +616,15 @@ export function JarvisVoiceProvider({
         if (wake.kind === "command") {
           finalReceived = true;
           clearWakeWindow();
-          finalizeTranscript(wake.text, session);
-          recognition.stop();
+          if (session.wakeEngine === "mac") {
+            setStatus("processing");
+            void Promise.resolve(recognition.stop())
+              .then(() => finalizeTranscript(wake.text, session))
+              .catch(() => { if (isCurrent(session)) failWake("unavailable"); });
+          } else {
+            finalizeTranscript(wake.text, session);
+            recognition.stop();
+          }
         }
         return;
       }
@@ -628,6 +647,10 @@ export function JarvisVoiceProvider({
       const reason = String(event?.error || event?.message || "unknown");
 
       if (session.wakeEngine) {
+        if (reason === "inactive") {
+          stopRecognition();
+          return;
+        }
         if (reason === "no-speech" && started) return;
         failWake(reason);
         return;
@@ -685,7 +708,7 @@ export function JarvisVoiceProvider({
       return;
     }
     microphoneStartListeners.current.forEach((listener) => listener());
-    releaseVoiceSession();
+    const released = releaseVoiceSession();
     const session = { threadId: currentThreadId(), keepContinuous, wakeEngine: wake };
     sessionRef.current = session;
     setError("");
@@ -694,8 +717,10 @@ export function JarvisVoiceProvider({
     setStatus("starting");
 
     const start = async () => {
+      if (released) await released;
+      if (!isCurrent(session)) return;
       if (!wake && hasConfiguredAssistantStt()) await startRecorderRecognition(session);
-      else startBrowserRecognition(session);
+      else startSpeechRecognition(session);
     };
     void start().catch((error: unknown) => {
       if (!isCurrent(session)) return;
