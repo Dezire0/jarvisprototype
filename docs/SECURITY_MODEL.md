@@ -58,6 +58,10 @@ The workspace starts native listening from a signed-in desktop main frame. Check
 
 The desktop limits native capture to one session in the current visible workspace. Hiding or minimizing the workspace, navigating away, signing out or quitting stops the helper. The desktop waits for the helper process to close before routing an accepted command. The helper's audio-input entitlement applies to that binary alone.
 
+## Desktop Updates
+
+The workspace and legacy main frames can request update checks and explicit installation handoffs. The macOS action opens the configured repository's GitHub releases page in the default browser. Native updates preserve the platform updater's signature-verification defaults. Installation starts when requested from the update controls.
+
 ## Safe Alternative to "Auto Login Everywhere"
 
 For websites and apps, the right pattern is:

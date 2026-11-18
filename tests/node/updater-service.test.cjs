@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const Module = require("node:module");
 
 const {
   UpdaterService,
@@ -119,4 +121,61 @@ test("UpdaterService enables GitHub installer fallback for packaged apps when re
   assert.equal(status.enabled, true);
   assert.equal(status.mode, "installer");
   assert.match(status.releasePageUrl, /github\.com\/Dezire0\/jarvisprototype\/releases/);
+});
+
+test("a manual update opens only the configured releases page and never downloads or quits", async () => {
+  const opened = [];
+  const app = makeApp();
+  app.quit = () => assert.fail("A manual update must leave the app open.");
+  const service = new UpdaterService({ app, openReleasePage: async (url) => { opened.push(url); } });
+  await service.init();
+  service.status.manualInstall = true;
+  service.downloadInstallerAsset = () => assert.fail("Manual installation does not download in Jarvis.");
+  assert.deepEqual(await service.installUpdate(), { ok: false });
+  Object.assign(service.status, {
+    state: "available",
+    downloadUrl: "https://example.invalid/installer.dmg",
+    releasePageUrl: "https://example.invalid/releases",
+  });
+  const targetUrl = service.fallbackConfig.releaseNotesUrl;
+  assert.deepEqual(await service.installUpdate(), { ok: true, mode: "installer", targetUrl });
+  assert.deepEqual(opened, [targetUrl]);
+  service.status.state = "downloaded";
+  service.status.downloadPath = "/tmp/legacy-download.dmg";
+  service.openReleasePage = async () => { throw new Error("Shell failure"); };
+  assert.deepEqual(await service.installUpdate(), { ok: false, mode: "installer", message: "Could not open the release page." });
+});
+
+test("native updates preserve signature verification and restart only on request", async () => {
+  const native = new EventEmitter();
+  const verifySignature = () => {};
+  native.verifyUpdateCodeSignature = verifySignature;
+  let restarts = 0;
+  native.quitAndInstall = () => { restarts++; };
+  const filename = require.resolve("../../src/main/updater-service.cjs");
+  const original = require.cache[filename];
+  const load = Module._load;
+  let NativeUpdaterService;
+  try {
+    delete require.cache[filename];
+    Module._load = function (request, parent, ...args) {
+      if (request === "electron-updater" && parent?.filename === filename) return { autoUpdater: native };
+      return load.call(this, request, parent, ...args);
+    };
+    NativeUpdaterService = require(filename).UpdaterService;
+  } finally {
+    Module._load = load;
+    require.cache[filename] = original;
+  }
+  const service = new NativeUpdaterService({ app: makeApp() });
+  service.nativeUpdaterEnabled = true;
+  service.status.manualInstall = false;
+  service.installNativeUpdaterHandlers();
+  assert.equal(native.autoInstallOnAppQuit, false);
+  assert.equal(native.verifyUpdateCodeSignature, verifySignature);
+  assert.equal((await service.installUpdate()).ok, false);
+  native.emit("update-downloaded", { version: "1.9.1" });
+  assert.equal(restarts, 0);
+  assert.deepEqual(await service.installUpdate(), { ok: true, mode: "native" });
+  assert.equal(restarts, 1);
 });

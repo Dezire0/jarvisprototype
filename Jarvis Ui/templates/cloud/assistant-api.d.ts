@@ -1,4 +1,5 @@
 import type { ConversationModelDraft, ConversationModelSettings, ModelAvailability, ModelConnectionResult } from "@/components/jarvis/model-settings";
+import type { DesktopUpdateResult, DesktopUpdateStatus } from "@/components/jarvis/desktop-update-control";
 import type { VoiceOutputSettings, VoicePayload, VoiceResponse } from "@/lib/voice-output";
 import type { MacWakeSpeechEvent } from "@/lib/mac-wake-speech";
 
@@ -8,7 +9,7 @@ declare global {
   interface Window {
     assistantAPI?: {
       getBootstrap: () => Promise<unknown>;
-      getAppState: () => Promise<unknown>;
+      getAppState: () => Promise<{ version: string; updater: DesktopUpdateStatus | null }>;
       getComputerControl?: () => Promise<boolean>;
       setComputerControl?: (enabled: boolean) => Promise<boolean>;
       probeMacWakeSpeech?: (locale: string) => Promise<{ status: "available" | "unavailable" }>;
@@ -32,8 +33,8 @@ declare global {
         url?: string;
         error?: string;
       }>;
-      checkForUpdates: () => Promise<unknown>;
-      installUpdate: () => Promise<unknown>;
+      checkForUpdates: () => Promise<DesktopUpdateStatus | null>;
+      installUpdate: () => Promise<DesktopUpdateResult | null>;
       transcribeAudio: (payload: {
         audioBase64: string;
         mimeType: string;
@@ -49,7 +50,7 @@ declare global {
       saveLocalWorkspace?: (serialized: string) => Promise<void>;
       onFocusCommandInput?: (callback: () => void) => () => void;
       invokeTool: (tool: string, payload?: Record<string, unknown>) => Promise<unknown>;
-      onUpdateStatus: (callback: (payload: unknown) => void) => (() => void) | void;
+      onUpdateStatus: (callback: (payload: DesktopUpdateStatus) => void) => (() => void) | void;
     };
   }
 }

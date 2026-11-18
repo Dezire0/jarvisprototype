@@ -380,8 +380,9 @@ async function downloadUrlToFile(downloadUrl, targetPath, onProgress = null, red
 }
 
 class UpdaterService {
-  constructor({ app }) {
+  constructor({ app, openReleasePage = (url) => shell.openExternal(url) }) {
     this.app = app;
+    this.openReleasePage = openReleasePage;
     this.enabled = false;
     this.nativeUpdaterEnabled = false;
     this.installerFallbackEnabled = false;
@@ -397,6 +398,8 @@ class UpdaterService {
       progressPercent: 0,
       remainingSeconds: 0,
       enabled: false,
+      checked: false,
+      manualInstall: process.platform === "darwin",
       mode: "disabled",
       downloadUrl: "",
       downloadPath: "",
@@ -475,7 +478,7 @@ class UpdaterService {
     const owner = envOwner || packageRepo?.owner || "";
     const repo = envRepo || packageRepo?.repo || "";
 
-    if (!owner || !repo) {
+    if (!/^[a-z0-9-]+$/i.test(owner) || !/^[a-z0-9_.-]+$/i.test(repo) || [".", ".."].includes(repo)) {
       return null;
     }
 
@@ -489,10 +492,7 @@ class UpdaterService {
 
   installNativeUpdaterHandlers() {
     autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
-    // 코드 서명 인증서(CSC_LINK)가 없는 환경에서 빌드 시
-    // macOS ShipIt이 서명 불일치로 업데이트를 거부하는 문제를 방지합니다.
-    autoUpdater.verifyUpdateCodeSignature = false;
+    autoUpdater.autoInstallOnAppQuit = false;
 
     autoUpdater.on("checking-for-update", () => {
       this.updateStatus({
@@ -516,6 +516,7 @@ class UpdaterService {
     autoUpdater.on("update-not-available", () => {
       this.updateStatus({
         state: "idle",
+        checked: true,
         message: "현재 최신 버전을 사용 중입니다.",
         progressPercent: 0,
         availableVersion: "",
@@ -699,6 +700,7 @@ class UpdaterService {
       if (!match || compareVersions(latestVersion, this.app.getVersion()) <= 0) {
         this.updateStatus({
           state: "idle",
+          checked: true,
           message: "You are on the latest version.",
           availableVersion: "",
           downloadedVersion: "",
@@ -745,6 +747,17 @@ class UpdaterService {
   }
 
   async installUpdate() {
+    if (this.status.manualInstall) {
+      if (!this.installerFallbackEnabled || !this.fallbackConfig ||
+          !["available", "downloaded"].includes(this.status.state)) return { ok: false };
+      try {
+        await this.openReleasePage(this.fallbackConfig.releaseNotesUrl);
+        return { ok: true, mode: "installer", targetUrl: this.fallbackConfig.releaseNotesUrl };
+      } catch {
+        return { ok: false, mode: "installer", message: "Could not open the release page." };
+      }
+    }
+
     if (this.nativeUpdaterEnabled && autoUpdater && this.status.state === "downloaded") {
       autoUpdater.quitAndInstall();
       return {
@@ -755,43 +768,13 @@ class UpdaterService {
 
     if (this.installerFallbackEnabled) {
       if (this.status.state === "downloaded" && this.status.downloadPath) {
-        if (process.platform === "darwin") {
-          const dmgPath = this.status.downloadPath;
-          const shellScript = `mkdir -p /tmp/jarvis_update_mount && hdiutil attach "${dmgPath}" -mountpoint /tmp/jarvis_update_mount -nobrowse -quiet && rm -rf "/Applications/Jarvis Desktop.app" && cp -aR /tmp/jarvis_update_mount/*.app /Applications/ && xattr -cr "/Applications/Jarvis Desktop.app" && hdiutil detach /tmp/jarvis_update_mount -force && open -a "/Applications/Jarvis Desktop.app"`;
-          const appleScript = `do shell script "${shellScript.replace(/"/g, '\\"')}" with administrator privileges`;
-
-          try {
-            const { exec } = require("child_process");
-            // nohup을 사용하여 부모 프로세스(앱)가 죽어도 끝까지 실행되도록 보장합니다.
-            exec(`nohup osascript -e '${appleScript}' > /dev/null 2>&1 &`);
-
-            // 앱을 즉시 종료하여 덮어쓰기 중 발생할 수 있는 충돌을 방지합니다.
-            setTimeout(() => {
-              this.app.quit();
-            }, 1000);
-
-            return {
-              ok: true,
-              mode: "installer",
-              message: "백그라운드에서 업데이트를 설치 중입니다. 비밀번호를 입력해 주세요."
-            };
-          } catch (error) {
-            console.error("Failed to execute AppleScript updater:", error);
-            return {
-              ok: false,
-              mode: "installer",
-              message: `업데이트 스크립트 실행 실패: ${error.message}`
-            };
-          }
-        } else {
-          const openResult = await shell.openPath(this.status.downloadPath);
-          return {
-            ok: !openResult,
-            mode: "installer",
-            targetPath: this.status.downloadPath,
-            message: openResult || ""
-          };
-        }
+        const openResult = await shell.openPath(this.status.downloadPath);
+        return {
+          ok: !openResult,
+          mode: "installer",
+          targetPath: this.status.downloadPath,
+          message: openResult || ""
+        };
       }
 
       const downloadUrl = this.status.downloadUrl || "";
@@ -808,7 +791,7 @@ class UpdaterService {
         }
 
         if (!result?.ok) {
-          const targetUrl = String(this.status.releasePageUrl || "").trim();
+          const targetUrl = this.fallbackConfig.releaseNotesUrl;
           if (targetUrl) {
             await shell.openExternal(targetUrl);
             return {

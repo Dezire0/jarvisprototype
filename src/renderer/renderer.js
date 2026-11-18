@@ -957,6 +957,17 @@ function getUpdateBannerCopy(status = {}) {
   const progressPercent = Math.max(0, Math.min(100, Number(status.progressPercent) || 0));
   const remainingLabel = formatRemainingTime(status.remainingSeconds);
 
+  if (status.manualInstall && (state === "available" || state === "downloaded")) {
+    return {
+      title: "Update available",
+      message: version ? `Jarvis Desktop ${version} is available.` : "A new version is available.",
+      detail: "Find the macOS installer on the GitHub releases page.",
+      primaryLabel: "Open GitHub releases",
+      secondaryLabel: "Later",
+      primaryEnabled: true
+    };
+  }
+
   if (state === "downloaded" && mode === "native") {
     return {
       title: "Update ready",

@@ -1592,7 +1592,15 @@ ipcMain.handle("assistant:set-computer-control", (event, enabled) => {
   return computerControl.setEnabled(enabled);
 });
 
-ipcMain.handle("assistant:get-app-state", async () => {
+function requireDesktopUpdaterFrame(event) {
+  if (!isDesktopWindow(event) ||
+      (event.senderFrame.url !== legacySettingsUrl && new URL(event.senderFrame.url).pathname !== "/")) {
+    throw new Error("Open the Jarvis desktop workspace to manage updates.");
+  }
+}
+
+ipcMain.handle("assistant:get-app-state", (event) => {
+  requireDesktopUpdaterFrame(event);
   return {
     version: app.getVersion(),
     packaged: app.isPackaged,
@@ -1608,12 +1616,16 @@ ipcMain.handle("assistant:get-live-preview", async (event) => {
   return captureLivePreviewSnapshot();
 });
 
-ipcMain.handle("assistant:check-for-updates", async () => {
+ipcMain.handle("assistant:check-for-updates", async (event) => {
+  requireDesktopUpdaterFrame(event);
   return updaterService ? updaterService.checkForUpdates("manual") : null;
 });
 
-ipcMain.handle("assistant:install-update", async () => {
-  return updaterService ? updaterService.installUpdate() : null;
+let pendingUpdateAction;
+ipcMain.handle("assistant:install-update", (event) => {
+  requireDesktopUpdaterFrame(event);
+  if (!updaterService) return null;
+  return pendingUpdateAction ||= updaterService.installUpdate().finally(() => { pendingUpdateAction = null; });
 });
 
 ipcMain.handle("assistant:transcribe-audio", async (_event, payload = {}) => {
