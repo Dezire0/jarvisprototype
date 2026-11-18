@@ -45,6 +45,7 @@ const {
 const { registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs");
 const { registerChatHistoryHandlers } = require("./chat-history-store.cjs");
 const { MemoryStore, createAccountMemoryResolver } = require("./memory-store.cjs");
+const { testSavedModelConnection } = require("./model-connection.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
@@ -62,6 +63,7 @@ let settingsWindow;
 let services;
 let assistant;
 let assistantControlRevision;
+let modelConnectionTest;
 let assistantTransportServer;
 let desktopUiServer;
 const desktopSessionToken = createDesktopSessionToken();
@@ -1264,7 +1266,8 @@ ipcMain.handle("assistant:save-tts-settings", async (_event, payload) => {
   };
 });
 
-ipcMain.handle("assistant:get-conversation-model-settings", async () => {
+ipcMain.handle("assistant:get-conversation-model-settings", async (event) => {
+  if (!isDesktopWindow(event)) throw new Error("Open model settings in the Jarvis desktop window.");
   const { services: liveServices } = ensureReadyServices();
 
   return {
@@ -1272,13 +1275,21 @@ ipcMain.handle("assistant:get-conversation-model-settings", async () => {
   };
 });
 
-ipcMain.handle("assistant:save-conversation-model-settings", async (_event, payload) => {
+ipcMain.handle("assistant:save-conversation-model-settings", async (event, payload) => {
+  if (!isDesktopWindow(event)) throw new Error("Open model settings in the Jarvis desktop window.");
   const { services: liveServices } = ensureReadyServices();
   const settings = await liveServices.settings.updateConversationModelSettings(payload);
 
   return {
     settings
   };
+});
+
+ipcMain.handle("assistant:test-conversation-model", (event) => {
+  if (!isDesktopWindow(event) || new URL(event.senderFrame.url).pathname !== "/") {
+    throw new Error("Open model settings in the Jarvis workspace.");
+  }
+  return modelConnectionTest ||= testSavedModelConnection().finally(() => { modelConnectionTest = null; });
 });
 
 registerLocalWorkspaceHandlers({

@@ -6,6 +6,50 @@ const path = require("node:path");
 
 const { SettingsStore } = require("../../src/main/settings-store.cjs");
 
+test("failed settings replacement preserves committed values and concurrent edits are serialized", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-atomic-settings-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const app = { getPath: () => directory };
+  const store = new SettingsStore({ app });
+  const original = await store.updateConversationModelSettings({ provider: "ollama", ollama: { model: "original-model" } });
+  const temporary = store.settingsPath + ".tmp";
+  await fs.mkdir(temporary);
+  await assert.rejects(store.updateConversationModelSettings({ provider: "openai-compatible" }));
+  assert.deepEqual(store.getConversationModelSettingsView(), original);
+  const reopened = new SettingsStore({ app });
+  await reopened.load();
+  assert.deepEqual(reopened.getConversationModelSettingsView(), original);
+  await fs.rmdir(temporary);
+  await Promise.all([
+    store.updateConversationModelSettings({ ollama: { model: "new-model" } }),
+    store.updateTtsSettings({ openai: { model: "voice-model" } }),
+    store.updateConversationModelSettings({ ollama: { url: "http://127.0.0.1:11434" } }),
+  ]);
+  await reopened.load();
+  assert.deepEqual(reopened.getConversationModelSettingsView().ollama, { model: "new-model", url: "http://127.0.0.1:11434" });
+  assert.equal(reopened.getTtsSettingsView().openai.model, "voice-model");
+});
+
+test("changing a compatible API origin clears a saved key unless a replacement is supplied", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-model-origin-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const store = new SettingsStore({ app: { getPath: () => directory } });
+  store.encryptSecret = (secret) => "fixture-encrypted-" + secret;
+  await store.updateConversationModelSettings({
+    provider: "openai-compatible",
+    openai: { baseUrl: "https://original.example.invalid/v1", apiKey: "fixture-key" }
+  });
+  const sameOrigin = await store.updateConversationModelSettings({
+    openai: { baseUrl: "https://original.example.invalid/new" }
+  });
+  assert.equal(sameOrigin.openai.configured, true);
+  const differentOrigin = await store.updateConversationModelSettings({
+    openai: { baseUrl: "http://127.0.0.1:12345" }
+  });
+  assert.equal(differentOrigin.openai.configured, false);
+  assert.doesNotMatch(await fs.readFile(store.settingsPath, "utf8"), /fixture-key/);
+});
+
 test("conversation settings view does not decrypt stored API keys", async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-settings-store-"));
   const settingsPath = path.join(tmpDir, "jarvis-settings.json");
