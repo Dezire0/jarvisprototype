@@ -50,6 +50,7 @@ test("direct browser controls hand off only on submit and preserve the conversat
       };
     });
     await page.goto(origin);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByLabel("Email", { exact: true }).fill("handoff@example.invalid");
     await page.getByLabel("Password", { exact: true }).fill("fixture-password");
     await page.getByRole("button", { name: "Continue with Email" }).click();

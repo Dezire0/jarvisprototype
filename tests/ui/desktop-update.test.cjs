@@ -68,6 +68,7 @@ test("desktop update controls keep notifications quiet and let the user check, r
       };
     });
     await page.goto(origin);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByLabel("Email", { exact: true }).fill("update@example.invalid");
     await page.getByLabel("Password", { exact: true }).fill("fixture-password");
     await page.getByRole("button", { name: "Continue with Email" }).click();
