@@ -3,6 +3,40 @@ const assert = require("node:assert/strict");
 const { createServer } = require("node:http");
 const { setExternalLlmSettingsProvider, listInstalledModels } = require("../../src/main/ollama-service.cjs");
 const { getSavedModelAvailability, testSavedModelConnection } = require("../../src/main/model-connection.cjs");
+const { AssistantService } = require("../../src/main/assistant-service.cjs");
+
+test("an Ollama response identifies the candidate that actually replied", async (t) => {
+  const url = "http://127.0.0.1:11435";
+  const requested = [];
+  setExternalLlmSettingsProvider(() => ({ provider: "ollama", ollama: { model: "saved-choice", url } }));
+  t.after(() => setExternalLlmSettingsProvider(null));
+  t.mock.method(globalThis, "fetch", async (endpoint, options) => {
+    assert.equal(new URL(endpoint).origin, url);
+    if (new URL(endpoint).pathname === "/api/tags") {
+      return Response.json({ models: [{ name: "installed-alternate:latest" }] });
+    }
+    const { model } = JSON.parse(options.body);
+    requested.push(model);
+    return model === "installed-alternate:latest"
+      ? Response.json({ error: "model not found" }, { status: 404 })
+      : Response.json({ message: { content: "Reply from the alternate model" } });
+  });
+  const assistant = new AssistantService({ computerControl: { enabled: false } });
+  const result = await assistant.handleInput("Write a short sentence");
+  assert.deepEqual(requested, ["installed-alternate:latest", "installed-alternate"]);
+  assert.equal(result.reply, "Reply from the alternate model");
+  assert.deepEqual(result.responseSource, { provider: "ollama", model: "installed-alternate" });
+});
+
+test("model setup guidance has no successful response source", async (t) => {
+  setExternalLlmSettingsProvider(() => ({ provider: "openai-cli" }));
+  t.after(() => setExternalLlmSettingsProvider(null));
+  t.mock.method(globalThis, "fetch", () => assert.fail("Setup guidance should not send a request"));
+  const assistant = new AssistantService({ computerControl: { enabled: false } });
+  const result = await assistant.handleInput("Write a short sentence");
+  assert.equal(result.provider, "model-required");
+  assert.equal(result.responseSource, undefined);
+});
 
 test("connection check sends one short request to the saved model and requires usable text", async (t) => {
   const requests = [];

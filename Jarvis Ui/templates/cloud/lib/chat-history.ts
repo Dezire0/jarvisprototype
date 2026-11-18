@@ -3,6 +3,7 @@
 import { readStoredAuthSession } from "@/components/jarvis/auth-session";
 import { normalizeMemorySources, type MemorySource } from "@/lib/chat-memory";
 import { executionRecords } from "@/lib/execution-record";
+import { normalizeReplySource, type ReplySource } from "@/lib/reply-source";
 import { isWorkspaceLanguage, type WorkspaceLanguage } from "@/lib/workspace-language";
 
 export type TransportMessage = {
@@ -12,6 +13,7 @@ export type TransportMessage = {
   createdAt: string;
   status?: "running" | "complete";
   provider?: string;
+  responseSource?: ReplySource;
   memorySources?: MemorySource[];
   actions?: unknown[];
   details?: unknown;
@@ -74,6 +76,7 @@ function completedTranscript(messages: TransportMessage[]): TransportMessage[] {
     createdAt: message.createdAt,
     status: "complete",
     provider: message.provider,
+    responseSource: message.role === "assistant" ? normalizeReplySource(message.responseSource) : undefined,
     memorySources: message.role === "assistant" && !message.attachmentReview
       ? normalizeMemorySources(message.memorySources)
       : undefined,

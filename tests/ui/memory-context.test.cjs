@@ -6,7 +6,7 @@ const testUrl = process.env.JARVIS_UI_TEST_URL;
 const accountId = "memory-fixture";
 const historyKey = "jarvis-chat-history:v1:" + accountId;
 
-test("memory categories are visible on the corresponding answer and saved only in the local transcript", {
+test("model and memory labels stay with their answer in the local transcript", {
   skip: !testUrl && "Set JARVIS_UI_TEST_URL to a running local Jarvis UI.",
   timeout: 30000,
 }, async () => {
@@ -47,6 +47,10 @@ test("memory categories are visible on the corresponding answer and saved only i
           id: "fixture-answer-" + chats.length, role: "assistant", status: "complete", createdAt,
           text: temporary ? "Temporary answer" : disabled ? "Follow-up answer" : "Ordinary answer",
           memorySources: temporary || disabled ? [] : ["conversation", "personal", "personal", "/fixture/hidden-path"],
+          provider: disabled ? "jarvis-cloud-gemini-legacy" : "ollama:fixture-configured",
+          responseSource: disabled ? undefined : temporary
+            ? { provider: "openai-compatible", model: "https://fixture.invalid/private-model" }
+            : { provider: "ollama", model: "fixture-used:latest", apiKey: "must-not-store" },
         },
       ];
       return route.fulfill({
@@ -83,26 +87,30 @@ test("memory categories are visible on the corresponding answer and saved only i
 
     const composer = page.getByRole("textbox", { name: "Message input" });
     const label = page.getByText("Saved memory sent · Personal context · Past conversations", { exact: true });
+    const replySource = page.getByText("Ollama · fixture-used:latest", { exact: true });
     const sidebarToggle = page.getByRole("button", { name: "Toggle sidebar" });
     const synced = page.waitForResponse((response) => new URL(response.url()).pathname === "/fixture-sync");
     await composer.fill("Ordinary prompt");
     await composer.press("Enter");
     await page.getByText("Ordinary answer", { exact: true }).waitFor();
     await label.waitFor();
+    await replySource.waitFor();
     await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)).threads.some(
       (thread) => thread.messages.some((message) => message.memorySources?.length === 2),
     ), historyKey);
     const snapshot = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), historyKey);
     assert.deepEqual(snapshot.threads[0].messages.at(-1).memorySources, ["personal", "conversation"]);
-    assert.doesNotMatch(JSON.stringify(snapshot), /hidden-path/);
+    assert.deepEqual(snapshot.threads[0].messages.at(-1).responseSource, { provider: "ollama", model: "fixture-used:latest" });
+    assert.doesNotMatch(JSON.stringify(snapshot), /hidden-path|must-not-store/);
     await synced;
     assert.equal(cloud.length, 1);
-    assert.doesNotMatch(JSON.stringify(cloud), /memorySources|hidden-path/);
+    assert.doesNotMatch(JSON.stringify(cloud), /memorySources|responseSource|hidden-path|fixture-used/);
 
     await page.reload();
     await sidebarToggle.click();
     await page.getByRole("button", { name: "Ordinary prompt", exact: true }).click();
     await label.waitFor();
+    await replySource.waitFor();
     assert.deepEqual(chats, [{ mode: "persistent", saved: true, prior: 0 }]);
 
     const profile = page.getByRole("button", { name: /Memory Fixture/ });
@@ -142,6 +150,7 @@ test("memory categories are visible on the corresponding answer and saved only i
     await composer.fill("Follow-up prompt");
     await composer.press("Enter");
     await page.getByText("Follow-up answer", { exact: true }).waitFor();
+    await page.getByText("Jarvis Cloud · gemini-legacy", { exact: true }).waitFor();
     await syncedAgain;
     assert.deepEqual(chats[1], { mode: "persistent", saved: false, prior: 2 });
     assert.equal(await label.count(), 1);
@@ -155,6 +164,8 @@ test("memory categories are visible on the corresponding answer and saved only i
     await composer.fill("Temporary prompt");
     await composer.press("Enter");
     await page.getByText("Temporary answer", { exact: true }).waitFor();
+    await page.getByText("OpenAI-compatible API", { exact: true }).waitFor();
+    assert.equal(await page.getByText(/private-model|fixture-configured/).count(), 0);
     assert.equal(await label.count(), 0);
     assert.deepEqual(chats[2], { mode: "temporary", saved: undefined, prior: 0 });
     assert.equal(cloud.length, 2);

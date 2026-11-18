@@ -6,6 +6,7 @@ import { createAssistantStream } from "assistant-stream";
 import type { ReadonlyJSONValue } from "assistant-stream/utils";
 import { attachmentPrefix, createChatAttachmentAdapter, readAttachmentLabel, type AttachmentError } from "@/lib/chat-attachments";
 import { executionRecords } from "@/lib/execution-record";
+import { normalizeReplySource } from "@/lib/reply-source";
 import {
   AssistantRuntimeProvider,
   type AssistantTransportCommand,
@@ -172,6 +173,7 @@ function toThreadMessages(state: TransportState): ThreadMessage[] {
           steps: [],
           custom: {
             provider: message.provider || "local",
+            responseSource: message.status !== "running" ? normalizeReplySource(message.responseSource) : undefined,
             details: message.details || null,
             attachmentReview: message.attachmentReview === true,
             memorySources: message.status === "complete" && !message.attachmentReview ? message.memorySources ?? [] : [],
