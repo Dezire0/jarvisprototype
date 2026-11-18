@@ -1,10 +1,12 @@
 # Jarvis workspace recovery
 
-The desktop workspace opens with the conversation composer, voice controls, and shortcuts to Timer, Tasks, and Notes. Each shortcut opens Local tools over the conversation and focuses its first control. Close Local tools to return to the same conversation. Open the sidebar to see threads, projects, and account settings. The interface uses the system typeface, system light/dark preference until a user chooses an appearance, and a visible focus treatment. Local tools also opens from the account screen.
+The desktop workspace opens with the conversation composer, voice controls, and shortcuts to Timer, Tasks, and Notes. Each shortcut opens the corresponding tool over the conversation and focuses its first control. Close Local tools to return to the same conversation. Open the sidebar to see threads, projects, and account settings. The interface uses the system typeface, system light/dark preference until a user chooses an appearance, and a visible focus treatment. Local tools also opens from the account screen.
 
 ## Local tools
 
-Open `/tools` in a running desktop UI or select **Local tools**. The command field responds to Ctrl+K or Command+K.
+Select **Local tools** in the workspace toolbar to see tools grouped by purpose. Type a name or keyword into **Find a tool**. Use the arrow keys to move to results. Press Enter to open a focused row or the only matching result. The back button restores the filter and focuses the row you opened. Closing the dialog returns focus to the original workspace control. Desktop-only tools indicate when computer control is required.
+
+Choose **Local command** to run the existing local command syntax. The command field responds to Ctrl+K or Command+K while this tool is open. The standalone `/tools` page still has the command field, timer, tasks, notes, weather and diagnostics available before sign-in.
 
 The conversation composer also recognizes structured timer, task, note and calculator commands. The label **Runs on this device** identifies the route before submission. Press Enter or use the arrow to run the command and view the result under the input. Select **Send to chat** to send the same text to the Assistant instead. A message with an attachment or quote follows the chat route. Voice input in an empty conversation draft uses the same command routing. Try `10분 타이머 맞춰줘`, `note: Read the agenda`, `add task Review the draft`, or `calculate 16 * 3`.
 

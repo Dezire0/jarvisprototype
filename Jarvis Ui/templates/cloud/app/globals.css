@@ -358,7 +358,90 @@
   margin: 0;
   padding: 1rem 3rem .75rem 1rem;
 }
+.jarvis-tools-titlebar {
+  display: flex;
+  align-items: center;
+}
+.jarvis-tools-titlebar > button {
+  margin-inline-start: .5rem;
+}
+.jarvis-tools-titlebar > button + .jarvis-tools-dialog-title {
+  padding-inline-start: .25rem;
+}
+.jarvis-tools-dialog-title:focus { outline: none; }
+.jarvis-tool-directory {
+  display: grid;
+  gap: 1rem;
+  padding: 0 1rem 1rem;
+}
+.jarvis-tool-search {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+  min-height: 2.75rem;
+  padding: 0 .75rem;
+  color: var(--muted-foreground);
+  background: var(--jarvis-control);
+  border: 1px solid var(--jarvis-control-border);
+  border-radius: .625rem;
+}
+.jarvis-tool-search:focus-within {
+  outline: 2px solid var(--jarvis-focus);
+  outline-offset: 1px;
+}
+.jarvis-tool-search input {
+  min-width: 0;
+  flex: 1;
+  outline: none;
+  color: var(--foreground);
+}
+.jarvis-tool-search button {
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+}
+.jarvis-tool-groups {
+  display: grid;
+  gap: .95rem;
+}
+.jarvis-tool-group-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .25rem .75rem;
+  margin: 0 .65rem .35rem;
+  color: var(--muted-foreground);
+  font-size: .8125rem;
+}
+.jarvis-tool-group-heading h3 { font-weight: 620; color: var(--foreground); }
+.jarvis-tool-group ul {
+  padding: 0 .25rem;
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+  background: var(--card);
+}
+.jarvis-tool-group li + li { border-top: 1px solid var(--border); }
+.jarvis-tool-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  min-height: 2.5rem;
+  padding: .4rem .625rem;
+  text-align: start;
+  font-size: .875rem;
+  border-radius: .45rem;
+}
+.jarvis-tool-row:hover { background: var(--accent); }
+.jarvis-tool-row:focus-visible {
+  outline: 2px solid var(--jarvis-focus);
+  outline-offset: -2px;
+}
+.jarvis-tool-row svg { flex: none; color: var(--muted-foreground); }
+
 .jarvis-local[data-embedded] { min-height: 0; }
+.jarvis-local[data-embedded] .jarvis-tool-section:first-of-type { margin-top: 0; border-top: 0; padding-top: 0; }
 .jarvis-local[data-embedded] .jarvis-local-content {
   width: auto;
   margin: 0;

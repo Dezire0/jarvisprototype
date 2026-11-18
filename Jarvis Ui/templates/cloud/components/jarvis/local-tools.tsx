@@ -17,7 +17,7 @@ import {
 } from "@/lib/local-workspace";
 
 type Receipt = Result & { timerDeadline?: number };
-export type ToolSection = "timer" | "tasks" | "notes" | "weather";
+export type ToolSection = "timer" | "tasks" | "notes" | "weather" | "activity" | "command" | "diagnostics";
 
 export function TimerCompletionNotice({ onOpen }: {
   onOpen?: (trigger: HTMLButtonElement) => void;
@@ -44,19 +44,10 @@ export function StandaloneLocalTools() {
   return <LocalTools local={local} />;
 }
 
-export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject, onOpenGames, onOpenSpotify, onOpenApps, onBrowseFiles }: {
+export function LocalTools({ local, embedded = false, initialSection }: {
   local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: Exclude<ToolSection, "weather">;
-  onReadScreen?: () => void;
-  onReadPage?: () => void;
-  onSaveFile?: () => void;
-  onOpenObs?: () => void;
-  onCreateProject?: () => void;
-  onOpenGames?: () => void;
-  onOpenSpotify?: () => void;
-  onOpenApps?: () => void;
-  onBrowseFiles?: () => void;
 }) {
   const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
@@ -81,14 +72,14 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
   useEffect(() => {
     if (!workspaceReady) return;
 
-    const section = initialSection && toolsRef.current?.querySelector(`[aria-labelledby="jarvis-${initialSection}"]`);
+    const section = initialSection && toolsRef.current?.querySelector(`[data-tool-section="${initialSection}"]`);
     const control = section ? section.querySelector<HTMLElement>("[data-tool-focus]") : inputRef.current;
     control?.focus();
   }, [initialSection, workspaceReady]);
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      if (inputRef.current && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         inputRef.current?.focus();
       }
@@ -229,6 +220,32 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
     setReceipt({ title: kind === "tasks" ? t("할 일 삭제", "Task deleted") : t("메모 삭제", "Note deleted"), detail: entry.text });
   }
 
+  const show = (section: ToolSection) => !embedded || initialSection === section;
+  const activityContent = workspace.activity.length ? (
+    <>
+      <ol>
+        {workspace.activity.map(({ id, kind, at }) => (
+          <li key={id} className="jarvis-result-detail">
+            <span>{activityLabels[kind][ko ? 0 : 1]}</span>
+            <time dateTime={new Date(at).toISOString()}>
+              {new Date(at).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" })}
+            </time>
+          </li>
+        ))}
+      </ol>
+      <button type="button" className="jarvis-toolbar-link" onClick={(event) => {
+        saveWorkspace({ ...latestWorkspace(), activity: [] });
+        showReceipt({ title: t("활동을 지웠습니다", "Activity cleared") });
+        const target = embedded
+          ? event.currentTarget.closest('[role="dialog"]')?.querySelector<HTMLElement>(".jarvis-tools-dialog-title")
+          : event.currentTarget.closest("details")?.querySelector("summary");
+        target?.focus();
+      }}>
+        {t("활동 지우기", "Clear activity")}
+      </button>
+    </>
+  ) : <p className="jarvis-result-detail" role="status">{t("기록된 활동이 없습니다.", "No activity yet.")}</p>;
+
   return (
     <div className="jarvis-local" data-embedded={embedded || undefined}>
       {!embedded && <header className="jarvis-toolbar">
@@ -240,9 +257,9 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
       </header>}
       <div className="jarvis-local-content" role={embedded ? undefined : "main"}>
         {!embedded && <h1>{t("로컬 도구", "Local tools")}</h1>}
-        {timerFinished && <TimerCompletionNotice />}
+        {timerFinished && show("timer") && <TimerCompletionNotice />}
         <fieldset ref={toolsRef} className="min-w-0" disabled={!workspaceReady}>
-        <form className="jarvis-local-command" onSubmit={submit}>
+        {show("command") && <form className="jarvis-local-command" onSubmit={submit}>
           <input ref={inputRef} value={command} onChange={(event) => setCommand(event.target.value)}
             maxLength={600} aria-label={t("로컬 명령 입력", "Local command")}
             placeholder={t("예: 10분 타이머 맞춰줘", "Try “timer 10 minutes”")} />
@@ -250,8 +267,8 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
             aria-label={t("명령 실행", "Run command")} disabled={!command.trim()}>
             <ArrowUpIcon size={18} />
           </button>
-        </form>
-        <div className="flex flex-wrap gap-1">
+        </form>}
+        {!embedded && <div className="flex flex-wrap gap-1">
           <button type="button" className="jarvis-toolbar-link"
             onClick={() => execute({ kind: "diagnostics" })}>
             {t("시스템 진단", "Diagnostics")}
@@ -261,30 +278,16 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
             onClick={() => setWeatherOpen(!weatherOpen)}>
             {t("날씨", "Weather")}
           </button>
-          {onReadScreen && <button type="button" className="jarvis-toolbar-link" onClick={onReadScreen}>
-            {t("화면 읽기", "Read screen")}
-          </button>}
-          {onReadPage && <button type="button" className="jarvis-toolbar-link" onClick={onReadPage}>
-            {t("웹 페이지 읽기", "Read web page")}
-          </button>}
-          {onBrowseFiles && <button type="button" className="jarvis-toolbar-link" onClick={onBrowseFiles}>
-            {t("폴더 찾아보기", "Browse files")}
-          </button>}
-          {onSaveFile && <button type="button" className="jarvis-toolbar-link" onClick={onSaveFile}>
-            {t("파일 저장", "Save file")}
-          </button>}
-          {onCreateProject && <button type="button" className="jarvis-toolbar-link" onClick={onCreateProject}>
-            {t("코딩 프로젝트 만들기", "Create coding project")}
-          </button>}
-          {onOpenGames && <button type="button" className="jarvis-toolbar-link" onClick={onOpenGames}>
-            {t("게임", "Games")}
-          </button>}
-          {onOpenApps && <button type="button" className="jarvis-toolbar-link" onClick={onOpenApps}>
-            {t("앱", "Apps")}
-          </button>}
-          {onOpenSpotify && <button type="button" className="jarvis-toolbar-link" onClick={onOpenSpotify}>Spotify</button>}
-          {onOpenObs && <button type="button" className="jarvis-toolbar-link" onClick={onOpenObs}>OBS</button>}
-        </div>
+        </div>}
+        {embedded && show("diagnostics") && (
+          <section data-tool-section="diagnostics">
+            <p className="jarvis-result-detail">
+              {t("이 기기의 CPU와 메모리 사용량을 확인합니다.", "Check CPU and memory use on this device.")}
+            </p>
+            <button type="button" className="jarvis-secondary-button mt-3" data-tool-focus
+              onClick={() => execute({ kind: "diagnostics" })}>{t("시스템 사용량 측정", "Measure system usage")}</button>
+          </section>
+        )}
         {weatherOpen && <WeatherPanel canUseBrowserLocation={!nativeStorage} />}
         {receipt && (
           <div className="jarvis-local-result" data-error={receipt.failed || undefined}>
@@ -316,10 +319,10 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
           </div>
         )}
         {!storageAvailable && <p role="alert" className="jarvis-result-detail">{t("변경사항을 저장하지 못했습니다. 창을 닫기 전에 필요한 내용을 복사하세요.", "Changes could not be saved. Copy anything you need before closing this window.")}</p>}
-        <section className="jarvis-tool-section" aria-labelledby="jarvis-timer">
+        {show("timer") && <section className="jarvis-tool-section" data-tool-section="timer" aria-labelledby={embedded ? undefined : "jarvis-timer"}>
           <div className="jarvis-timer-layout">
             <div>
-              <h2 id="jarvis-timer">{t("타이머", "Timer")}</h2>
+              {!embedded && <h2 id="jarvis-timer">{t("타이머", "Timer")}</h2>}
               <p className="jarvis-timer-value" role="timer" aria-live="off">{formatTimer(remaining)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -340,9 +343,9 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
               </button>
             ))}
           </div>
-        </section>
-        <EntrySection id="jarvis-tasks" title={t("할 일", "Tasks")} label={t("할 일 추가", "Add task")}
-          limit={160} onAdd={(text) => execute({ kind: "task", text })}>
+        </section>}
+        {show("tasks") && <EntrySection section="tasks" title={t("할 일", "Tasks")} label={t("할 일 추가", "Add task")}
+          hideHeading={embedded} limit={160} onAdd={(text) => execute({ kind: "task", text })}>
           {workspace.tasks.map((task) => (
             <li key={task.id} className="jarvis-entry">
               <label>
@@ -353,9 +356,9 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
                 onClick={() => removeEntry("tasks", task.id)}><Trash2Icon size={16} /></button>
             </li>
           ))}
-        </EntrySection>
-        <EntrySection id="jarvis-notes" title={t("메모", "Notes")} label={t("메모 추가", "Add note")}
-          limit={500} onAdd={(text) => execute({ kind: "note", text })}>
+        </EntrySection>}
+        {show("notes") && <EntrySection section="notes" title={t("메모", "Notes")} label={t("메모 추가", "Add note")}
+          hideHeading={embedded} limit={500} onAdd={(text) => execute({ kind: "note", text })}>
           {workspace.notes.map((note) => (
             <li key={note.id} className="jarvis-entry">
               <span>{note.text}</span>
@@ -363,46 +366,32 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
                 onClick={() => removeEntry("notes", note.id)}><Trash2Icon size={16} /></button>
             </li>
           ))}
-        </EntrySection>
-        <details className="jarvis-tool-section jarvis-activity">
-          <summary>{t("최근 활동", "Recent activity")}</summary>
-          {workspace.activity.length ? (
-            <>
-              <ol>
-                {workspace.activity.map(({ id, kind, at }) => (
-                  <li key={id} className="jarvis-result-detail">
-                    <span>{activityLabels[kind][ko ? 0 : 1]}</span>
-                    <time dateTime={new Date(at).toISOString()}>
-                      {new Date(at).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" })}
-                    </time>
-                  </li>
-                ))}
-              </ol>
-              <button type="button" className="jarvis-toolbar-link" onClick={(event) => {
-                saveWorkspace({ ...latestWorkspace(), activity: [] });
-                showReceipt({ title: t("활동을 지웠습니다", "Activity cleared") });
-                event.currentTarget.closest("details")?.querySelector("summary")?.focus();
-              }}>
-                {t("활동 지우기", "Clear activity")}
-              </button>
-            </>
-          ) : <p className="jarvis-result-detail" role="status">{t("기록된 활동이 없습니다.", "No activity yet.")}</p>}
-        </details>
+        </EntrySection>}
+        {show("activity") && (embedded ? (
+          <section className="jarvis-tool-section jarvis-activity" data-tool-section="activity">{activityContent}</section>
+        ) : (
+          <details className="jarvis-tool-section jarvis-activity">
+            <summary>{t("최근 활동", "Recent activity")}</summary>
+            {activityContent}
+          </details>
+        ))}
         </fieldset>
       </div>
     </div>
   );
 }
 
-function EntrySection({ id, title, label, limit, onAdd, children }: {
-  id: string;
+function EntrySection({ section, title, label, limit, onAdd, children, hideHeading }: {
+  section: "tasks" | "notes";
   title: string;
   label: string;
   limit: number;
   onAdd: (text: string) => void;
   children: ReactNode;
+  hideHeading?: boolean;
 }) {
   const [value, setValue] = useState("");
+  const id = "jarvis-" + section;
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!value.trim()) return;
@@ -411,8 +400,8 @@ function EntrySection({ id, title, label, limit, onAdd, children }: {
   }
 
   return (
-    <section className="jarvis-tool-section" aria-labelledby={id}>
-      <h2 id={id}>{title}</h2>
+    <section className="jarvis-tool-section" data-tool-section={section} aria-labelledby={hideHeading ? undefined : id}>
+      {!hideHeading && <h2 id={id}>{title}</h2>}
       <ul>{children}</ul>
       <form className="jarvis-entry-form" onSubmit={submit}>
         <input data-tool-focus aria-label={label} placeholder={label} maxLength={limit} value={value}
