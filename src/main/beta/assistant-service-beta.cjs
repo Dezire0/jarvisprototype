@@ -1,3 +1,4 @@
+const { projectGuidance } = require("../code-project-service.cjs");
 const {
   chat,
   buildBasePrompt,
@@ -2456,10 +2457,9 @@ function buildRouteFallback(input) {
 }
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, screen, tts }) {
+  constructor({ automation, browser, credentials, extensions, files, games, memory, obs, screen, tts }) {
     this.automation = automation;
     this.browser = browser;
-    this.codeProjects = codeProjects || null;
     this.credentials = credentials;
     this.extensions = extensions || null;
     this.files = files;
@@ -4697,41 +4697,7 @@ class AssistantService {
   }
 
   async handleCodeProject(input) {
-    if (!this.codeProjects || typeof this.codeProjects.createProject !== "function") {
-      throw new Error("Project generation is not available in this build.");
-    }
-
-    const data = await this.codeProjects.createProject(input);
-    const language = detectReplyLanguage(input);
-    const actions = [this.makeAction("code_project", data.projectName)];
-
-    if (data.openedInVsCode) {
-      actions.push(this.makeAction("open_app", "Visual Studio Code"));
-      this.rememberAppContext("Visual Studio Code");
-    }
-
-    const fallback =
-      language === "ko"
-        ? data.openedInVsCode
-          ? `${data.projectName} 프로젝트를 만들고 VS Code에서 열어뒀어요.`
-          : `${data.projectName} 프로젝트를 만들어뒀어요.`
-        : data.openedInVsCode
-          ? `I created ${data.projectName} and opened it in VS Code.`
-          : `I created ${data.projectName}.`;
-
-    return {
-      reply: await this.polishCommandReply(
-        input,
-        {
-          actions,
-          details: data
-        },
-        fallback
-      ),
-      actions,
-      provider: data.provider || "local",
-      details: data
-    };
+    return projectGuidance(detectReplyLanguage(input));
   }
 
   async handleStreamPrep(input) {
