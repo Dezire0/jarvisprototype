@@ -17,10 +17,7 @@ const {
   summarizeStructuredBrowserToolTarget
 } = require("./browser-agent-runtime.cjs");
 const { loadAssistantConfig } = require("./config-loader.cjs");
-const {
-  fetchWithRuntime: assistantFetchWithRuntime,
-  formatFetchError: assistantFormatFetchError
-} = require("./assistant/errors.cjs");
+const { createManagedCloudChat } = require("./assistant/managed-cloud.cjs");
 const {
   buildModelConnectionReply: buildModelConnectionReplyMessage,
   buildModelFailureReply: buildModelFailureReplyMessage
@@ -37,20 +34,8 @@ const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
 const osAutomation = require("./os-automation.cjs");
 const skillRegistry = require("./skills/skill-registry.cjs");
 const notificationMonitor = require("./notification-monitor.cjs");
-const JARVIS_CLOUD_API_BASE =
-  String(process.env.JARVIS_CLOUD_API_BASE || "").trim() ||
-  "https://jarvis-auth-service.dexproject.workers.dev";
-const ENABLE_CLOUD_AI_FALLBACK =
-  String(process.env.JARVIS_ENABLE_CLOUD_AI_FALLBACK || "").trim() === "1";
+const defaultManagedCloudChat = createManagedCloudChat();
 const TARGET_CONFIG = getTargetConfig();
-
-function formatFetchError(error, url = "") {
-  return assistantFormatFetchError(error, url);
-}
-
-async function fetchWithRuntime(url, options = {}) {
-  return assistantFetchWithRuntime(url, options);
-}
 
 function buildModelConnectionReply(text = "") {
   return buildModelConnectionReplyMessage(text, detectLanguageCode);
@@ -96,6 +81,7 @@ const chat = async (options) => {
     }
     return await officialChat(effectiveOptions);
   } catch (err) {
+    if (options.throwOnFailure) throw err;
     console.error("Conversation model failed:", err.message);
     return buildModelFailureReply(options.userPrompt, err, config || {});
   }
@@ -2851,7 +2837,7 @@ const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
 ]);
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, computerControl, credentials, extensions, files, games, memory, obs, openClaw, readAccountSession, screen, tts, settings, threadId }) {
+  constructor({ automation, browser, codeProjects, computerControl, credentials, extensions, files, games, managedCloudChat = defaultManagedCloudChat, memory, obs, openClaw, readAccountSession, screen, tts, settings, threadId }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
@@ -2867,6 +2853,7 @@ class AssistantService {
     this.tts = tts;
     this.settings = settings;
     this.readAccountSession = readAccountSession;
+    this.managedCloudChat = managedCloudChat;
     this.history = [];
     this.lastActiveApp = "";
     this.lastMemoryFingerprint = "";
@@ -5710,6 +5697,7 @@ class AssistantService {
       url: options.url,
       apiKey: options.apiKey,
       localOnly: options.localOnly,
+      throwOnFailure: options.throwOnFailure,
       history: includeHistory ? this.getRecentHistory() : [],
       userPrompt: finalUserPrompt
     });
@@ -6679,13 +6667,10 @@ class AssistantService {
   }
 
   async handleGeneral(input) {
-    const { user, token } = this.readAccountSession?.() || {};
+    const { user } = this.readAccountSession?.() || {};
 
     const preferredLang = user?.settings?.language || "auto";
     const language = preferredLang === "auto" ? detectReplyLanguage(input) : preferredLang;
-
-    let reply = "";
-    let provider = "jarvis-cloud";
 
     if (looksLikeModelIdentityQuestion(input)) {
       return buildConfiguredModelIdentityResult(
@@ -6737,7 +6722,8 @@ class AssistantService {
         ].join("\n"),
         {
           tier,
-          systemPrompt
+          systemPrompt,
+          throwOnFailure: true
         }
       );
 
@@ -6747,181 +6733,27 @@ class AssistantService {
         provider: modelReply === buildModelConnectionReply(input) ? "model-required" : getTierProviderLabel(tier)
       };
     } catch (error) {
-      console.error("Configured chat model failed:", error.message);
-      if (!ENABLE_CLOUD_AI_FALLBACK) {
-        const fallbackConfig = resolveConfig({
-          tier,
-          provider: undefined
-        });
+      const cloud = await this.tryManagedCloudChat(input, language);
+      if (cloud) return cloud;
 
-        return {
-          reply: buildModelFailureReply(input, error, fallbackConfig),
-          actions: [],
-          provider: "model-error"
-        };
-      }
+      return {
+        reply: buildModelFailureReply(input, error, resolveConfig({ tier })),
+        actions: [],
+        provider: "model-error"
+      };
     }
-
-    const augmentedInput = this.buildAugmentedUserPrompt(input);
-
-    // Build conversation history for context
-    const recentHistory = this.getRecentHistory().slice(-10).map(h => ({
-      role: h.role || "user",
-      content: h.content || h.text || ""
-    }));
-    const messages = [...recentHistory, { role: "user", content: augmentedInput }];
-
-    try {
-
-      if (!token || !user) {
-        return {
-          reply: language === "ko"
-            ? "Jarvis를 사용하려면 먼저 로그인이 필요합니다. 앱 상단의 프로필 버튼에서 로그인해 주세요."
-            : "Please log in to use Jarvis. Click the profile button in the sidebar to sign in.",
-          actions: [],
-          provider: "system"
-        };
-      }
-
-      const plan = user.plan;
-      const userGeminiKey = user.settings?.geminiKey || "";
-
-      if (!plan) {
-        return {
-          reply: language === "ko"
-            ? "플랜 설정이 완료되지 않았습니다. 앱을 다시 시작하여 플랜을 선택해 주세요."
-            : "Setup is not complete. Please restart the app and select a plan.",
-          actions: [],
-          provider: "system"
-        };
-      }
-
-      if (plan === "free" && !userGeminiKey) {
-        return {
-          reply: language === "ko"
-            ? "무료 플랜을 사용하려면 설정에서 Gemini API 키를 등록해야 합니다. 앱을 다시 시작하여 셋업을 완료해주세요."
-            : "Please enter your Gemini API key in the setup screen to use the free plan. Restart the app to complete setup.",
-          actions: [],
-          provider: "system"
-        };
-      }
-
-      let res;
-      if (plan === "pro") {
-        res = await fetchWithRuntime(`${JARVIS_CLOUD_API_BASE}/api/ai/chat`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ messages, systemPrompt, language })
-        });
-      } else {
-        // Free plan -> Call Google Gemini API directly with user's key to hit Google's rate limits
-        const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-        const MODEL = "gemini-1.5-flash-latest"; // Fixed: Using latest to avoid 404
-        
-        const contents = messages.map(msg => ({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }]
-        }));
-        
-        const systemInstruction = { parts: [{ text: systemPrompt }] };
-
-        res = await fetchWithRuntime(`${GEMINI_API_BASE}/models/${MODEL}:generateContent?key=${userGeminiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents,
-            systemInstruction,
-            generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
-          })
-        });
-      }
-
-      if (!res.ok) {
-        if (res.status === 429) {
-           return {
-             reply: language === "ko"
-               ? "구글 API 무료 호출 한도(Rate Limit)를 모두 사용하셨습니다. 끊김 없는 초고속 AI를 위해 Jarvis Managed AI(Pro 플랜)로 업그레이드 하시는 건 어떨까요? ✨"
-               : "You've reached the Google API free rate limit. Upgrade to Jarvis Managed AI (Pro) for uninterrupted high-speed access! ✨",
-             actions: [this.makeAction("require_pro_subscription", "billing")],
-             provider: "system"
-           };
-        }
-        
-        const errText = await res.text().catch(() => "");
-        throw new Error(`API error: ${res.status} ${errText}`);
-      }
-
-      const data = await res.json();
-      
-      if (plan === "pro") {
-        reply = data.reply || "";
-        provider = `jarvis-cloud-${data.model || "gemini-2.0-flash"}`;
-      } else {
-        reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        provider = "gemini-1.5-flash-direct";
-      }
-
-      // 자율 행동 판단 (Action Detection)
-      if (typeof reply === "string") {
-        const browseMatch = reply.match(/\[ACTION: BROWSE\]\s*(.*)/i);
-        const openMatch = reply.match(/\[ACTION: OPEN_APP\]\s*(.*)/i);
-        const installMatch = reply.match(/\[ACTION: INSTALL_APP\]\s*(.*)/i);
-
-        if (browseMatch) {
-          const query = browseMatch[1].trim();
-          const cleanReply = reply.replace(/\[ACTION: BROWSE\].*/i, "").trim();
-          const browserResult = await this.handleBrowser(query);
-          return {
-            ...browserResult,
-            reply: cleanReply ? `${cleanReply}\n\n${browserResult.reply}` : browserResult.reply,
-            provider: `${provider}-autonomous`
-          };
-        }
-
-        if (installMatch) {
-          const appName = installMatch[1].trim();
-          const cleanReply = reply.replace(/\[ACTION: INSTALL_APP\].*/i, "").trim();
-          // 설치 페이지로 브라우저 이동
-          const installResult = await this.handleBrowser(`${appName} 공식 사이트 다운로드 페이지`);
-          return {
-            ...installResult,
-            reply: cleanReply
-              ? `${cleanReply}\n\n${language === "ko" ? `${appName}의 설치 페이지로 이동했습니다.` : `Navigating to the ${appName} installation page.`}`
-              : (language === "ko" ? `${appName}이(가) 설치되어 있지 않아 설치 페이지를 열었습니다.` : `${appName} is not installed. Opening the download page.`),
-            provider: `${provider}-autonomous`
-          };
-        }
-
-        if (openMatch) {
-          const appName = openMatch[1].trim();
-          const cleanReply = reply.replace(/\[ACTION: OPEN_APP\].*/i, "").trim();
-          const appResult = await this.handleAppOpen(input, { appName });
-          return {
-            ...appResult,
-            reply: cleanReply ? `${cleanReply}\n\n${appResult.reply}` : appResult.reply,
-            provider: `${provider}-autonomous`
-          };
-        }
-      }
-
-    } catch (err) {
-      console.error("Jarvis cloud AI failed:", err.message);
-      reply = language === "ko"
-        ? `[⚠️ 연결 오류]\n\n서버에 연결하지 못했습니다. (${err.message})\n\n인터넷 연결을 확인해 주세요.`
-        : `[⚠️ Connection Error]\n\nCould not reach the server. (${err.message})\n\nPlease check your internet connection.`;
-      provider = "error";
-    }
-
-    return {
-      reply,
-      actions: [],
-      provider
-    };
   }
 
+  async tryManagedCloudChat(input, language) {
+    const token = this.readAccountSession?.()?.token;
+    return this.managedCloudChat({
+      token,
+      input,
+      history: this.getRecentHistory(10),
+      language,
+      memoryMode: this.memoryMode
+    });
+  }
 
   async handleInput(input) {
     const cleanInput = normalizeWhitespace(input);
@@ -6973,6 +6805,9 @@ class AssistantService {
       });
       return result(reply, `${config.provider}:${config.model}`);
     } catch {
+      const cloud = await this.tryManagedCloudChat(input, language);
+      if (cloud) return cloud;
+
       return result(korean
         ? "모델에서 응답을 받지 못했습니다. 모델 설정에서 연결을 확인하세요."
         : "The model did not respond. Check the connection in Model settings.",

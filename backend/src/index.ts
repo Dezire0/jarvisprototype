@@ -1,11 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { SessionBindings } from "./session";
+import type { CloudModelBindings } from "./routes/ai";
 
-type Bindings = SessionBindings & {
-  DB: D1Database;
-  GEMINI_API_KEY: string;
-};
+type Bindings = SessionBindings & CloudModelBindings & { DB: D1Database };
 
 const app = new Hono<{ Bindings: Bindings }>();
 

@@ -905,6 +905,10 @@ function ExecutionReceipt({ args, fallback }: { args: unknown; fallback: React.R
 
 const AssistantMessage: FC = () => {
   const attachmentReview = useAuiState((state) => state.message.metadata.custom?.attachmentReview === true);
+  const provider = useAuiState((state) => state.message.metadata.custom?.provider);
+  const cloudModel = typeof provider === "string" && provider.startsWith("jarvis-cloud-gemini-")
+    ? provider.slice("jarvis-cloud-".length)
+    : "";
   return (
     <MessagePrimitive.Root
       className="aui-assistant-message-root relative mx-auto grid w-full max-w-(--thread-max-width) grid-cols-[auto_1fr] items-start gap-3 py-4"
@@ -937,6 +941,12 @@ const AssistantMessage: FC = () => {
           <MessageError />
           <AssistantResultPrompts />
         </div>
+
+        {(provider === "jarvis-cloud" || cloudModel) && (
+          <p className="mt-2 wrap-break-word text-xs text-muted-foreground">
+            Jarvis Cloud{cloudModel ? ` · ${cloudModel}` : ""}
+          </p>
+        )}
 
         <div className="aui-assistant-message-footer mt-2 flex items-center">
           <BranchPicker />

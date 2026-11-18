@@ -8,6 +8,7 @@
     "check": "tsc --noEmit",
     "test:auth": "node --test tests/auth.test.cjs",
     "test:google": "node --test tests/google-sign-in.test.cjs",
+    "test:cloud": "node --test tests/cloud-chat.test.cjs",
     "generate": "drizzle-kit generate",
     "migrate": "wrangler d1 migrations apply jarvis-d1 --local"
   },
