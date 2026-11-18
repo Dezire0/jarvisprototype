@@ -54,7 +54,7 @@ npm run open:app -- "release/mac-arm64/Jarvis Desktop.app" --jarvis-profile=revi
 
 The profile uses its own application data directory under `~/Library/Application Support/Jarvis Desktop Profiles`. It uses separate saved sign-in and browser data, and does not register the default OAuth protocol, system shortcuts or the updater. This profile still runs on your Mac and uses its permissions for actions you choose. Use the regular launch for default profile sign-in integrations and update checks.
 
-Choose **Local tools** from the first screen to try the built-in timer, tasks and notes. The app opens without checking Accessibility at launch. To grant the OS permission for computer control, use **Help → Accessibility Settings…**. The app's own computer-control consent appears before the signed-in chat.
+Choose **Local tools** from the first screen to try the built-in timer, tasks and notes. The app opens without checking Accessibility at launch. After signing in, **Computer control** in the workspace toolbar shows whether Jarvis may start native actions. It starts off for a new desktop profile. To review the separate macOS permission, use **Help → Accessibility Settings…**.
 
 Important update rule:
 

@@ -133,6 +133,39 @@ test("the same thread ID gets separate Assistants for each account and memory mo
   ]);
 });
 
+test("changing computer control drops prior action continuations even for the same conversation", async (t) => {
+  const token = createDesktopSessionToken();
+  const computerControl = { enabled: true, revision: 0 };
+  const server = createAssistantTransportServer({
+    port: 0,
+    sessionToken: token,
+    computerControl,
+    createAssistantForThread() {
+      let turns = 0;
+      return { async handleInput() { return { reply: "Turn " + ++turns }; } };
+    },
+  });
+  await server.start();
+  t.after(() => server.stop());
+
+  async function send() {
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [SESSION_HEADER]: token },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 200);
+    return response.text();
+  }
+
+  assert.match(await send(), /Turn 1/);
+  assert.match(await send(), /Turn 2/);
+  Object.assign(computerControl, { enabled: false, revision: 1 });
+  assert.match(await send(), /Turn 1/);
+  Object.assign(computerControl, { enabled: true, revision: 2 });
+  assert.match(await send(), /Turn 1/);
+});
+
 test("only the current desktop main frame is assigned the synthetic session header", () => {
   let onRequest;
   const origin = "http://127.0.0.1:3310";

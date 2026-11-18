@@ -2,6 +2,7 @@ const { loadProjectEnv } = require("./project-env.cjs");
 loadProjectEnv();
 
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const fs = require("node:fs/promises");
 const electronBinary = require("electron");
 const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safeStorage, shell, protocol } = electronBinary;
@@ -28,6 +29,7 @@ const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
 const { BrowserService } = require("./browser-service.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
+const { ComputerControl, COMPUTER_CONTROL_OFF, isTrustedDesktopFrame, requiresComputerControl } = require("./computer-control.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
 const { createDesktopSessionToken, attachDesktopChatHeader } = require("./desktop-session.cjs");
 const { DesktopUiServer } = require("./desktop-ui-server.cjs");
@@ -59,6 +61,7 @@ let popupWindow;
 let settingsWindow;
 let services;
 let assistant;
+let assistantControlRevision;
 let assistantTransportServer;
 let desktopUiServer;
 const desktopSessionToken = createDesktopSessionToken();
@@ -71,6 +74,23 @@ const POPUP_ENABLED = String(process.env.JARVIS_POPUP_ENABLED || "0").trim() ===
 const DESKTOP_UI_MODE = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").trim().toLowerCase() === "next"
   ? "next"
   : "local";
+const computerControl = new ComputerControl(app.getPath("userData"));
+const legacySettingsUrl = pathToFileURL(path.join(__dirname, "../renderer/index.html")).href;
+const popupUrl = pathToFileURL(path.join(__dirname, "../renderer/popup.html")).href;
+
+function isDesktopWindow(event) {
+  return isTrustedDesktopFrame(event, settingsWindow, getDesktopUiUrl(), legacySettingsUrl);
+}
+
+function requireAssistantWindow(event) {
+  if (!isDesktopWindow(event) && !isTrustedDesktopFrame(event, popupWindow, "", popupUrl)) {
+    throw new Error("This action requires the Jarvis desktop window.");
+  }
+}
+
+function requireComputerControl() {
+  if (!computerControl.enabled) throw new Error(COMPUTER_CONTROL_OFF);
+}
 
 function broadcastToWindows(channel, payload) {
   [popupWindow, settingsWindow].forEach((windowRef) => {
@@ -130,8 +150,12 @@ function deliverAuthCallback(payload) {
 }
 
 function ensureReadyServices() {
-  if (!assistant || !services) {
+  if (!services) {
     throw new Error("Assistant services are not ready yet.");
+  }
+  if (!assistant || assistantControlRevision !== computerControl.revision) {
+    assistant = new AssistantService({ ...services, computerControl, threadId: "default-thread" });
+    assistantControlRevision = computerControl.revision;
   }
 
   return {
@@ -255,26 +279,10 @@ async function createServices() {
     tts
   };
 
-  assistant = new AssistantService({
-    automation,
-    browser,
-    codeProjects,
-    credentials,
-    extensions,
-    files,
-    games,
-    memory,
-    obs,
-    openClaw,
-    screen: screenService,
-    tts,
-    settings,
-    threadId: "default-thread"
-  });
-
   assistantTransportServer = createAssistantTransportServer({
     port: Number(process.env.JARVIS_ASSISTANT_PORT || 8010),
     sessionToken: desktopSessionToken,
+    computerControl,
     onAuthCallback(payload) {
       deliverAuthCallback(payload);
     },
@@ -282,6 +290,7 @@ async function createServices() {
       const accountMemory = await resolveAccountMemory(context);
       return new AssistantService({
         automation,
+        computerControl,
         browser,
         codeProjects,
         credentials,
@@ -1015,8 +1024,8 @@ async function dispatchTool(tool, payload = {}) {
     }
     case "system:open-external": {
       const url = String(payload.url || payload.target || "").trim();
-      if (!url) {
-        return { ok: false, tool, message: "No URL provided." };
+      if (!URL.canParse(url) || !["https:", "http:"].includes(new URL(url).protocol)) {
+        return { ok: false, tool, message: "A web link is required." };
       }
       await shell.openExternal(url);
       return { ok: true, tool };
@@ -1113,10 +1122,12 @@ async function dispatchTool(tool, payload = {}) {
 
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const allow = ["audioCapture", "media", "display-capture"].includes(permission);
+    const allow = ["audioCapture", "media"].includes(permission) ||
+      (permission === "display-capture" && computerControl.enabled);
     callback(allow);
   });
 
+  await computerControl.load();
   await createServices();
 
   await ensureDesktopUiServer();
@@ -1169,7 +1180,11 @@ app.on("will-quit", () => {
   }
 });
 
-ipcMain.handle("assistant:submit-command", async (_event, input) => {
+ipcMain.handle("assistant:submit-command", async (event, input) => {
+  requireAssistantWindow(event);
+  if (event.senderFrame.url !== legacySettingsUrl && event.senderFrame.url !== popupUrl) {
+    throw new Error("Use the workspace conversation to send a message.");
+  }
   return ensureReadyServices().assistant.handleInput(input);
 });
 
@@ -1295,8 +1310,23 @@ ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
   return { success: true };
 });
 
-ipcMain.handle("assistant:invoke-tool", async (_event, request) => {
+ipcMain.handle("assistant:invoke-tool", async (event, request) => {
+  requireAssistantWindow(event);
+  if (requiresComputerControl(request.tool)) requireComputerControl();
   return dispatchTool(request.tool, request.payload);
+});
+
+ipcMain.handle("assistant:get-computer-control", (event) => {
+  if (!isDesktopWindow(event)) throw new Error("Open the Jarvis desktop settings to check computer control.");
+  return computerControl.enabled;
+});
+
+ipcMain.handle("assistant:set-computer-control", (event, enabled) => {
+  if (!isDesktopWindow(event) ||
+      (event.senderFrame.url !== legacySettingsUrl && new URL(event.senderFrame.url).pathname !== "/")) {
+    throw new Error("Open the Jarvis desktop settings to change computer control.");
+  }
+  return computerControl.setEnabled(enabled);
 });
 
 ipcMain.handle("assistant:get-app-state", async () => {
@@ -1309,7 +1339,9 @@ ipcMain.handle("assistant:get-app-state", async () => {
   };
 });
 
-ipcMain.handle("assistant:get-live-preview", async () => {
+ipcMain.handle("assistant:get-live-preview", async (event) => {
+  requireAssistantWindow(event);
+  requireComputerControl();
   return captureLivePreviewSnapshot();
 });
 
@@ -1329,11 +1361,9 @@ ipcMain.handle("assistant:transcribe-audio", async (_event, payload = {}) => {
 ipcMain.handle("assistant:get-bootstrap", async () => {
   const { services: liveServices } = ensureReadyServices();
   const sttStatus = liveServices.stt.getStatus();
-  const appCatalog = await liveServices.automation.listInstalledApps({
+  const appCatalog = computerControl.enabled ? await liveServices.automation.listInstalledApps({
     limit: 1
-  }).catch(() => ({
-    totalCount: 0
-  }));
+  }).catch(() => null) : null;
 
   return {
     shortcut: isolatedProfile ? "" : POPUP_ENABLED
@@ -1341,7 +1371,7 @@ ipcMain.handle("assistant:get-bootstrap", async () => {
       : "Cmd/Ctrl + Shift + Space · Jarvis 앱 열기 / Cmd/Ctrl + , · Jarvis 앱 / F4 · 자비스 음성 음소거",
     capabilities: {
       ...liveServices.automation.getCapabilities(),
-      appCatalogCount: appCatalog.totalCount || 0,
+      appCatalogCount: appCatalog?.totalCount || 0,
       screenOcr: "tesseract-cli",
       browserAutomation: liveServices.browser.getProviderLabel(),
       obsControl: "obs-websocket-js",

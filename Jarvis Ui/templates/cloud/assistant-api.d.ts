@@ -5,6 +5,8 @@ declare global {
     assistantAPI?: {
       getBootstrap: () => Promise<unknown>;
       getAppState: () => Promise<unknown>;
+      getComputerControl?: () => Promise<boolean>;
+      setComputerControl?: (enabled: boolean) => Promise<boolean>;
       getLivePreview: () => Promise<{
         ok?: boolean;
         source?: string;

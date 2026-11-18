@@ -8,6 +8,7 @@ import {
 import { ThreadListSidebar } from "@/components/assistant-ui/threadlist-sidebar";
 import { JarvisExtensionsProvider } from "@/components/jarvis/extensions-provider";
 import { JarvisVoiceProvider } from "@/components/jarvis/voice-provider";
+import { ComputerControlSettings } from "@/components/jarvis/computer-control-settings";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { LocalTools, speakLocalResult, type ToolSection } from "@/components/jarvis/local-tools";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -22,6 +23,7 @@ export const Assistant = () => <JarvisRuntimeProvider><AssistantWorkspace /></Ja
 
 function AssistantWorkspace() {
   const [tools, setTools] = useState<{ section?: ToolSection } | null>(null);
+  const [computerControl, setComputerControl] = useState<boolean | null>(null);
   const [localResult, setLocalResult] = useState<Result | null>(null);
   const toolsTrigger = useRef<HTMLElement | null>(null);
   const localRun = useRef(0);
@@ -80,7 +82,7 @@ function AssistantWorkspace() {
       <SidebarProvider defaultOpen={false}>
         <JarvisVoiceProvider runLocalCommand={runComposerCommand}>
           <div className="aui-app-shell flex h-dvh w-full bg-background text-foreground">
-            <ThreadListSidebar />
+            <ThreadListSidebar computerControlEnabled={computerControl === true} />
             <main className="aui-app-main relative flex min-w-0 flex-1 flex-col">
               <header className="jarvis-toolbar">
                 <div className="flex min-w-0 items-center gap-2">
@@ -88,6 +90,7 @@ function AssistantWorkspace() {
                   <span className="truncate font-semibold">Jarvis</span>
                 </div>
                 <div className="flex items-center gap-1">
+                  <ComputerControlSettings enabled={computerControl} onChange={setComputerControl} />
                   <button type="button" className="jarvis-toolbar-link" aria-haspopup="dialog"
                     onClick={(event) => openTools(undefined, event.currentTarget)}>
                     <WrenchIcon size={16} aria-hidden="true" />
