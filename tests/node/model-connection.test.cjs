@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { createServer } = require("node:http");
 const { setExternalLlmSettingsProvider, listInstalledModels } = require("../../src/main/ollama-service.cjs");
-const { testSavedModelConnection } = require("../../src/main/model-connection.cjs");
+const { getSavedModelAvailability, testSavedModelConnection } = require("../../src/main/model-connection.cjs");
 
 test("connection check sends one short request to the saved model and requires usable text", async (t) => {
   const requests = [];
@@ -69,4 +69,38 @@ test("saved keyless compatible endpoint can be tested without transmitting any c
   const baseUrl = "http://127.0.0.1:" + server.address().port;
   setExternalLlmSettingsProvider(() => ({ provider: "openai-compatible", openai: { model: "local-chat", baseUrl } }));
   assert.equal((await testSavedModelConnection()).status, "responded");
+});
+
+
+test("passive model setup reflects both tiers and computer control without network access", (t) => {
+  const variables = [
+    "JARVIS_FAST_LLM_PROVIDER", "JARVIS_COMPLEX_LLM_PROVIDER",
+    "OPENAI_API_KEY", "OPENAI_BASE_URL", "JARVIS_COMPLEX_LLM_URL", "JARVIS_COMPLEX_LLM_API_KEY",
+    "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY",
+  ];
+  const previous = new Map(variables.map((key) => [key, process.env[key]]));
+  t.after(() => {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    setExternalLlmSettingsProvider(null);
+  });
+  for (const key of variables) delete process.env[key];
+  const fetch = t.mock.method(globalThis, "fetch", () => assert.fail("Passive setup must not send a request"));
+
+  assert.equal(getSavedModelAvailability(false), "missing");
+  process.env.JARVIS_FAST_LLM_PROVIDER = "ollama";
+  assert.equal(getSavedModelAvailability(false), "partial");
+
+  setExternalLlmSettingsProvider(() => ({ provider: "openai-cli" }));
+  assert.equal(getSavedModelAvailability(false), "computer-control");
+  assert.equal(getSavedModelAvailability(true), "configured");
+
+  setExternalLlmSettingsProvider(() => ({
+    provider: "openai-compatible",
+    openai: { baseUrl: "http://127.0.0.1:8010/v1", model: "fixture" }
+  }));
+  assert.equal(getSavedModelAvailability(false), "configured");
+  assert.equal(fetch.mock.callCount(), 0);
 });

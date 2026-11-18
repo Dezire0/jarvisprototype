@@ -36,7 +36,7 @@ const {
 const { registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs");
 const { registerChatHistoryHandlers } = require("./chat-history-store.cjs");
 const { MemoryStore, createAccountMemoryResolver } = require("./memory-store.cjs");
-const { testSavedModelConnection } = require("./model-connection.cjs");
+const { getSavedModelAvailability, testSavedModelConnection } = require("./model-connection.cjs");
 const { ObsService } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
@@ -1174,7 +1174,8 @@ ipcMain.handle("assistant:get-conversation-model-settings", async (event) => {
   const { services: liveServices } = ensureReadyServices();
 
   return {
-    settings: liveServices.settings.getConversationModelSettingsView()
+    settings: liveServices.settings.getConversationModelSettingsView(),
+    availability: getSavedModelAvailability(computerControl.enabled)
   };
 });
 

@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
-  calculate, emptyWorkspace, formatTimer, parseLocalCommand, readWorkspace,
+  calculate, emptyWorkspace, formatTimer, LOCAL_COMMAND_EXAMPLE, parseLocalCommand, readWorkspace,
   recordActivity, remainingSeconds, resolveComposerCommand, runLocalCommand,
 } = require("../../Jarvis Ui/templates/cloud/lib/local-workspace.ts");
 
@@ -18,6 +18,13 @@ test("starts a timer from Korean natural language and English commands", () => {
   assert.deepEqual(parseLocalCommand("타이머 1시간 2분 30초"), { kind: "timer", seconds: 3750 });
   assert.deepEqual(parseLocalCommand("set a timer for 30 seconds"), { kind: "timer", seconds: 30 });
   assert.deepEqual(parseLocalCommand("focus"), { kind: "timer", seconds: 1500 });
+});
+
+test("every start-screen example resolves to the same local timer", () => {
+  for (const example of Object.values(LOCAL_COMMAND_EXAMPLE)) {
+    assert.deepEqual(resolveComposerCommand(example, false), { kind: "timer", seconds: 180 });
+    assert.equal(resolveComposerCommand(example, true), null);
+  }
 });
 
 test("the composer keeps structured local operations on the device", () => {

@@ -32,6 +32,10 @@ With control off, the conversation uses a directly connected API model or Ollama
 
 ### Model settings
 
+In a new conversation, select the local command example to put it in the composer. Review it and send it to run on the device. Use the local tool buttons to open the timer, tasks or notes directly. An example appears when the draft is empty.
+
+The first conversation screen offers **Model settings** when the desktop requires model setup. This checks saved settings without sending a test request. Model errors also link to the same dialog.
+
 Open **Model settings** in the sidebar to choose the provider and model. Save before testing. **Test connection** sends a short prompt to the saved direct API or Ollama model and reports whether it replied. A hosted provider may count the test toward its usage. Jarvis performs no test when you open settings. The result applies to that request and model.
 
 Ollama accepts a server address such as `http://127.0.0.1:11434` and lists installed models on request. OpenAI-compatible servers that accept unauthenticated requests can use a custom address without a key. Leave a password field blank to retain its key. When you change the OpenAI-compatible server origin, supply its own key or leave the field blank to clear the old key. **Groq voice input** is configured separately when another provider handles chat. CLI-backed models depend on the user's CLI login and computer-control setting.

@@ -24,7 +24,6 @@ import { cn } from "@/lib/utils";
 import { useChatHistory } from "@/app/jarvis-runtime-provider";
 import type { SidebarHistory } from "@/lib/chat-history";
 import { isWorkspaceLanguage, useWorkspaceLocale, WORKSPACE_LANGUAGES, type WorkspaceLanguage } from "@/lib/workspace-language";
-import { ModelSettings } from "@/components/jarvis/model-settings";
 import { LoginModal } from "@/components/jarvis/login-modal";
 import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 import {
@@ -36,6 +35,7 @@ import {
   EditIcon,
   HistoryIcon,
   SearchIcon,
+  Settings2Icon,
   MoreHorizontalIcon,
   FolderPlusIcon,
   FolderIcon,
@@ -111,8 +111,12 @@ function scoreSearch(query: string, haystack: string, title: string) {
 
 export function ThreadListSidebar({
   computerControlEnabled,
+  onOpenModelSettings,
   ...props
-}: React.ComponentProps<typeof Sidebar> & { computerControlEnabled: boolean }) {
+}: React.ComponentProps<typeof Sidebar> & {
+  computerControlEnabled: boolean;
+  onOpenModelSettings?: (trigger: HTMLButtonElement) => void;
+}) {
   const aui = useAui();
   const { isMobile, setOpenMobile } = useSidebar();
   const threadsState = useAuiState((state) => state.threads);
@@ -726,7 +730,13 @@ export function ThreadListSidebar({
         className="jarvis-sidebar bg-sidebar text-sidebar-foreground [--sidebar-width:16rem]"
       >
         <SidebarHeader className="border-none px-3 pt-3 pb-0">
-          <ModelSettings />
+          {onOpenModelSettings && (
+            <button type="button" className="jarvis-sidebar-control" aria-haspopup="dialog"
+              onClick={(event) => onOpenModelSettings(event.currentTarget)}>
+              <Settings2Icon className="size-4 shrink-0" aria-hidden="true" />
+              <span>{t("모델 설정", "Model settings")}</span>
+            </button>
+          )}
 
           <div className="flex flex-col gap-0.5">
             <Button

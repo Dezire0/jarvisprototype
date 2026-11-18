@@ -254,7 +254,7 @@
 .jarvis-secondary-button:disabled { opacity: .45; }
 
 .jarvis-thread-viewport { padding: .75rem clamp(1rem, 5vw, 3rem) 0; }
-.jarvis-thread-viewport[data-empty="true"] { padding-top: clamp(1.5rem, 13dvh, 7rem); }
+.jarvis-thread-viewport[data-empty="true"] { padding-top: clamp(1.5rem, 10dvh, 6rem); }
 .jarvis-start h1,
 .jarvis-local h1 {
   font-size: clamp(1.8rem, 3.5vw, 2.35rem);
@@ -283,6 +283,37 @@
   flex-wrap: wrap;
   gap: .5rem;
   margin-top: .75rem;
+}
+
+.jarvis-start-link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .25rem .5rem;
+  min-height: 2.75rem;
+  border-radius: .375rem;
+  font-size: .875rem;
+  text-align: start;
+}
+.jarvis-start-example { padding-inline: .375rem; }
+.jarvis-start-link-text {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+.jarvis-start-link:hover .jarvis-start-link-text,
+.jarvis-start-link.jarvis-start-link-text:hover { color: var(--jarvis-focus); }
+.jarvis-start-link:focus-visible {
+  outline: 2px solid var(--jarvis-focus);
+  outline-offset: 2px;
+}
+.jarvis-start-model {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 .65rem;
+  margin-top: .25rem;
+  font-size: .875rem;
 }
 
 .jarvis-composer-destination {
