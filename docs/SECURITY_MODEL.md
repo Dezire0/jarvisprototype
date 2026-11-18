@@ -36,6 +36,8 @@ The workspace’s screen review opens without capturing. **Read text** starts th
 
 The desktop web page review reads an already-open HTTP(S) document in the Jarvis browser. The desktop checks the active window, account and computer control across the read. The renderer receives bounded plain text, a title and an origin. The panel keeps this content in memory. Attaching and sending the reviewed text use the existing attachment flow.
 
+The Games panel reads launcher records locally and shows game names. It sends a name to the selected store when the user requests a lookup. Steam installation handoffs require an app ID selected from the current search in the same desktop permission revision. Store and launcher targets are constructed in the main process. Conversation routes guide users to the panel.
+
 Coding project drafts contain bounded plain-text files and stay in the current desktop revision. The model receives only the project description and optional name entered for that draft. The main process keeps the reviewed copy and accepts it by ID for saving. Save requires a native folder choice and rechecks the active account and computer control. Portable relative paths, exclusive directory and file creation, and path conflict checks keep existing files outside the write. Opening the created folder or editor is a separate action.
 
 OBS broadcast transitions require a trusted desktop window and a native confirmation. The desktop rechecks the account, computer-control revision, OBS connection, scene and output state before requesting the transition. Conversation routes direct users to the panel. Connection passwords are used for the live OBS handshake and are kept outside the conversation and configuration.

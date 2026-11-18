@@ -110,6 +110,14 @@ With Computer control enabled, open **Local tools → OBS** or enter `OBS status
 
 **Start broadcast** and **Stop broadcast** open a system confirmation with the server and current scene. If OBS or the desktop permission changes during confirmation, review the current state before trying again. The panel displays the reported state after the request and can refresh if OBS is still starting or stopping. Direct OBS controls keep credentials and requests in the desktop app. The legacy controls use the same approval.
 
+### Finding and managing games
+
+Open **Local tools → Games** or enter `installed games` or `설치된 게임`. With Computer control enabled, Jarvis checks Steam and Epic launcher records on the device. The list includes records whose installation directory exists. It shows whether a library is missing, partly readable, or unsupported. Use **Refresh** after changes to the launcher library.
+
+In **Find a game**, choose Steam or Epic. Commands such as `find game Portal` and `에픽에서 찾기 게임 이름` fill the search field without making a request. **Search Steam** sends the entered name to Steam's US English store index. Select a result before choosing **Send install request to Steam**. The store buttons open a search in the default browser. **Steam Downloads** opens the client download manager. **Open Epic Launcher** hands off to the launcher, where its Library manages installs and updates. Jarvis reports the handoff and leaves install and update progress to the launcher. [Steam downloads and updates](https://help.steampowered.com/en/faqs/view/71ab-698d-57eb-178c) · [Epic launcher Library](https://www.epicgames.com/help/c-32735058/c-Trending_0/managing-the-library-in-the-epic-games-launcher-a14280729)
+
+The desktop `games:list` tool returns the scan, `games:search` returns Steam choices with a revision, and `games:install` accepts an ID from that search. `games:update` hands off to the chosen launcher and `games:store` opens the selected store's search. All require Computer control in the trusted desktop window.
+
 ### Creating a coding project
 
 In Jarvis Desktop, enable Computer control and open **Local tools → Create coding project**, or enter `create a coding project` or `코딩 프로젝트 만들기`. Choose a built-in web page, task list or grid-game template. You can also choose **Describe to model** and explicitly send the project description and optional name to the configured API model or Ollama. The model prepares a text draft and the review shows which model responded. Template previews are generated on the device.
@@ -147,6 +155,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | Voice recognition, continuous mode and TTS | Voice provider, Electron STT/TTS, Friday | Existing controls retained. Real microphone and provider verification remains open, including [#4](https://github.com/Dezire0/jarvisprototype/issues/4) |
 | OBS connection, status, scenes and broadcast transitions | Desktop OBS panel and Electron OBS WebSocket service | Verified against a loopback protocol fixture. Live OBS and physical confirmation remain to be verified |
 | Coding project templates, model drafts and save review | Desktop project creation and Electron project service | Uses built-in templates or a configured direct model and a native destination picker |
-| Files, OCR, screen briefing, music and game actions | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |
+| Steam and Epic installed games and store handoffs | Desktop Games panel and Electron game service | Local manifest scan and explicit store or launcher handoff |
+| Files, OCR, screen briefing and music actions | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |
 | Registration, Google sign-in and saved model state | Worker, D1, and existing onboarding | Account API work tracked in [#19](https://github.com/Dezire0/jarvisprototype/issues/19) |
 | OpenClaw planner, memory and direct tool dispatch | Desktop Assistant and memory services | Follow-up tracked in [#7–#11](https://github.com/Dezire0/jarvisprototype/issues) |

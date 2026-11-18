@@ -17,6 +17,7 @@ import { formatMemorySources } from "@/lib/chat-memory";
 import { resolveScreenReviewCommand } from "@/lib/screen-review";
 import { resolveBrowserReviewCommand } from "@/lib/browser-review";
 import { resolveFileSaveCommand } from "@/lib/file-save";
+import { resolveGameCommand } from "@/lib/game-command";
 import { isProjectCommand } from "@/lib/project-command";
 import { isObsCommand } from "@/lib/obs-commands";
 import { LOCAL_COMMAND_EXAMPLE, resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
@@ -335,6 +336,7 @@ const Composer: FC<{
     resolveScreenReviewCommand(text, hasAttachmentsOrQuote) ||
     resolveBrowserReviewCommand(text, hasAttachmentsOrQuote) ||
     resolveFileSaveCommand(text, hasAttachmentsOrQuote) ||
+    resolveGameCommand(text, hasAttachmentsOrQuote) ||
     isObsCommand(text, hasAttachmentsOrQuote) || isProjectCommand(text, hasAttachmentsOrQuote);
   const {
     supported,
