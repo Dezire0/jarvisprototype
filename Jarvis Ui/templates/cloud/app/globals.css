@@ -750,16 +750,28 @@
   flex: none;
   accent-color: var(--jarvis-focus);
 }
-.jarvis-receipt {
-  margin-top: .55rem;
-  border-radius: .625rem;
-  border: 1px solid var(--border);
-  background: var(--card);
-  padding: .55rem .7rem;
+.jarvis-execution-record {
+  margin-top: .75rem;
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: .75rem;
   font-size: .875rem;
 }
-.jarvis-receipt-status { color: var(--muted-foreground); }
-.jarvis-receipt-status[data-attention] { color: var(--destructive); }
+
+.jarvis-execution-record-title { font-size: .8125rem; font-weight: 600; }
+
+.jarvis-execution-record li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  align-items: start;
+  column-gap: .75rem;
+  padding-block: .375rem;
+  overflow-wrap: anywhere;
+}
+
+.jarvis-execution-record li + li { border-top: 1px solid var(--border); }
+.jarvis-execution-destination, .jarvis-execution-status { color: var(--muted-foreground); font-size: .8125rem; }
+.jarvis-execution-status { text-align: end; }
+.jarvis-execution-status[data-failed] { color: var(--destructive); }
 
 @media (prefers-reduced-motion: reduce) {
   .jarvis-toolbar-link, .jarvis-icon-button, .jarvis-secondary-button, .jarvis-sidebar-control {

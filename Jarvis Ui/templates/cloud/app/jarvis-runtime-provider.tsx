@@ -3,8 +3,9 @@
 import { createContext, useCallback, useContext, type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { createAssistantStream } from "assistant-stream";
-import type { ReadonlyJSONObject, ReadonlyJSONValue } from "assistant-stream/utils";
+import type { ReadonlyJSONValue } from "assistant-stream/utils";
 import { attachmentPrefix, createChatAttachmentAdapter, readAttachmentLabel, type AttachmentError } from "@/lib/chat-attachments";
+import { executionRecords } from "@/lib/execution-record";
 import {
   AssistantRuntimeProvider,
   type AssistantTransportCommand,
@@ -155,33 +156,11 @@ function toThreadMessages(state: TransportState): ThreadMessage[] {
     const textContent = message.text ? [{ type: "text" as const, text: message.text }] : [];
 
     if (message.role === "assistant") {
-      const content: Extract<ThreadMessage, { role: "assistant" }>["content"][number][] = [...textContent];
-      if (message.actions && Array.isArray(message.actions)) {
-        message.actions.forEach((value, actionIndex) => {
-          if (!value || typeof value !== "object" || Array.isArray(value)) return;
-          const action = value as { tool?: unknown; type?: unknown };
-          const toolName =
-            typeof action?.tool === "string" && action.tool.trim().length > 0
-              ? action.tool.trim()
-              : String(action.type || `tool-${actionIndex}`);
-          const normalizedToolId = toolName
-            .replace(/[^\w.-]+/g, "-")
-            .replace(/^-+|-+$/g, "");
-          content.push({
-            type: "tool-call" as const,
-            toolCallId: `call-${normalizedToolId}-${actionIndex}`,
-            toolName,
-            args: value as ReadonlyJSONObject,
-            argsText: JSON.stringify(action),
-          });
-        });
-      }
-
       return {
         id: message.id,
         role: "assistant" as const,
         createdAt,
-        content,
+        content: textContent,
         status:
           message.status === "running"
             ? { type: "running" as const }
@@ -196,6 +175,7 @@ function toThreadMessages(state: TransportState): ThreadMessage[] {
             details: message.details || null,
             attachmentReview: message.attachmentReview === true,
             memorySources: message.status === "complete" && !message.attachmentReview ? message.memorySources ?? [] : [],
+            executionRecords: message.status !== "running" ? executionRecords(message.actions) : [],
           },
         },
       };

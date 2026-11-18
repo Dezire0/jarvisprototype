@@ -28,6 +28,20 @@ test("computer control off bypasses the planner, action continuations, and exten
   assert.equal(assistant.getRecentHistory().length, 2);
 });
 
+test("structured browser results report the operation name for the execution record", async () => {
+  const assistant = new AssistantService({});
+  const url = "https://docs.example.invalid/manual";
+  const operation = { tool: "browser.open", input: { url } };
+  assistant.openClawRuntime = {
+    async executeStructuredAction(action) {
+      assert.deepEqual(action, operation);
+      return { state: { url } };
+    }
+  };
+  const result = await assistant.runOpenClawToolAction(operation, { state: {}, route: { route: "browser" } });
+  assert.deepEqual(result.actions, [{ type: "browser_open", target: url, status: "executed", tool: "browser.open" }]);
+});
+
 test("chooseChatModelTier keeps short casual prompts on the fast tier", () => {
   assert.equal(chooseChatModelTier("오늘 저녁 뭐 먹을까?"), "fast");
   assert.equal(chooseChatModelTier("크롬 열어줘"), "fast");
@@ -744,6 +758,9 @@ test("handleInput opens Chrome and navigates Gmail for mixed Korean open command
       },
       async execute(action) {
         calls.push(action);
+        if (action.type === "open_app") {
+          return { resolvedTarget: "Google Chrome", openPath: "/Applications/Google Chrome.app" };
+        }
         return {
           appName: action.target,
           resolvedTarget: action.target,
@@ -777,6 +794,7 @@ test("handleInput opens Chrome and navigates Gmail for mixed Korean open command
     }
   ]);
   assert.equal(result.provider, "local");
+  assert.deepEqual(result.actions[0], { type: "open_app", target: "Google Chrome", status: "executed", appName: "Google Chrome" });
   assert.match(result.reply, /Google Chrome/);
   assert.match(result.reply, /Gmail/);
 });
