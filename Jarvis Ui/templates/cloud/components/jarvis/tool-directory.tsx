@@ -15,7 +15,7 @@ const names = {
   folder: ["폴더 찾아보기", "Browse files", "directories directory folder 파일 목록 탐색"],
   "file-save": ["파일 저장", "Save file", "write edit text 문서 쓰기"],
   screen: ["화면 읽기", "Read screen", "ocr capture desktop 화면 텍스트"],
-  browser: ["웹 페이지 읽기", "Read web page", "browser summarize page 브라우저 요약"],
+  browser: ["웹 페이지 읽기", "Read web page", "browser summarize page address url 브라우저 요약 웹 주소"],
   "project-create": ["코딩 프로젝트 만들기", "Create coding project", "scaffold template 개발 템플릿"],
   apps: ["앱", "Apps", "applications installed launch 프로그램 실행 설치"],
   spotify: ["Spotify", "Spotify", "music player audio 스포티파이 재생 음악"],

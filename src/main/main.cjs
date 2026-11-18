@@ -1414,6 +1414,7 @@ ipcMain.handle("assistant:save-gemini-key", async (_event, payload) => {
   return { success: true };
 });
 
+let addressReviewPending = false;
 ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   requireAssistantWindow(event);
   if (requiresComputerControl(request.tool)) requireComputerControl();
@@ -1424,6 +1425,29 @@ ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   if (PROJECT_TOOL_NAMES.has(request.tool)) return dispatchProjectTool(event, request);
   if (request.tool === "file:write") {
     return saveLocalFile(ensureReadyServices().services.files, request.payload, bindDesktopApproval(event, "FILE_PERMISSION_CHANGED"));
+  }
+  if (request.tool === "browser:read-address") {
+    requireDesktopAccountFrame(event);
+    const account = accountSession.active;
+    if (!account) return { ok: false, reason: "BROWSER_PERMISSION" };
+    if (addressReviewPending) return { ok: false, reason: "BROWSER_BUSY" };
+    const assertDesktopApproval = bindDesktopApproval(event, "BROWSER_PERMISSION");
+    const assertAllowed = () => {
+      assertDesktopApproval();
+      if (accountSession.active !== account) {
+        throw Object.assign(new Error("The current account changed."), { code: "BROWSER_PERMISSION" });
+      }
+    };
+    addressReviewPending = true;
+    try {
+      const result = await ensureReadyServices().services.browser.readAddressForReview(request.payload?.address, assertAllowed);
+      assertAllowed();
+      return result;
+    } catch (error) {
+      return { ok: false, reason: error.code === "BROWSER_PERMISSION" ? error.code : "BROWSER_ADDRESS_FAILED" };
+    } finally {
+      addressReviewPending = false;
+    }
   }
   if (request.tool === "browser:read") {
     const assertAllowed = bindDesktopApproval(event, "BROWSER_PERMISSION");

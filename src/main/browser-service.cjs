@@ -1,4 +1,6 @@
 const betaBrowser = require("./beta/browser-service-beta.cjs");
+const { chromium } = require("playwright");
+const { normalizeReviewAddress } = require("./assistant/browser-review-address.cjs");
 
 const USERNAME_SELECTORS = [
   'input[type="email"]',
@@ -200,8 +202,40 @@ class BrowserService extends betaBrowser.BaseBrowserService {
     };
   }
 
-  async readPageForReview() {
-    const page = this.page;
+  readPageForReview() {
+    return this.readReviewPage(this.page, (page) => page === this.page);
+  }
+
+  async readAddressForReview(address, assertAllowed, launch = (options) => chromium.launch(options)) {
+    const url = normalizeReviewAddress(address);
+    if (!url) return { ok: false, reason: "BROWSER_INVALID_ADDRESS" };
+
+    const launchOptions = { headless: true, chromiumSandbox: true, timeout: 8000 };
+    assertAllowed();
+    let browser;
+    try {
+      browser = await launch(launchOptions).catch(() => {
+        assertAllowed();
+        return launch({ ...launchOptions, channel: "chrome" });
+      });
+    } catch (error) {
+      if (error.code === "BROWSER_PERMISSION") throw error;
+      return { ok: false, reason: "BROWSER_UNAVAILABLE" };
+    }
+    try {
+      assertAllowed();
+      const page = await browser.newPage({ acceptDownloads: false });
+      assertAllowed();
+      const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 12000 });
+      if (!response?.ok()) return { ok: false, reason: "BROWSER_HTTP_ERROR" };
+      assertAllowed();
+      return await this.readReviewPage(page, () => true);
+    } finally {
+      await browser.close().catch(() => {});
+    }
+  }
+
+  async readReviewPage(page, isCurrent) {
     if (!page || page.isClosed() || page.url() === "about:blank") {
       return { ok: false, reason: "BROWSER_NO_PAGE" };
     }
@@ -231,12 +265,12 @@ class BrowserService extends betaBrowser.BaseBrowserService {
         }, 12000, { timeout: 4000 }),
         new Promise((resolve) => { deadline = setTimeout(resolve, 4500, undefined); })
       ]);
-      if (navigated || page !== this.page || page.isClosed()) return { ok: false, reason: "BROWSER_PAGE_CHANGED" };
+      if (navigated || !isCurrent(page) || page.isClosed()) return { ok: false, reason: "BROWSER_PAGE_CHANGED" };
       if (snapshot === null) return { ok: false, reason: "BROWSER_UNSUPPORTED_PAGE" };
       if (!snapshot) return { ok: false, reason: "BROWSER_READ_FAILED" };
       return { ok: true, data: snapshot };
     } catch {
-      return { ok: false, reason: navigated || page !== this.page || page.isClosed()
+      return { ok: false, reason: navigated || !isCurrent(page) || page.isClosed()
         ? "BROWSER_PAGE_CHANGED" : "BROWSER_READ_FAILED" };
     } finally {
       clearTimeout(deadline);
