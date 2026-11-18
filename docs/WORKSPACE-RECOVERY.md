@@ -18,13 +18,15 @@ When the conversation already has text, attachments or a quote, the final voice 
 | Save and read notes | `메모 다음 회의 준비`, `show notes` |
 | Calculate or check the time | `calculate (12 + 4) * 3`, `time`, `date` |
 | Prepare an external link | `open github`, `search for art & science` |
-| Look up weather | `weather`, then choose **Use current location** |
+| Look up weather | `weather` or `날씨`, then search for a city and choose a match |
 | Read command results | `speak on`, `speak off`, or use the speaker button |
 | Inspect support or clear the current result | `help`, `diagnostics`, `clear result` |
 
 **Diagnostics** samples host CPU and memory on demand in Electron. A standalone browser explains that host measurements require the desktop app. **Recent activity** shows up to 35 local workspace changes, including timer, task, and note operations. It stores the operation and time on the device. Clearing the list preserves timers, tasks, and notes.
 
-Timer deadlines, tasks, notes, and spoken-result preferences use the desktop app data directory in Electron and browser storage for the current UI origin when opened in a browser. The stored deadline determines when the timer ends, including on return to Jarvis. In a conversation, **Timer finished** appears below the toolbar and opens that timer. Local tools shows the same status. Each run records one completion, and the spoken-result preference can read it aloud when the workspace is open. Start a new timer or reset the current one to clear its completion. Notifications while Jarvis is closed require a background service. Tasks and notes can be added directly and deleted entries can be restored using **Undo** after deletion. Local commands run in the browser. The weather lookup explicitly asks the user to send a rounded location to Open-Meteo.
+Timer deadlines, tasks, notes, and spoken-result preferences use the desktop app data directory in Electron and browser storage for the current UI origin when opened in a browser. The stored deadline determines when the timer ends, including on return to Jarvis. In a conversation, **Timer finished** appears below the toolbar and opens that timer. Local tools shows the same status. Each run records one completion, and the spoken-result preference can read it aloud when the workspace is open. Start a new timer or reset the current one to clear its completion. Notifications while Jarvis is closed require a background service. Tasks and notes can be added directly and deleted entries can be restored using **Undo** after deletion. Local commands run in the browser.
+
+An exact weather command in the conversation composer opens **Weather** in Local tools. You can also open it from the Local tools page without an account. Opening Weather sends no request. Submitting a city name sends only the search term to [Open-Meteo's Geocoding API](https://open-meteo.com/en/docs/geocoding-api). Selecting a match sends coordinates rounded to two decimal places to the [Weather Forecast API](https://open-meteo.com/en/docs). Browser users can also choose **Use current location** and grant permission. The desktop app uses the city flow without changing Electron location permissions. Weather requests bypass the chat API, and Jarvis does not save searches or results.
 
 ## Desktop and API
 
@@ -92,14 +94,14 @@ Provider references include [Ollama vision](https://docs.ollama.com/capabilities
 
 For a standalone browser preview, run Next on loopback and open `/tools`. Timer, notes, tasks, and calculations remain available in that browser. Live model chat and native operations require the Electron app and configured providers.
 
-Run `npm run check` and `npm run test:node` for syntax and regression checks. For browser checks, install Playwright Chromium and start the bundled UI with `HOSTNAME=127.0.0.1 PORT=3310 node build/desktop-ui/templates/cloud/server.js`. Run `JARVIS_UI_TEST_URL=http://127.0.0.1:3310 node --test tests/ui/cloud-plan.test.cjs tests/ui/voice-draft.test.cjs tests/ui/timer-completion.test.cjs`. These checks use a local account fixture and synthetic recognition and speech output.
+Run `npm run check` and `npm run test:node` for syntax and regression checks. For browser checks, install Playwright Chromium and start the bundled UI with `HOSTNAME=127.0.0.1 PORT=3310 node build/desktop-ui/templates/cloud/server.js`. Run `JARVIS_UI_TEST_URL=http://127.0.0.1:3310 node --test tests/ui/cloud-plan.test.cjs tests/ui/voice-draft.test.cjs tests/ui/timer-completion.test.cjs tests/ui/weather.test.cjs`. These checks use a local account fixture, intercepted weather requests, and synthetic recognition, location, and speech output.
 
 ## Capability inventory
 
 | Existing capability | Owning source | Status |
 | --- | --- | --- |
 | Protocol timer, focus, tasks, notes, local date/time, calculator and links | Local tools workspace and command engine | Implemented for the desktop web UI |
-| Protocol weather, spoken responses and appearance | Local tools and theme controls | Wired. Permission-based weather and real speech output require manual verification |
+| Protocol weather, spoken responses and appearance | Local tools and theme controls | Weather supports city selection in Electron and a browser current-location option. Physical location permissions and real speech output require manual verification |
 | Protocol telemetry, diagnostics and event stream | Local tools and Electron host diagnostics | On-demand host CPU and memory and recent local tool changes are available |
 | Chat, projects, local/cloud history and model settings | Next workspace and Assistant transport | Existing entry points retained. Chat stream, receipt and unavailable-transport flows checked against a local test assistant |
 | File attachments | Composer, local transport, direct model APIs | Selectable PDF text, other text documents and raster images use a bounded model-only review turn |

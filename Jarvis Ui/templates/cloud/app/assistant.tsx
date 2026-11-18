@@ -12,6 +12,7 @@ import { ComputerControlSettings } from "@/components/jarvis/computer-control-se
 import { ModelSettings, MODEL_SETTINGS_SAVED, type ModelAvailability } from "@/components/jarvis/model-settings";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
+import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { speakLocalResult } from "@/lib/local-speech";
@@ -38,6 +39,7 @@ function AssistantWorkspace() {
   const locale = useWorkspaceLocale();
   const isKo = locale.startsWith("ko");
   const toolsLabel = isKo ? "로컬 도구" : "Local tools";
+  const weatherOpen = tools?.section === "weather";
 
   useEffect(() => {
     const read = window.assistantAPI?.getConversationModelSettings;
@@ -69,7 +71,7 @@ function AssistantWorkspace() {
 
   const modelSettingsAction = modelSettingsAvailable ? openModelSettings : undefined;
 
-  function openTools(section: ToolSection | undefined, trigger: HTMLElement) {
+  function openTools(section: ToolSection | undefined, trigger: HTMLElement | null) {
     toolsTrigger.current = trigger;
     setTools({ section });
   }
@@ -78,6 +80,11 @@ function AssistantWorkspace() {
     const command = resolveComposerCommand(text, hasAttachmentsOrQuote);
     if (!command) return "chat";
     const run = ++localRun.current;
+    if (command.kind === "weather") {
+      setLocalResult(null);
+      openTools("weather", inputRef.current);
+      return "local";
+    }
     if (!local.workspaceReady) {
       setLocalResult({
         title: isKo ? "로컬 도구를 불러오는 중입니다." : "Local tools are still loading.",
@@ -175,8 +182,12 @@ function AssistantWorkspace() {
                 else inputRef.current?.focus();
               }}
             >
-              <DialogTitle className="jarvis-tools-dialog-title">{toolsLabel}</DialogTitle>
-              <LocalTools local={local} embedded initialSection={tools?.section} />
+              <DialogTitle className="jarvis-tools-dialog-title">
+                {weatherOpen ? (isKo ? "날씨" : "Weather") : toolsLabel}
+              </DialogTitle>
+              {tools && (tools.section === "weather"
+                ? <WeatherPanel inDialog canUseBrowserLocation={!local.nativeStorage} />
+                : <LocalTools local={local} embedded initialSection={tools.section} />)}
             </DialogContent>
           </Dialog>
         </JarvisVoiceProvider>

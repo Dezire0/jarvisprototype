@@ -7,6 +7,7 @@ import {
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
+import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { speakLocalResult } from "@/lib/local-speech";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { useLocalWorkspace, type LocalWorkspace } from "@/lib/use-local-workspace";
@@ -15,8 +16,8 @@ import {
   type LocalCommand, type Result,
 } from "@/lib/local-workspace";
 
-type Receipt = Result & { offerWeather?: boolean; timerDeadline?: number };
-export type ToolSection = "timer" | "tasks" | "notes";
+type Receipt = Result & { timerDeadline?: number };
+export type ToolSection = "timer" | "tasks" | "notes" | "weather";
 
 export function TimerCompletionNotice({ onOpen }: {
   onOpen?: (trigger: HTMLButtonElement) => void;
@@ -46,14 +47,14 @@ export function StandaloneLocalTools() {
 export function LocalTools({ local, embedded = false, initialSection }: {
   local: LocalWorkspace;
   embedded?: boolean;
-  initialSection?: ToolSection;
+  initialSection?: Exclude<ToolSection, "weather">;
 }) {
   const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
   const [now, setNow] = useState(0);
   const [command, setCommand] = useState("");
   const [lastReceipt, setReceipt] = useState<Receipt | null>(null);
-  const [weatherPending, setWeatherPending] = useState(false);
+  const [weatherOpen, setWeatherOpen] = useState(false);
   const [voiceAvailable, setVoiceAvailable] = useState(false);
   const [undo, setUndo] = useState<(() => void) | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -103,7 +104,6 @@ export function LocalTools({ local, embedded = false, initialSection }: {
 
   function showReceipt(result: Receipt) {
     requestCounter.current++;
-    setWeatherPending(false);
     setReceipt(result);
     setUndo(null);
   }
@@ -139,17 +139,13 @@ export function LocalTools({ local, embedded = false, initialSection }: {
   function execute(action: LocalCommand) {
     if (action.kind === "clear") {
       requestCounter.current++;
-      setWeatherPending(false);
       setReceipt(null);
       setUndo(null);
+      setWeatherOpen(false);
       return;
     }
     if (action.kind === "weather") {
-      showReceipt({
-        title: t("현재 위치의 날씨", "Weather at your location"),
-        detail: t("현재 위치를 Open-Meteo에 보내 날씨를 조회합니다.", "The current location is sent to Open-Meteo to look up the weather."),
-        offerWeather: true,
-      });
+      setWeatherOpen(true);
       return;
     }
 
@@ -190,45 +186,6 @@ export function LocalTools({ local, embedded = false, initialSection }: {
     setCommand("");
   }
 
-  async function lookUpWeather() {
-    const request = ++requestCounter.current;
-    setWeatherPending(true);
-    try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(new Error("Location unavailable"));
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 12000, maximumAge: 300000 });
-      });
-      if (request !== requestCounter.current) return;
-
-      const { latitude, longitude } = position.coords;
-      const url = new URL("https://api.open-meteo.com/v1/forecast");
-      url.search = new URLSearchParams({
-        latitude: latitude.toFixed(2),
-        longitude: longitude.toFixed(2),
-        current: "temperature_2m,relative_humidity_2m,wind_speed_10m",
-      }).toString();
-      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error("Weather unavailable");
-      const { current } = await response.json();
-      if (!Number.isFinite(current?.temperature_2m)) throw new Error("Weather unavailable");
-      if (request === requestCounter.current) {
-        showReceipt({
-          title: t("현재 기온", "Current temperature") + " " + current.temperature_2m + " °C",
-          detail: t("습도", "Humidity") + " " + current.relative_humidity_2m + "% · " + t("바람", "Wind") + " " + current.wind_speed_10m + " km/h",
-        });
-      }
-    } catch {
-      if (request === requestCounter.current) {
-        showReceipt({ title: t("날씨를 불러올 수 없습니다", "Could not read the weather"), failed: true });
-      }
-    } finally {
-      if (request === requestCounter.current) setWeatherPending(false);
-    }
-  }
-
   function toggleTask(id: string) {
     const current = latestWorkspace();
     const task = current.tasks.find((item) => item.id === id);
@@ -243,7 +200,6 @@ export function LocalTools({ local, embedded = false, initialSection }: {
     const entry = current[kind].find((item) => item.id === id);
     if (!entry) return;
     requestCounter.current++;
-    setWeatherPending(false);
 
     if (kind === "tasks") {
       const task = current.tasks.find((item) => item.id === id)!;
@@ -286,10 +242,18 @@ export function LocalTools({ local, embedded = false, initialSection }: {
             <ArrowUpIcon size={18} />
           </button>
         </form>
-        <button type="button" className="jarvis-toolbar-link"
-          onClick={() => execute({ kind: "diagnostics" })}>
-          {t("시스템 진단", "Diagnostics")}
-        </button>
+        <div className="flex flex-wrap gap-1">
+          <button type="button" className="jarvis-toolbar-link"
+            onClick={() => execute({ kind: "diagnostics" })}>
+            {t("시스템 진단", "Diagnostics")}
+          </button>
+          <button type="button" className="jarvis-toolbar-link" aria-expanded={weatherOpen}
+            aria-controls={weatherOpen ? "jarvis-weather-panel" : undefined}
+            onClick={() => setWeatherOpen(!weatherOpen)}>
+            {t("날씨", "Weather")}
+          </button>
+        </div>
+        {weatherOpen && <WeatherPanel canUseBrowserLocation={!nativeStorage} />}
         {receipt && (
           <div className="jarvis-local-result" data-error={receipt.failed || undefined}>
             <div role="status">
@@ -302,11 +266,6 @@ export function LocalTools({ local, embedded = false, initialSection }: {
                   {t("열기", "Open")} <ArrowUpRightIcon size={15} aria-hidden="true" />
                 </a>
               )}
-              {receipt.offerWeather && (
-                <button type="button" className="jarvis-secondary-button" onClick={() => void lookUpWeather()} disabled={weatherPending}>
-                  {weatherPending ? t("조회 중", "Looking up…") : t("현재 위치 사용", "Use current location")}
-                </button>
-              )}
               {undo && (
                 <button type="button" className="jarvis-secondary-button" onClick={() => {
                   undo();
@@ -315,7 +274,7 @@ export function LocalTools({ local, embedded = false, initialSection }: {
                   {t("되돌리기", "Undo")}
                 </button>
               )}
-              {voiceAvailable && !receipt.offerWeather && (
+              {voiceAvailable && (
                 <button type="button" className="jarvis-icon-button" aria-label={t("결과 읽기", "Read result aloud")}
                   onClick={() => speakLocalResult([receipt.title, receipt.detail].filter(Boolean).join(". "), locale)}>
                   <Volume2Icon size={17} />
