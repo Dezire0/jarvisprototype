@@ -60,6 +60,8 @@ The local chat path is the Electron workspace through Next's same-origin `/api/c
 
 **Sign in with Google** opens the system browser and leaves the original Jarvis window in place. Return to that window to continue after Google finishes. You can cancel from Jarvis and retry. Email sign-in and Local tools are available from the same account screen.
 
+The cloud plan screen follows sign-in and keeps **Local tools** in the toolbar. Choose Free or Pro and continue to the workspace. A failed plan save keeps the selected option available for retry. Timer, tasks and notes are available locally while plan setup is pending. Desktop users with a temporary sign-in see when it ends.
+
 The proxy preserves streaming and reports HTTP 503 if the local Assistant is unavailable. Cancelling during context loading prevents dispatch on a closed connection. For actions that have already begun, closing the stream does not undo side effects.
 
 The desktop transport shows one message timeline. Chat supports copying assistant replies and exporting Markdown. If a send fails or a response stops before finishing, select **Restore draft** to put the submitted text back in the composer for review. If you're already editing a draft, clear it first. Select attachments again before submitting a recovered request. Restoration does not send the text, and interrupted turns are excluded from the saved transcript.
@@ -78,7 +80,7 @@ Provider references include [Ollama vision](https://docs.ollama.com/capabilities
 
 For a standalone browser preview, run Next on loopback and open `/tools`. Timer, notes, tasks, and calculations remain available in that browser. Live model chat and native operations require the Electron app and configured providers.
 
-Run `npm run check` and `npm run test:node` for syntax and regression checks.
+Run `npm run check` and `npm run test:node` for syntax and regression checks. For the cloud plan browser check, install Playwright Chromium and start the bundled UI with `HOSTNAME=127.0.0.1 PORT=3310 node build/desktop-ui/templates/cloud/server.js`. Then run `JARVIS_UI_TEST_URL=http://127.0.0.1:3310 node --test tests/ui/cloud-plan.test.cjs`. The test uses a local account fixture.
 
 ## Capability inventory
 

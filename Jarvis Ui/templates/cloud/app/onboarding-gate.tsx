@@ -21,16 +21,10 @@ if (typeof document !== "undefined") {
 }
 
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  SparklesIcon,
-  LoaderCircleIcon,
-  ShieldCheckIcon,
-  ArrowRightIcon,
-  CheckIcon,
-} from "lucide-react";
+import { LoaderCircleIcon } from "lucide-react";
 import {
   AUTH_SESSION_CHANGED,
   clearAuthSession,
@@ -75,47 +69,24 @@ export function OnboardingGate() {
   const [selectedPlan, setSelectedPlan] = useState<"free" | "pro">("free");
   const [setupLoading, setSetupLoading] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const planHeading = useRef<HTMLHeadingElement>(null);
 
   const isKo =
     typeof navigator !== "undefined" && navigator.language.startsWith("ko");
   const t = (ko: string, en: string) => (isKo ? ko : en);
-  const selectedPlanLabel = selectedPlan === "free" ? t("무료", "Free") : t("유료", "Paid");
-  const planCards = {
+  const planOptions = {
     free: {
-      title: t("무료", "Free"),
-      price: "$0",
-      summary: t(
-        "0달러로 시작하지만 하루 사용량 한도가 있는 플랜입니다.",
-        "Start at $0 with a daily usage limit."
-      ),
-      details: t(
-        "가볍게 시작하기 좋은 플랜이에요. 기본 모델과 정해진 무료 한도로 대화를 이어갈 수 있습니다.",
-        "A good starting plan with the standard model and a fixed free usage allowance."
-      ),
-      features: [
-        t("하루 15회 메시지", "15 messages per day"),
-        t("기본 모델 사용", "Standard model access"),
-        t("가벼운 질문과 짧은 작업에 적합", "Best for lighter chats and short tasks"),
-      ],
+      name: t("무료", "Free"),
+      limit: t("하루 메시지 15회", "15 messages per day"),
+      submit: t("무료 플랜으로 시작", "Continue with Free"),
     },
     pro: {
-      title: t("유료", "Paid"),
-      price: "$1",
-      summary: t(
-        "거의 제한 없이 더 넉넉한 사용량과 더 강한 모델을 쓰는 플랜입니다.",
-        "Use roomier limits and a stronger model for $1."
-      ),
-      details: t(
-        "긴 대화나 반복 사용이 많다면 유료 플랜이 더 안정적이에요. 더 빠른 응답과 더 넓은 작업량을 기대할 수 있습니다.",
-        "Paid is better for longer chats and heavier usage, with faster responses and more room to work."
-      ),
-      features: [
-        t("훨씬 넉넉한 사용량", "Much roomier usage"),
-        t("더 빠르고 강한 모델", "Faster and stronger model"),
-        t("긴 작업과 멀티턴 대화에 유리", "Better for long tasks and multi-turn chats"),
-      ],
+      name: "Pro",
+      limit: t("하루 토큰 20만 개", "200,000 tokens per day"),
+      submit: t("Pro 플랜으로 시작", "Continue with Pro"),
     },
   } as const;
+
   function syncSelectedPlan(user?: Partial<AuthUser> | null) {
     setSelectedPlan(selectInitialPlan(user || {}));
   }
@@ -140,7 +111,9 @@ export function OnboardingGate() {
     await saveNewSession(token, nextUser);
   }
 
-  const currentPlan = planCards[selectedPlan];
+  useEffect(() => {
+    if (step === "setup") planHeading.current?.focus();
+  }, [step]);
 
   // Check session on mount. Version tracking is intentionally non-destructive:
   // users should not be logged out just because the desktop/web build updated.
@@ -195,7 +168,7 @@ export function OnboardingGate() {
     })();
   }, []);
 
-  async function handleAuth(e: React.FormEvent) {
+  async function handleAuth(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (googleBusy) return;
     setAuthLoading(true);
@@ -253,7 +226,9 @@ export function OnboardingGate() {
     }
   }
 
-  async function handleSetup() {
+  async function handleSetup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (setupLoading) return;
     setSetupLoading(true);
     setSetupError(null);
     try {
@@ -310,18 +285,17 @@ export function OnboardingGate() {
     return <Assistant />;
   }
 
-  // ─── Step 1: Auth (Login/Register) ───
-  if (step === "auth") {
-    return (
-      <div className="jarvis-auth-shell">
-        <header className="jarvis-toolbar">
-          <span className="font-semibold">Jarvis</span>
-          <div className="flex items-center gap-1">
-            <LocalToolsLink />
-            <ThemeToggle />
-          </div>
-        </header>
-        <div className="jarvis-auth-panel">
+  return (
+    <div className="jarvis-auth-shell">
+      <header className="jarvis-toolbar">
+        <span className="font-semibold">Jarvis</span>
+        <div className="flex items-center gap-1">
+          <LocalToolsLink />
+          <ThemeToggle />
+        </div>
+      </header>
+      {step === "auth" ? (
+        <main className="jarvis-auth-panel">
           <h1 className="mb-5">{mode === "login" ? t("로그인", "Sign in") : t("회원가입", "Create account")}</h1>
           <form onSubmit={handleAuth} className="flex flex-col gap-3">
             {mode === "register" && (
@@ -356,130 +330,66 @@ export function OnboardingGate() {
               </p>
             )}
             <Button disabled={authLoading || googleBusy} className="jarvis-send h-11 font-medium active:scale-[.98]">{authLoading ? <LoaderCircleIcon className="animate-spin" /> : t("이메일로 계속하기", "Continue with Email")}</Button>
-            
+
             <GoogleSignIn disabled={authLoading} onBusyChange={setGoogleBusy} onSession={acceptGoogleSession} />
           </form>
           <button disabled={googleBusy} onClick={() => setMode(mode === "login" ? "register" : "login")} className="mt-4 min-h-10 w-full rounded-md text-sm text-muted-foreground underline underline-offset-4">{mode === "login" ? t("계정이 없으신가요? 회원가입", "No account? Register") : t("이미 계정이 있나요? 로그인", "Already have account? Login")}</button>
-        </div>
-      </div>
-    );
-  }
-
-  // ─── Step 2: Setup (Plan Selection) ───
-  return (
-    <div className="flex min-h-dvh w-full items-center justify-center bg-background py-12 text-foreground">
-      <div className="w-full max-w-5xl px-6">
-        <div className="mb-12 text-center">
-          <h2 className="mt-4 text-4xl font-bold tracking-tight">
-            {t("플랜을 선택하고 시작하세요", "Choose your plan and continue")}
-          </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
+        </main>
+      ) : (
+        <main className="jarvis-auth-panel jarvis-plan-panel">
+          <h1 tabIndex={-1} ref={planHeading} className="outline-none">
+            {t("클라우드 플랜 선택", "Choose a cloud plan")}
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
             {t(
-              "로그인만으로는 아직 채팅을 시작할 수 없어요. 먼저 무료 또는 유료 플랜을 선택해야 API가 활성화됩니다.",
-              "Signing in is not enough yet. Pick Free or Paid first so API access can be enabled."
+              "플랜은 Jarvis Cloud 사용량에 적용됩니다. 타이머, 할 일, 메모는 플랜 없이 이 기기에서 쓸 수 있습니다.",
+              "This sets your cloud usage limit. Timer, tasks and notes work on this device without a plan."
             )}
           </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {(["free", "pro"] as const).map((planKey) => {
-            const plan = planCards[planKey];
-            const isActive = selectedPlan === planKey;
-
-            return (
-              <button
-                type="button"
-                key={planKey}
-                onClick={() => setSelectedPlan(planKey)}
-                className={`rounded-2xl border p-6 text-left transition-colors ${
-                  isActive
-                    ? "border-[var(--jarvis-focus)] bg-card"
-                    : "border-border bg-card hover:border-[var(--jarvis-control-border)]"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.3em] text-zinc-500">
-                      {plan.title}
-                    </p>
-                    <h3 className="mt-3 text-4xl font-semibold">{plan.price}</h3>
-                    <p className="mt-4 text-sm leading-6 text-muted-foreground">{plan.summary}</p>
-                  </div>
-                  <div
-                    className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                      isActive
-                        ? "border-white/60 bg-white text-black"
-                        : "border-white/15 text-muted-foreground"
-                    }`}
-                  >
-                    {isActive ? t("선택됨", "Selected") : t("선택", "Select")}
-                  </div>
-                </div>
-
-                <div className="mt-8 flex flex-col gap-4 text-sm text-muted-foreground">
-                  {plan.features.map((feature) => (
-                    <div key={feature} className="flex items-start gap-3">
-                      <CheckIcon className={`mt-0.5 size-4 ${isActive ? "text-white" : "text-zinc-500"}`} />
-                      <span>{feature}</span>
-                    </div>
-                  ))}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-8 rounded-[32px] border border-white/10 bg-white/[0.03] p-8">
-          <div className="flex items-start gap-4">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/10">
-              {selectedPlan === "free" ? (
-                <SparklesIcon className="size-5 text-white" />
-              ) : (
-                <ShieldCheckIcon className="size-5 text-white" />
-              )}
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-white">
-                {t("현재 선택한 플랜", "Selected plan")}: {selectedPlanLabel}
+          <form onSubmit={handleSetup} className="mt-5 flex flex-col gap-4">
+            <fieldset disabled={setupLoading} className="grid min-w-0 gap-2">
+              <legend className="sr-only">{t("클라우드 플랜", "Cloud plan")}</legend>
+              {(["free", "pro"] as const).map((plan) => (
+                <label key={plan} className="jarvis-plan-option">
+                  <input
+                    type="radio"
+                    name="cloud-plan"
+                    value={plan}
+                    checked={selectedPlan === plan}
+                    onChange={() => {
+                      setSelectedPlan(plan);
+                      setSetupError(null);
+                    }}
+                    aria-labelledby={`plan-${plan}-name`}
+                    aria-describedby={`plan-${plan}-limit`}
+                  />
+                  <span>
+                    <span id={`plan-${plan}-name`} className="block text-sm font-semibold">{planOptions[plan].name}</span>
+                    <span id={`plan-${plan}-limit`} className="block text-sm text-muted-foreground">{planOptions[plan].limit}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            {sessionOnly && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {storageWarning
+                  ? t("로그인 정보를 저장하지 못했습니다. 앱을 종료하면 다시 로그인해야 합니다.", "Your session couldn’t be saved. Sign in again after quitting Jarvis.")
+                  : t("앱을 종료할 때까지 로그인 상태가 유지됩니다.", "You’ll stay signed in until you quit Jarvis.")}
               </p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">{currentPlan.details}</p>
-              <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
-                <ArrowRightIcon className="size-4" />
-                <span>
-                  {selectedPlan === "free"
-                    ? t("무료 플랜은 사용량이 정해져 있어요.", "Free comes with a fixed usage allowance.")
-                    : t("유료 플랜은 더 빠른 모델과 넉넉한 사용량을 제공합니다.", "Paid gives you a faster model and roomier usage.")}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-12 flex flex-col items-center gap-4">
-          {sessionOnly && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {storageWarning
-                ? t("로그인 정보를 저장하지 못했습니다. 앱을 종료하면 다시 로그인해야 합니다.", "Your session couldn’t be saved. Sign in again after quitting Jarvis.")
-                : t("앱을 종료할 때까지 로그인 상태가 유지됩니다.", "You’ll stay signed in until you quit Jarvis.")}
-            </p>
-          )}
-          {setupError && <p role="alert" className="jarvis-auth-error">{setupError}</p>}
-          <Button
-            disabled={setupLoading}
-            onClick={handleSetup}
-            className="h-14 w-full max-w-sm rounded-full bg-white text-lg font-bold text-black transition-all hover:scale-105 active:scale-95 disabled:opacity-50 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
-          >
-            {setupLoading ? (
-              <LoaderCircleIcon className="animate-spin" />
-            ) : (
-              t(`${selectedPlanLabel} 플랜으로 시작하기`, `Continue with ${selectedPlanLabel}`)
             )}
-          </Button>
-          <p className="text-xs text-zinc-500">
-            {t("플랜은 나중에 다시 변경할 수 있어요.", "You can change your plan later.")}
-          </p>
-        </div>
-      </div>
+            {setupError && <p id="plan-error" role="alert" className="jarvis-auth-error">{setupError}</p>}
+            <Button
+              type="submit"
+              aria-disabled={setupLoading}
+              aria-describedby={setupError ? "plan-error" : undefined}
+              className="jarvis-send h-11 w-full aria-disabled:opacity-70"
+            >
+              {setupLoading && <LoaderCircleIcon aria-hidden="true" className="motion-safe:animate-spin" />}
+              {setupLoading ? t("저장 중…", "Saving…") : planOptions[selectedPlan].submit}
+            </Button>
+          </form>
+        </main>
+      )}
     </div>
   );
 }
