@@ -35,6 +35,8 @@ env/
 .env
 .env.local
 .env.local.save
+backend/.dev.vars
+backend/.dev.vars.*
 
 # IDE
 .vscode/

@@ -9,6 +9,29 @@ const payload = {
   commands: [{ type: "add-message", message: { role: "user", parts: [{ type: "text", text: "fixture request" }] } }],
 };
 
+test("desktop auth callback responses keep payload data out of errors and caches", async (t) => {
+  const server = createAssistantTransportServer({
+    port: 0,
+    sessionToken: createDesktopSessionToken(),
+    createAssistantForThread: () => ({}),
+  });
+  await server.start();
+  t.after(() => server.stop());
+
+  const callback = new URL("/auth/callback", server.url);
+  callback.searchParams.set("token", "inert-fixture");
+  callback.searchParams.set("user", "invalid-fixture-user");
+  const invalid = await fetch(callback);
+  assert.equal(invalid.status, 400);
+  assert.deepEqual(await invalid.json(), { ok: false, error: "Invalid auth callback payload" });
+  callback.searchParams.set("user", JSON.stringify({ id: "fixture-account" }));
+  const accepted = await fetch(callback);
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.headers.get("cache-control"), "no-store");
+  assert.equal(accepted.headers.get("referrer-policy"), "no-referrer");
+  assert.doesNotMatch(await accepted.text(), /inert-fixture|fixture-account/);
+});
+
 test("assistant validates session and JSON before resolving or invoking a thread", async (t) => {
   const token = createDesktopSessionToken();
   const resolved = [];
