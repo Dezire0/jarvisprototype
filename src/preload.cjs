@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   getLivePreview() {
     return ipcRenderer.invoke("assistant:get-live-preview");
   },
+  getComputerControl() {
+    return ipcRenderer.invoke("assistant:get-computer-control");
+  },
+  setComputerControl(enabled) {
+    return ipcRenderer.invoke("assistant:set-computer-control", enabled);
+  },
   submitCommand(input) {
     return ipcRenderer.invoke("assistant:submit-command", input);
   },

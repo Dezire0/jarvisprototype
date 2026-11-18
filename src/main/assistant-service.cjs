@@ -2851,10 +2851,11 @@ const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
 ]);
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings, threadId }) {
+  constructor({ automation, browser, codeProjects, computerControl, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings, threadId }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
+    this.computerControl = computerControl;
     this.credentials = credentials;
     this.extensions = extensions || null;
     this.files = files;
@@ -6928,7 +6929,12 @@ class AssistantService {
 
 
   async handleInput(input) {
-    return runAssistantTurn(this, normalizeWhitespace(input), {
+    const cleanInput = normalizeWhitespace(input);
+    if (cleanInput && this.computerControl?.enabled === false) {
+      const result = await this.handleModelConversation(cleanInput);
+      return this.finalizeResponse(cleanInput, result, { route: "chat" });
+    }
+    return runAssistantTurn(this, cleanInput, {
       buildConfiguredModelIdentityResult,
       detectReplyLanguage,
       looksLikeAppAction,
@@ -6936,6 +6942,48 @@ class AssistantService {
       looksLikeModelIdentityQuestion,
       promoteFollowUpRoute
     });
+  }
+
+  async handleModelConversation(input) {
+    const language = detectReplyLanguage(input);
+    const korean = language === "ko";
+    if (looksLikeModelIdentityQuestion(input)) {
+      return buildConfiguredModelIdentityResult(input, language, this.settings?.getConversationModelSettingsView?.() || {});
+    }
+
+    const tier = chooseChatModelTier(input, this.getRecentHistory());
+    const config = resolveConfig({ tier });
+    const result = (reply, provider) => ({ reply, actions: [], provider, language });
+    if (!["ollama", "gemini", "openai-compatible", "groq", "anthropic"].includes(config.provider) ||
+        (config.provider !== "ollama" && !config.apiKey) || isUnconfiguredAutoFallback({ tier })) {
+      return result(korean
+        ? "모델 설정에서 직접 연결하는 API 모델이나 Ollama를 선택해 주세요. CLI 모델은 컴퓨터 제어가 켜져 있을 때 사용할 수 있습니다."
+        : "Choose an API model or Ollama in Model settings. CLI models require computer control.",
+      "model-required");
+    }
+
+    try {
+      const reply = await officialChat({
+        ...config,
+        tier,
+        systemPrompt: [
+          "You are Jarvis, a concise and practical conversation assistant.",
+          korean ? "Reply in Korean." : "Reply in English.",
+          "Computer control is off. Answer in text.",
+          "You cannot use tools, browse, open apps, inspect files, or perform computer actions.",
+          "If asked to act on the computer, explain that computer control is off. Never claim to have performed the action."
+        ].join(" "),
+        userPrompt: this.buildAugmentedUserPrompt(input, "", { includeDocumentMemory: false }),
+        history: this.getRecentHistory(),
+        signal: AbortSignal.timeout(90000)
+      });
+      return result(reply, `${config.provider}:${config.model}`);
+    } catch {
+      return result(korean
+        ? "모델에서 응답을 받지 못했습니다. 모델 설정에서 연결을 확인하세요."
+        : "The model did not respond. Check the connection in Model settings.",
+      "model-error");
+    }
   }
 
   async handleAttachmentInput(input, attachments, { signal } = {}) {

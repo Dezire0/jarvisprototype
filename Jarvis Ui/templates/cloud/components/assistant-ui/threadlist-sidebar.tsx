@@ -300,8 +300,9 @@ function scoreSearch(query: string, haystack: string, title: string) {
 }
 
 export function ThreadListSidebar({
+  computerControlEnabled,
   ...props
-}: React.ComponentProps<typeof Sidebar>) {
+}: React.ComponentProps<typeof Sidebar> & { computerControlEnabled: boolean }) {
   const aui = useAui();
   const { isMobile, setOpenMobile } = useSidebar();
   const threadsState = useAuiState((state) => state.threads);
@@ -1530,11 +1531,12 @@ export function ThreadListSidebar({
  
              <Button
                variant="ghost"
+               disabled={!computerControlEnabled}
                onClick={() => void openLauncher()}
                className="flex items-center justify-start gap-3 rounded-lg px-3 py-6 text-foreground hover:bg-zinc-100 dark:hover:bg-[#212121]"
              >
                <MoreHorizontalIcon className="size-4.5 text-foreground/85" />
-               <span className="font-medium text-[15px]">{t("더 보기", "More")}</span>
+               <span className="font-medium text-[15px]">{t("앱 열기", "Open apps")}</span>
              </Button>
           </div>
         </SidebarHeader>
