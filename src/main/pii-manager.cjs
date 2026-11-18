@@ -1,98 +1,90 @@
 const { app, safeStorage } = require("electron");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
 const { PROFILE_SWITCH } = require("./desktop-profile.cjs");
+const { hasSecureStorage, writePrivateJson } = require("./secure-storage.cjs");
 
-const PII_STORE_PATH = app?.commandLine?.hasSwitch(PROFILE_SWITCH)
+const legacyPath = app.commandLine.hasSwitch(PROFILE_SWITCH)
   ? path.join(app.getPath("userData"), "jarvis-pii.json")
   : path.join(os.homedir(), ".jarvis_pii_store.json");
+const encryptedPath = path.join(app.getPath("userData"), "jarvis-pii-encrypted.json");
 
-/**
- * PIIManager securely stores and retrieves Personal Identifiable Information
- * and sensitive credentials using Electron's native safeStorage encryption.
- */
-class PIIManager {
-  constructor() {
-    this.store = this._loadStore();
-  }
-
-  _loadStore() {
-    if (!fs.existsSync(PII_STORE_PATH)) {
-      return {};
-    }
-    try {
-      const data = fs.readFileSync(PII_STORE_PATH, "utf8");
-      return JSON.parse(data);
-    } catch (err) {
-      console.error("Failed to load PII store", err);
-      return {};
-    }
-  }
-
-  _saveStore() {
-    try {
-      fs.writeFileSync(PII_STORE_PATH, JSON.stringify(this.store, null, 2));
-    } catch (err) {
-      console.error("Failed to save PII store", err);
-    }
-  }
-
-  /**
-   * Encrypt and store a value
-   * @param {string} key 
-   * @param {string} value 
-   */
-  set(key, value) {
-    if (!safeStorage.isEncryptionAvailable()) {
-      console.warn("SafeStorage is not available. Storing in plain text (UNSAFE).");
-      this.store[key] = value;
-    } else {
-      const buffer = safeStorage.encryptString(value);
-      this.store[key] = buffer.toString('base64');
-    }
-    this._saveStore();
-  }
-
-  /**
-   * Retrieve and decrypt a value
-   * @param {string} key 
-   * @returns {string|null}
-   */
-  get(key) {
-    const encryptedBase64 = this.store[key];
-    if (!encryptedBase64) return null;
-
-    if (!safeStorage.isEncryptionAvailable()) {
-      return encryptedBase64; // Fallback plain text
-    }
-
-    try {
-      const buffer = Buffer.from(encryptedBase64, 'base64');
-      return safeStorage.decryptString(buffer);
-    } catch (err) {
-      console.error("Failed to decrypt PII for key:", key, err);
-      return null;
-    }
-  }
-
-  /**
-   * Delete a stored value
-   * @param {string} key 
-   */
-  delete(key) {
-    delete this.store[key];
-    this._saveStore();
-  }
-
-  /**
-   * Get all stored keys without revealing values.
-   * Useful for the agent to know what it already has access to.
-   * @returns {string[]}
-   */
-  getAvailableKeys() {
-    return Object.keys(this.store);
+function readStore(filePath) {
+  try {
+    return Object.assign(Object.create(null), JSON.parse(fs.readFileSync(filePath, "utf8")));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw new Error("Could not read the Jarvis credential store.");
+    return Object.create(null);
   }
 }
 
-module.exports = new PIIManager();
+function isSessionKey(key) {
+  return typeof key === "string" && /^auth\./i.test(key);
+}
+
+function validateKey(key) {
+  if (typeof key !== "string" || !key || isSessionKey(key)) {
+    throw new Error("This credential field is unavailable.");
+  }
+}
+
+function decrypt(value) {
+  if (typeof value !== "string" || !value || !hasSecureStorage(safeStorage)) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(value, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+function update(key, val) {
+  const store = readStore(encryptedPath);
+  store[key] = val;
+  try {
+    writePrivateJson(encryptedPath, store);
+  } catch {
+    throw new Error("Could not update the Jarvis credential store.");
+  }
+}
+
+module.exports = {
+  set(key, value) {
+    validateKey(key);
+    if (typeof value !== "string" || !hasSecureStorage(safeStorage)) {
+      throw new Error("OS-protected storage is unavailable for this credential.");
+    }
+    update(key, safeStorage.encryptString(value).toString("base64"));
+  },
+  get(key) {
+    validateKey(key);
+    try {
+      const store = readStore(encryptedPath);
+      return decrypt(Object.hasOwn(store, key) ? store[key] : readStore(legacyPath)[key]);
+    } catch {
+      return null;
+    }
+  },
+  delete(key) {
+    validateKey(key);
+    update(key, null);
+  },
+  getAvailableKeys() {
+    const entries = { ...readStore(legacyPath), ...readStore(encryptedPath) };
+    return Object.keys(entries).filter((key) => entries[key] !== null && !isSessionKey(key));
+  },
+  hasLegacySession() {
+    const legacy = readStore(legacyPath);
+    return Object.hasOwn(legacy, "auth.token") || Object.hasOwn(legacy, "auth.user");
+  },
+  readLegacySession() {
+    try {
+      const legacy = readStore(legacyPath);
+      const token = decrypt(legacy["auth.token"]);
+      const user = JSON.parse(decrypt(legacy["auth.user"]));
+      return token && user ? { token, user } : null;
+    } catch {
+      return null;
+    }
+  }
+};

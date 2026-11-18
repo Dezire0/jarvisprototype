@@ -73,6 +73,15 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   installUpdate() {
     return ipcRenderer.invoke("assistant:install-update");
   },
+  restoreAccountSession(allowLegacy) {
+    return ipcRenderer.invoke("assistant:restore-account-session", allowLegacy);
+  },
+  saveAccountSession(payload) {
+    return ipcRenderer.invoke("assistant:save-account-session", payload);
+  },
+  clearAccountSession() {
+    return ipcRenderer.invoke("assistant:clear-account-session");
+  },
   loadLocalWorkspace() {
     return ipcRenderer.invoke("assistant:load-local-workspace");
   },
