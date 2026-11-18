@@ -64,6 +64,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   saveConversationModelSettings(payload = {}) {
     return ipcRenderer.invoke("assistant:save-conversation-model-settings", payload);
   },
+  testConversationModel() {
+    return ipcRenderer.invoke("assistant:test-conversation-model");
+  },
   checkForUpdates() {
     return ipcRenderer.invoke("assistant:check-for-updates");
   },

@@ -30,6 +30,12 @@ The first screen offers Local tools immediately. After signing in, use **Compute
 
 With control off, the conversation uses a directly connected API model or Ollama and can review files you attach. The planner, direct desktop actions, live previews, and app launcher require computer control. Enabling it preserves existing action confirmations and OS permissions. Turning it off blocks new requests for computer actions and clears pending continuations. Work already underway can finish. Action receipts render the reported outcome and show the hostname for opened pages.
 
+### Model settings
+
+Open **Model settings** in the sidebar to choose the provider and model. Save before testing. **Test connection** sends a short prompt to the saved direct API or Ollama model and reports whether it replied. A hosted provider may count the test toward its usage. Jarvis performs no test when you open settings. The result applies to that request and model.
+
+Ollama accepts a server address such as `http://127.0.0.1:11434` and lists installed models on request. OpenAI-compatible servers that accept unauthenticated requests can use a custom address without a key. Leave a password field blank to retain its key. When you change the OpenAI-compatible server origin, supply its own key or leave the field blank to clear the old key. **Groq voice input** is configured separately when another provider handles chat. CLI-backed models depend on the user's CLI login and computer-control setting.
+
 ### Conversation history
 
 Sign in to the same account after reopening Jarvis to see saved conversations in the sidebar. Select a conversation to continue it, or find it through local search. Jarvis saves completed turns, thread titles and project grouping in the Electron app data directory under the signed-in account's namespace. The browser preview uses that account's storage at the current origin.

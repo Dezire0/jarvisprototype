@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { useChatHistory } from "@/app/jarvis-runtime-provider";
 import type { SidebarHistory } from "@/lib/chat-history";
 import { isWorkspaceLanguage, useWorkspaceLocale, WORKSPACE_LANGUAGES, type WorkspaceLanguage } from "@/lib/workspace-language";
+import { ModelSettings } from "@/components/jarvis/model-settings";
 import { LoginModal } from "@/components/jarvis/login-modal";
 import { MacUpdateModal } from "@/components/jarvis/mac-update-modal";
 import {
@@ -40,15 +41,9 @@ import {
   FolderPlusIcon,
   FolderIcon,
   LogOutIcon,
-  Link2Icon,
-  Link2OffIcon,
-  Settings2Icon,
-  SparklesIcon,
   ShieldAlertIcon,
-  RocketIcon,
   MonitorIcon,
   UserRoundIcon,
-  RefreshCwIcon,
 } from "lucide-react";
 
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
@@ -84,190 +79,6 @@ type LauncherApp = {
   name: string;
   path: string;
 };
-
-type ConversationProvider =
-  | "auto"
-  | "openai"
-  | "groq"
-  | "gemini"
-  | "ollama";
-type StoredConversationProvider = ConversationProvider | "openai-compatible";
-
-type ConversationModelSettingsView = {
-  provider?: StoredConversationProvider;
-  groq?: {
-    configured?: boolean;
-    chatModel?: string;
-    sttModel?: string;
-  };
-  openai?: {
-    configured?: boolean;
-    model?: string;
-    baseUrl?: string;
-  };
-  anthropic?: {
-    configured?: boolean;
-    model?: string;
-    baseUrl?: string;
-  };
-  gemini?: {
-    configured?: boolean;
-    model?: string;
-  };
-  ollama?: {
-    model?: string;
-    url?: string;
-  };
-  web?: {
-    provider?: string;
-    model?: string;
-  };
-};
-
-const OPENAI_MODEL_OPTIONS = [
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-4.1-mini",
-  "gpt-4.1",
-  "gpt-4o-mini",
-  "gpt-4o",
-];
-
-const GEMINI_MODEL_OPTIONS = [
-  "gemini-3-flash-preview",
-  "gemini-3-pro-preview",
-  "gemini-2.5-flash",
-  "gemini-2.5-pro",
-  "gemini-2.5-flash-lite",
-  "gemini-1.5-flash-latest",
-];
-
-const GROQ_STT_MODEL_OPTIONS = [
-  "whisper-large-v3-turbo",
-  "whisper-large-v3",
-  "distil-whisper-large-v3-en",
-];
-
-const GROQ_CHAT_MODEL_OPTIONS = [
-  "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant",
-  "openai/gpt-oss-120b",
-  "openai/gpt-oss-20b",
-  "qwen/qwen3-32b",
-  "groq/compound-mini",
-];
-
-const WEB_MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
-  chatgpt: [
-    { value: "chatgpt-auto", label: "ChatGPT 자동 선택" },
-    { value: "chatgpt-instant", label: "ChatGPT Instant" },
-    { value: "chatgpt-thinking", label: "ChatGPT Thinking" },
-    { value: "chatgpt-pro", label: "ChatGPT Pro" },
-  ],
-  gemini: [
-    { value: "gemini-3-pro-preview", label: "gemini-3-pro-preview" },
-    { value: "gemini-3-flash-preview", label: "gemini-3-flash-preview" },
-    { value: "gemini-2.5-flash", label: "gemini-2.5-flash" },
-    { value: "gemini-2.5-pro", label: "gemini-2.5-pro" },
-    { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite" },
-    { value: "gemini-1.5-flash-latest", label: "gemini-1.5-flash-latest" },
-  ],
-};
-
-function getWebModelOptions(provider?: string | null) {
-  return WEB_MODEL_OPTIONS[provider || ""] || [{ value: "auto", label: "자동 선택" }];
-}
-
-function getWebProviderLabel(provider?: string | null) {
-  if (provider === "chatgpt") return "ChatGPT";
-  if (provider === "gemini") return "Gemini";
-  return "웹 로그인";
-}
-
-function getConversationProviderLabel(provider?: ConversationProvider | StoredConversationProvider | null) {
-  if (provider === "openai" || provider === "openai-compatible") return "GPT";
-  if (provider === "groq") return "Groq";
-  if (provider === "gemini") return "Gemini";
-  if (provider === "ollama") return "Ollama";
-  return "자동 선택";
-}
-
-function withSelectedModelOption(options: string[], selectedModel: string) {
-  const selected = selectedModel.trim();
-  return selected ? [...new Set([selected, ...options])] : options;
-}
-
-function normalizeConversationProviderForUi(provider?: string | null): ConversationProvider {
-  if (provider === "openai-compatible") {
-    return "openai";
-  }
-
-  if (
-    provider === "auto" ||
-    provider === "openai" ||
-    provider === "groq" ||
-    provider === "gemini" ||
-    provider === "ollama"
-  ) {
-    return provider;
-  }
-
-  return "auto";
-}
-
-function getConversationModelSummary(settings?: ConversationModelSettingsView | null) {
-  const provider = normalizeConversationProviderForUi(settings?.provider);
-
-  if (provider === "openai") {
-    return `GPT / ${settings?.openai?.model || "gpt-4o-mini"}`;
-  }
-  if (provider === "groq") {
-    return `Groq / ${settings?.groq?.chatModel || "llama-3.3-70b-versatile"}`;
-  }
-  if (provider === "gemini") {
-    return `Gemini / ${settings?.gemini?.model || "gemini-2.5-flash"}`;
-  }
-  if (provider === "ollama") {
-    return `Ollama / ${settings?.ollama?.model || "qwen3:14b"}`;
-  }
-  return "자동 선택 / API 또는 Ollama";
-}
-
-function getConversationConnectionState(settings?: ConversationModelSettingsView | null) {
-  const provider = normalizeConversationProviderForUi(settings?.provider);
-
-  if (provider === "openai" && settings?.openai?.configured) {
-    return { connected: true, label: "GPT", model: settings.openai?.model || "gpt-4o-mini" };
-  }
-
-  if (provider === "groq" && settings?.groq?.configured) {
-    return { connected: true, label: "Groq", model: settings.groq?.chatModel || "llama-3.3-70b-versatile" };
-  }
-
-  if (provider === "gemini" && settings?.gemini?.configured) {
-    return { connected: true, label: "Gemini", model: settings.gemini?.model || "gemini-2.5-flash" };
-  }
-
-  if (provider === "ollama") {
-    return { connected: true, label: "Ollama", model: settings?.ollama?.model || "qwen3:14b" };
-  }
-
-  if (provider === "auto") {
-    if (settings?.groq?.configured) {
-      return { connected: true, label: "Groq", model: settings.groq?.chatModel || "llama-3.3-70b-versatile" };
-    }
-
-    if (settings?.gemini?.configured) {
-      return { connected: true, label: "Gemini", model: settings.gemini?.model || "gemini-2.5-flash" };
-    }
-
-    if (settings?.openai?.configured) {
-      return { connected: true, label: "GPT", model: settings.openai?.model || "gpt-4o-mini" };
-    }
-  }
-
-  return { connected: false, label: "API", model: "" };
-}
 
 function buildSnippet(text: string, maxLength = 120) {
   const normalized = text.replace(/\s+/g, " ").trim();
@@ -317,14 +128,7 @@ export function ThreadListSidebar({
   const [cloudSearchIndex, setCloudSearchIndex] = useState<
     Record<string, CloudSearchEntry>
   >({});
-  const [webAiStatus, setWebAiStatus] = useState<
-    "connected" | "disconnected" | "checking" | "expired"
-  >("checking");
-  const [webAiProvider, setWebAiProvider] = useState<string | null>(null);
-  const [webAiReason, setWebAiReason] = useState<string | null>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [webAiModalOpen, setWebAiModalOpen] = useState(false);
-  const [selectedWebAiProvider, setSelectedWebAiProvider] = useState<string | null>(null);
   const [newVersion, setNewVersion] = useState("");
   const [downloadUrl, setDownloadUrl] = useState(
     "https://dexproject.pages.dev/",
@@ -345,26 +149,6 @@ export function ThreadListSidebar({
   const [profileDraftLanguage, setProfileDraftLanguage] = useState<WorkspaceLanguage>("auto");
   const [languageSaving, setLanguageSaving] = useState(false);
   const [languageSaveError, setLanguageSaveError] = useState(false);
-  const [conversationSettings, setConversationSettings] =
-    useState<ConversationModelSettingsView | null>(null);
-  const [conversationProvider, setConversationProvider] =
-    useState<ConversationProvider>("auto");
-  const [groqApiKey, setGroqApiKey] = useState("");
-  const [groqChatModel, setGroqChatModel] = useState("llama-3.3-70b-versatile");
-  const [groqSttModel, setGroqSttModel] = useState("whisper-large-v3-turbo");
-  const [openaiApiKey, setOpenaiApiKey] = useState("");
-  const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
-  const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
-  const [geminiApiKey, setGeminiApiKey] = useState("");
-  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
-  const [ollamaUrl, setOllamaUrl] = useState("http://127.0.0.1:11434");
-  const [ollamaModel, setOllamaModel] = useState("qwen2.5:14b");
-  const [webModel, setWebModel] = useState("auto");
-  const webModelRef = useRef("auto");
-  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-  const [ollamaLoading, setOllamaLoading] = useState(false);
-  const [conversationSaving, setConversationSaving] = useState(false);
-  const [conversationStatus, setConversationStatus] = useState("");
   const profileNameInputId = useId();
   const profileTrigger = useRef<HTMLButtonElement>(null);
 
@@ -382,56 +166,6 @@ export function ThreadListSidebar({
     allThreads.find((thread) => thread.id === threadsState.mainThreadId) ||
     null;
   const activeThreadId = activeThread?.remoteId ?? activeThread?.id ?? null;
-  const openaiModelOptions = useMemo(
-    () => withSelectedModelOption(OPENAI_MODEL_OPTIONS, openaiModel),
-    [openaiModel],
-  );
-  const geminiModelOptions = useMemo(
-    () => withSelectedModelOption(GEMINI_MODEL_OPTIONS, geminiModel),
-    [geminiModel],
-  );
-  const groqSttModelOptions = useMemo(
-    () => withSelectedModelOption(GROQ_STT_MODEL_OPTIONS, groqSttModel),
-    [groqSttModel],
-  );
-  const groqChatModelOptions = useMemo(
-    () => withSelectedModelOption(GROQ_CHAT_MODEL_OPTIONS, groqChatModel),
-    [groqChatModel],
-  );
-  const ollamaModelOptions = useMemo(
-    () => withSelectedModelOption(ollamaModels, ollamaModel),
-    [ollamaModel, ollamaModels],
-  );
-  const activeWebModelProvider = webAiProvider || selectedWebAiProvider || conversationSettings?.web?.provider || null;
-  const connectedWebModelProvider =
-    webAiStatus === "connected" ? activeWebModelProvider : null;
-  const hasConnectedWebAi = Boolean(connectedWebModelProvider);
-  const conversationConnection = useMemo(
-    () => getConversationConnectionState(conversationSettings),
-    [conversationSettings],
-  );
-  const webModelOptions = useMemo(
-    () => getWebModelOptions(connectedWebModelProvider),
-    [connectedWebModelProvider],
-  );
-  const activeWebProviderLabel = getWebProviderLabel(connectedWebModelProvider);
-
-  useEffect(() => {
-    webModelRef.current = webModel;
-  }, [webModel]);
-
-  useEffect(() => {
-    if (!connectedWebModelProvider) {
-      return;
-    }
-
-    if (!webModelOptions.some((option) => option.value === webModel)) {
-      const fallbackWebModel = webModelOptions[0]?.value || "auto";
-      webModelRef.current = fallbackWebModel;
-      setWebModel(fallbackWebModel);
-    }
-  }, [connectedWebModelProvider, webModel, webModelOptions]);
-
   useEffect(() => {
     void (async () => {
       const session = await restoreAuthSession();
@@ -441,12 +175,6 @@ export function ThreadListSidebar({
       const cloudToken = history.cloudToken();
       if (cloudToken) void hydrateCloudIndex(cloudToken);
     })();
-
-    void checkWebAiStatus(true);
-    void loadConversationModelSettings();
-    const interval = window.setInterval(() => {
-      void checkWebAiStatus(false);
-    }, 15000);
 
     let unsubscribeUpdate: (() => void) | undefined;
     if (typeof window !== "undefined" && (window as any).assistantAPI?.onUpdateStatus) {
@@ -464,18 +192,9 @@ export function ThreadListSidebar({
     }
 
     return () => {
-      window.clearInterval(interval);
       unsubscribeUpdate?.();
     };
   }, []);
-
-  useEffect(() => {
-    if (!webAiModalOpen) {
-      return;
-    }
-
-    void loadConversationModelSettings();
-  }, [webAiModalOpen]);
 
   useEffect(() => {
     history.setSidebar({ projects, selectedProjectId, threadMetaById });
@@ -635,188 +354,6 @@ export function ThreadListSidebar({
       if (token === history.cloudToken()) setCloudSearchIndex(Object.fromEntries(entries));
     } catch {
       setCloudSearchIndex({});
-    }
-  }
-
-  async function checkWebAiStatus(forceRefresh = false, preferredProvider = selectedWebAiProvider) {
-    void forceRefresh;
-    void preferredProvider;
-    setWebAiStatus("disconnected");
-    setWebAiProvider(null);
-    setWebAiReason("web_login_removed");
-  }
-
-  async function connectWebAi(provider: string = "chatgpt") {
-    setWebAiStatus("disconnected");
-    setSelectedWebAiProvider(provider);
-    setWebAiProvider(null);
-    setWebAiReason("web_login_removed");
-  }
-
-  function syncConversationModelSettings(settings?: ConversationModelSettingsView | null) {
-    const next = settings || {};
-    setConversationSettings(next);
-    setConversationProvider(normalizeConversationProviderForUi(next.provider));
-    setGroqChatModel(next.groq?.chatModel || "llama-3.3-70b-versatile");
-    setGroqSttModel(next.groq?.sttModel || "whisper-large-v3-turbo");
-    setOpenaiModel(next.openai?.model || "gpt-4o-mini");
-    setOpenaiBaseUrl(next.openai?.baseUrl || "");
-    setGeminiModel(next.gemini?.model || "gemini-2.5-flash");
-    setOllamaUrl(next.ollama?.url || "http://127.0.0.1:11434");
-    setOllamaModel(next.ollama?.model || "qwen2.5:14b");
-    const nextWebModel = next.web?.model || "auto";
-    webModelRef.current = nextWebModel;
-    setWebModel(nextWebModel);
-    if (next.web?.provider) {
-      setSelectedWebAiProvider(next.web.provider);
-    }
-    setGroqApiKey("");
-    setOpenaiApiKey("");
-    setGeminiApiKey("");
-  }
-
-  async function loadConversationModelSettings() {
-    if (typeof window === "undefined" || !(window as any).assistantAPI) {
-      return;
-    }
-
-    try {
-      const result = (await (window as any).assistantAPI.getConversationModelSettings?.()) as {
-        settings?: ConversationModelSettingsView;
-      };
-      syncConversationModelSettings(result?.settings);
-    } catch {
-      setConversationStatus(t("대화 모델 설정을 불러오지 못했어요.", "Could not load model settings."));
-    }
-  }
-
-  async function refreshOllamaModels(forceRefresh = false) {
-    if (typeof window === "undefined" || !(window as any).assistantAPI?.invokeTool) {
-      return;
-    }
-
-    setOllamaLoading(true);
-    try {
-      const result = (await (window as any).assistantAPI.invokeTool("ai:ollama-models", {
-        forceRefresh,
-        url: ollamaUrl,
-      })) as {
-        models?: string[];
-      };
-      const models = Array.isArray(result?.models) ? result.models : [];
-      setOllamaModels(models);
-      if (models.length > 0 && !models.includes(ollamaModel)) {
-        setOllamaModel(models[0]);
-      }
-      setConversationStatus(
-        models.length > 0
-          ? t("Ollama 모델 목록을 불러왔어요.", "Loaded Ollama models.")
-          : t("Ollama에서 설치된 모델을 찾지 못했어요.", "No installed Ollama models were found."),
-      );
-    } catch {
-      setOllamaModels([]);
-      setConversationStatus(
-        t(
-          "Ollama에 연결하지 못했어요. Ollama 실행 상태와 주소를 확인해 주세요.",
-          "Could not connect to Ollama. Check that Ollama is running and the URL is correct.",
-        ),
-      );
-    } finally {
-      setOllamaLoading(false);
-    }
-  }
-
-  function handleConversationProviderChange(provider: ConversationProvider) {
-    setConversationProvider(provider);
-
-    if (provider === "ollama") {
-      void refreshOllamaModels(false);
-    }
-  }
-
-  function handleWebModelChange(model: string) {
-    webModelRef.current = model;
-    setConversationProvider("auto");
-    setWebModel(model);
-  }
-
-  async function saveConversationModelSettings(
-    provider = conversationProvider,
-    webOverride?: { provider?: string | null; model?: string },
-  ) {
-    if (typeof window === "undefined" || !(window as any).assistantAPI?.saveConversationModelSettings) {
-      return;
-    }
-
-    setConversationSaving(true);
-    setConversationStatus("");
-    void webOverride;
-
-    try {
-	      const result = (await (window as any).assistantAPI.saveConversationModelSettings({
-	        provider,
-        groq: {
-          apiKey: groqApiKey,
-          chatModel: groqChatModel,
-          sttModel: groqSttModel,
-        },
-        openai: {
-          apiKey: openaiApiKey,
-          model: openaiModel,
-          baseUrl: openaiBaseUrl,
-        },
-        gemini: {
-          apiKey: geminiApiKey,
-          model: geminiModel,
-        },
-        ollama: {
-          model: ollamaModel,
-          url: ollamaUrl,
-        },
-        web: {
-          provider: "",
-          model: "auto",
-        },
-      })) as {
-        settings?: ConversationModelSettingsView;
-	      };
-	
-	      try {
-	        syncConversationModelSettings(result?.settings);
-	        window.dispatchEvent(
-	          new CustomEvent("jarvis:conversation-model-settings-saved", {
-	            detail: result?.settings || null,
-	          }),
-	        );
-	        const summarySettings = {
-	          ...(result?.settings || {}),
-          provider: result?.settings?.provider || provider,
-          web: {
-            provider: "",
-            model: "auto",
-          },
-        };
-        const summary = getConversationModelSummary(summarySettings);
-        setConversationStatus(
-          t(
-            `대화 모델 연결 설정을 저장했어요: ${summary}`,
-            `Saved conversation model settings: ${summary}`,
-          ),
-        );
-      } catch (uiError) {
-        console.warn("Conversation settings were saved, but UI refresh failed:", uiError);
-        setConversationStatus(t("저장했어요. 창을 다시 열면 최신 설정이 보입니다.", "Saved. Reopen this window to see the latest settings."));
-      }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error || "");
-      console.error("Failed to save conversation model settings:", error);
-      setConversationStatus(
-        detail
-          ? t(`저장하지 못했어요: ${detail}`, `Could not save settings: ${detail}`)
-          : t("저장하지 못했어요. 설정을 확인해 주세요.", "Could not save settings."),
-      );
-    } finally {
-      setConversationSaving(false);
     }
   }
 
@@ -1175,331 +712,12 @@ export function ThreadListSidebar({
 
       <Sidebar
         {...props}
+        mobileTitle={t("대화", "Conversations")}
+        closeLabel={t("사이드바 닫기", "Close sidebar")}
         className="jarvis-sidebar bg-sidebar text-sidebar-foreground [--sidebar-width:16rem]"
       >
         <SidebarHeader className="border-none px-3 pt-3 pb-0">
-          <button
-            type="button"
-            onClick={() => setWebAiModalOpen(true)}
-            className="jarvis-sidebar-control"
-          >
-            <Settings2Icon className="size-4 shrink-0" />
-            <span className="flex-1 truncate">{t("모델 설정", "Model settings")}</span>
-            {conversationConnection.connected && (
-              <span className="truncate text-xs text-muted-foreground">
-                {conversationConnection.label}
-              </span>
-            )}
-          </button>
-
-          {/* AI Model Management Modal */}
-          <Dialog open={webAiModalOpen} onOpenChange={setWebAiModalOpen}>
-            <DialogContent className="max-h-[86dvh] max-w-[560px] overflow-y-auto border-border bg-background p-0 text-foreground shadow-xl">
-              <div className="p-6">
-                <DialogHeader className="mb-4">
-                  <DialogTitle className="flex items-center gap-2 text-xl">
-                    <SparklesIcon className="size-5 text-muted-foreground" />
-                    AI 모델 관리
-                  </DialogTitle>
-                  <DialogDescription className="text-zinc-400">
-                    OpenAI API, Gemini API, Ollama를 연결하여 Jarvis를 사용할 수 있습니다.
-                  </DialogDescription>
-                </DialogHeader>
-
-                <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold">대화 모델 연결</p>
-                      <p className="text-xs text-zinc-500">
-                        {hasConnectedWebAi
-                          ? `${activeWebProviderLabel} 계정으로 사용할 모델을 선택합니다.`
-                          : "API 키는 기기 안에 암호화해서 저장됩니다."}
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-white/8 px-2 py-1 text-[10px] font-bold uppercase text-zinc-400">
-                      {hasConnectedWebAi
-                        ? activeWebProviderLabel
-                        : getConversationProviderLabel(conversationProvider)}
-                    </span>
-                  </div>
-
-	                  {hasConnectedWebAi ? (
-	                    <div className="space-y-2">
-	                      <label className="block text-[11px] font-semibold text-zinc-500">
-	                        {activeWebProviderLabel} 모델 선택
-                      </label>
-                      <select
-                        value={webModel}
-                        onChange={(event) => handleWebModelChange(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        {webModelOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-[11px] leading-relaxed text-zinc-500">
-                        위에서 로그인한 {activeWebProviderLabel} 계정으로 사용할 모델입니다.
-                        API 키 설정은 숨기고 사이트 로그인 모델 설정만 저장합니다.
-                      </p>
-                      <div className="pt-2 text-[10px] text-zinc-500">
-                        Web {activeWebProviderLabel}
-                      </div>
-	                    </div>
-	                  ) : (
-	                    <>
-	                      <label className="mb-3 block text-[11px] font-semibold text-zinc-500">
-	                        모델 선택
-	                      </label>
-	                      <select
-                        value={conversationProvider}
-                        onChange={(event) =>
-                          handleConversationProviderChange(event.target.value as ConversationProvider)
-                        }
-                        className="mb-4 h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-	                      >
-	                        <option value="auto">자동 선택 / API 우선</option>
-	                        <option value="openai">GPT / OpenAI API</option>
-	                        <option value="groq">Groq API</option>
-	                        <option value="gemini">Gemini API</option>
-	                        <option value="ollama">로컬 모델 / Ollama</option>
-	                      </select>
-
-                  {conversationProvider === "openai" && (
-                    <div className="space-y-2">
-                      <Input
-                        type="password"
-                        value={openaiApiKey}
-                        onChange={(event) => setOpenaiApiKey(event.target.value)}
-                        placeholder={
-                          conversationSettings?.openai?.configured
-                            ? "OpenAI API Key 저장됨 - 변경할 때만 입력"
-                            : "OpenAI API Key"
-                        }
-                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
-                      />
-                      <select
-                        value={openaiModel}
-                        onChange={(event) => setOpenaiModel(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        {openaiModelOptions.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                      <Input
-                        value={openaiBaseUrl}
-                        onChange={(event) => setOpenaiBaseUrl(event.target.value)}
-                        placeholder="Base URL 선택 사항"
-                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
-                      />
-                    </div>
-                  )}
-
-	                  {conversationProvider === "auto" && (
-	                    <div className="space-y-2">
-	                      <p className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-3 text-xs leading-relaxed text-zinc-500">
-	                        자동 선택은 Groq, Gemini, GPT 순서로 저장된 API 설정을 우선 사용하고, 원격 API가 연결되지 않은 경우 Ollama로 내려갑니다.
-	                        웹 로그인 세션이나 사이트 토큰은 더 이상 사용하지 않아요.
-	                      </p>
-	                    </div>
-	                  )}
-
-	                  {conversationProvider === "groq" && (
-	                    <div className="space-y-2">
-	                      <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-3 text-xs leading-relaxed text-emerald-100">
-	                        아래 Groq API 박스의 키와 채팅 모델을 사용합니다.
-	                      </p>
-	                    </div>
-	                  )}
-
-                  {conversationProvider === "gemini" && (
-                    <div className="space-y-2">
-                      <Input
-                        type="password"
-                        value={geminiApiKey}
-                        onChange={(event) => setGeminiApiKey(event.target.value)}
-                        placeholder={
-                          conversationSettings?.gemini?.configured
-                            ? "Gemini API Key 저장됨 - 변경할 때만 입력"
-                            : "Gemini API Key"
-                        }
-                        className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
-                      />
-                      <select
-                        value={geminiModel}
-                        onChange={(event) => setGeminiModel(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        {geminiModelOptions.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {conversationProvider === "ollama" && (
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
-                        <Input
-                          value={ollamaUrl}
-                          onChange={(event) => setOllamaUrl(event.target.value)}
-                          placeholder="http://127.0.0.1:11434"
-                          className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={ollamaLoading}
-                          onClick={() => void refreshOllamaModels(true)}
-                          className="h-10 shrink-0 rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10"
-                        >
-                          <RefreshCwIcon
-                            className={cn("size-4", ollamaLoading && "animate-spin")}
-                          />
-                        </Button>
-                      </div>
-                      <select
-                        value={ollamaModel}
-                        onChange={(event) => setOllamaModel(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-                      >
-                        {ollamaModelOptions.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] text-zinc-500 sm:grid-cols-3">
-	                    <span>
-	                      API-only 모드
-	                    </span>
-	                    <span>
-	                      Groq {conversationSettings?.groq?.configured ? "저장됨" : "미설정"}
-	                    </span>
-                    <span>
-                      GPT {conversationSettings?.openai?.configured ? "저장됨" : "미설정"}
-                    </span>
-                    <span>
-                      Gemini {conversationSettings?.gemini?.configured ? "저장됨" : "미설정"}
-                    </span>
-                  </div>
-	                    </>
-	                  )}
-	                </div>
-
-		                <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-		                  <div className="mb-3 flex items-center justify-between gap-3">
-		                    <div>
-		                      <p className="text-sm font-bold">Groq API</p>
-		                      <p className="text-xs text-zinc-400">
-		                        대화 모델과 Electron 음성 입력에 사용할 Groq API 키를 저장합니다.
-		                      </p>
-		                    </div>
-	                    <span className="rounded-full bg-emerald-950/70 px-2 py-1 text-[10px] font-bold uppercase text-emerald-300">
-	                      {conversationSettings?.groq?.configured ? "Configured" : "Optional"}
-	                    </span>
-	                  </div>
-	                  <div className="space-y-2">
-	                    <Input
-	                      type="password"
-	                      value={groqApiKey}
-	                      onChange={(event) => setGroqApiKey(event.target.value)}
-	                      placeholder={
-	                        conversationSettings?.groq?.configured
-	                          ? "Groq API Key 저장됨 - 변경할 때만 입력"
-	                          : "Groq API Key"
-	                      }
-	                      className="h-10 rounded-xl border-white/10 bg-zinc-950 text-white"
-		                    />
-		                    <label className="block text-[11px] font-semibold text-zinc-500">
-		                      채팅 모델
-		                    </label>
-		                    <select
-		                      value={groqChatModel}
-		                      onChange={(event) => setGroqChatModel(event.target.value)}
-		                      className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-		                    >
-		                      {groqChatModelOptions.map((model) => (
-		                        <option key={model} value={model}>
-		                          {model}
-		                        </option>
-		                      ))}
-		                    </select>
-		                    <label className="block text-[11px] font-semibold text-zinc-500">
-		                      음성 인식 모델
-		                    </label>
-		                    <select
-		                      value={groqSttModel}
-		                      onChange={(event) => setGroqSttModel(event.target.value)}
-	                      className="h-10 w-full rounded-xl border border-white/10 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-emerald-400"
-	                    >
-	                      {groqSttModelOptions.map((model) => (
-	                        <option key={model} value={model}>
-	                          {model}
-	                        </option>
-	                      ))}
-		                    </select>
-		                    <p className="text-[11px] leading-relaxed text-zinc-500">
-		                      대화 모델에서 Groq API를 선택하면 위 채팅 모델로 응답하고, 음성 입력은 Groq Whisper를 우선 사용합니다.
-		                    </p>
-	                  </div>
-	                </div>
-
-	                {conversationStatus && (
-	                  <p className="mt-3 text-xs text-emerald-300">{conversationStatus}</p>
-	                )}
-
-	                <Button
-	                  type="button"
-	                  disabled={conversationSaving}
-	                  onClick={() =>
-	                    void saveConversationModelSettings(
-	                      hasConnectedWebAi ? "auto" : conversationProvider,
-	                      hasConnectedWebAi
-	                        ? { provider: connectedWebModelProvider, model: webModelRef.current }
-	                        : undefined,
-	                    )
-	                  }
-	                  className="mt-4 h-10 w-full rounded-xl bg-white font-semibold text-black hover:bg-zinc-200"
-	                >
-	                  {conversationSaving
-	                    ? t("저장 중...", "Saving...")
-	                    : t("모델 연결 저장", "Save Model Connection")}
-	                </Button>
-
-	                {webAiStatus === "connected" && (
-	                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      // 로그아웃 로직 (메인 프로세스에서 세션 클리어 필요)
-                      window.assistantAPI
-                        ?.invokeTool?.("ai:web-logout", {})
-                        .then(() => checkWebAiStatus(true));
-                      setWebAiModalOpen(false);
-                    }}
-                    className="mt-6 w-full text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
-                  >
-                    {t("연결 해제하기", "Disconnect")}
-                  </Button>
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {webAiReason && webAiStatus === "expired" && (
-            <p className="mb-2 px-1 text-[11px] text-amber-700/90 dark:text-amber-300/80">
-              세션 토큰이 만료된 상태라 백그라운드에서 다시 연결이 필요해.
-            </p>
-          )}
+          <ModelSettings />
 
           <div className="flex flex-col gap-0.5">
             <Button
@@ -1721,19 +939,6 @@ export function ThreadListSidebar({
             </div>
             {languageSaveError && <p className="jarvis-auth-error" role="alert">{saveError}</p>}
 
-            <div className="flex items-center justify-between text-[11px] text-zinc-400">
-              <span className="inline-flex items-center gap-1">
-                <RocketIcon className="size-3.5" />
-                {t("새로고침", "Refresh Status")}
-              </span>
-              <button
-                type="button"
-                onClick={() => void checkWebAiStatus(true)}
-                className="inline-flex items-center gap-1 text-zinc-500 hover:text-white"
-              >
-                <RefreshCwIcon className="size-3.5" />
-              </button>
-            </div>
           </div>
         </SidebarFooter>
       </Sidebar>

@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { safeStorage } = require("electron");
+const { getOpenAIEndpointOrigin } = require("./openai-endpoint.cjs");
 
 const DEFAULT_TTS_SETTINGS = {
   providers: {
@@ -159,6 +160,7 @@ class SettingsStore {
   constructor({ app }) {
     this.app = app;
     this.cache = createDefaultSettings();
+    this.pendingWrite = Promise.resolve();
   }
 
   get settingsPath() {
@@ -290,12 +292,17 @@ class SettingsStore {
     return this.getTtsSettingsView();
   }
 
-  async writeCache() {
-    await fs.mkdir(path.dirname(this.settingsPath), {
-      recursive: true
+  updateCache(buildNext) {
+    const write = this.pendingWrite.then(async () => {
+      const next = buildNext();
+      const temporary = this.settingsPath + ".tmp";
+      await fs.mkdir(path.dirname(this.settingsPath), { recursive: true, mode: 0o700 });
+      await fs.writeFile(temporary, JSON.stringify(next, null, 2), { mode: 0o600 });
+      await fs.rename(temporary, this.settingsPath);
+      this.cache = next;
     });
-
-    await fs.writeFile(this.settingsPath, JSON.stringify(this.cache, null, 2), "utf8");
+    this.pendingWrite = write.catch(() => {});
+    return write;
   }
 
   getTtsSettings() {
@@ -469,81 +476,83 @@ class SettingsStore {
   }
 
   async updateConversationModelSettings(patch = {}) {
-    const defaults = createDefaultSettings().conversationModel;
-    const stored = this.cache.conversationModel || defaults;
-    const current = {
-      provider: stored.provider || defaults.provider,
-      groq: {
-        ...defaults.groq,
-        ...(stored.groq || {})
-      },
-      openai: {
-        ...defaults.openai,
-        ...(stored.openai || {})
-      },
-      anthropic: {
-        ...defaults.anthropic,
-        ...(stored.anthropic || {})
-      },
-      gemini: {
-        ...defaults.gemini,
-        ...(stored.gemini || {})
-      },
-      ollama: {
-        ...defaults.ollama,
-        ...(stored.ollama || {})
-      }
-    };
-    const next = this.normalize({
-      ...this.cache,
-      conversationModel: {
-        provider: normalizeConversationProvider(patch.provider, current.provider),
+    await this.updateCache(() => {
+      const defaults = createDefaultSettings().conversationModel;
+      const stored = this.cache.conversationModel || defaults;
+      const current = {
+        provider: stored.provider || defaults.provider,
         groq: {
-          chatModel: trimmedOrFallback(patch.groq?.chatModel, current.groq.chatModel),
-          sttModel: trimmedOrFallback(patch.groq?.sttModel, current.groq.sttModel),
-          apiKeyEncrypted: String(patch.groq?.apiKey || "").trim()
-            ? this.encryptSecret(String(patch.groq.apiKey).trim())
-            : current.groq.apiKeyEncrypted
+          ...defaults.groq,
+          ...(stored.groq || {})
         },
         openai: {
-          model: trimmedOrFallback(patch.openai?.model, current.openai.model),
-          baseUrl: patch.openai?.baseUrl !== undefined
-            ? String(patch.openai.baseUrl || "").trim()
-            : current.openai.baseUrl,
-          apiKeyEncrypted: String(patch.openai?.apiKey || "").trim()
-            ? this.encryptSecret(String(patch.openai.apiKey).trim())
-            : current.openai.apiKeyEncrypted
+          ...defaults.openai,
+          ...(stored.openai || {})
         },
         anthropic: {
-          model: trimmedOrFallback(patch.anthropic?.model, current.anthropic.model),
-          baseUrl: patch.anthropic?.baseUrl !== undefined
-            ? String(patch.anthropic.baseUrl || "").trim()
-            : current.anthropic.baseUrl,
-          apiKeyEncrypted: String(patch.anthropic?.apiKey || "").trim()
-            ? this.encryptSecret(String(patch.anthropic.apiKey).trim())
-            : current.anthropic.apiKeyEncrypted
+          ...defaults.anthropic,
+          ...(stored.anthropic || {})
         },
         gemini: {
-          model: trimmedOrFallback(patch.gemini?.model, current.gemini.model),
-          apiKeyEncrypted: String(patch.gemini?.apiKey || "").trim()
-            ? this.encryptSecret(String(patch.gemini.apiKey).trim())
-            : current.gemini.apiKeyEncrypted
+          ...defaults.gemini,
+          ...(stored.gemini || {})
         },
         ollama: {
-          model: trimmedOrFallback(patch.ollama?.model, current.ollama.model),
-          url: patch.ollama?.url !== undefined
-            ? String(patch.ollama.url || "").trim()
-            : current.ollama.url
-        },
-        web: {
-          provider: "",
-          model: "auto"
+          ...defaults.ollama,
+          ...(stored.ollama || {})
         }
-      }
+      };
+      const openaiBaseUrl = patch.openai?.baseUrl !== undefined
+        ? String(patch.openai.baseUrl || "").trim()
+        : current.openai.baseUrl;
+      const openaiOrigin = getOpenAIEndpointOrigin(openaiBaseUrl);
+      const retainOpenAIKey = openaiOrigin && openaiOrigin === getOpenAIEndpointOrigin(current.openai.baseUrl);
+      return this.normalize({
+        ...this.cache,
+        conversationModel: {
+          provider: normalizeConversationProvider(patch.provider, current.provider),
+          groq: {
+            chatModel: trimmedOrFallback(patch.groq?.chatModel, current.groq.chatModel),
+            sttModel: trimmedOrFallback(patch.groq?.sttModel, current.groq.sttModel),
+            apiKeyEncrypted: String(patch.groq?.apiKey || "").trim()
+              ? this.encryptSecret(String(patch.groq.apiKey).trim())
+              : current.groq.apiKeyEncrypted
+          },
+          openai: {
+            model: trimmedOrFallback(patch.openai?.model, current.openai.model),
+            baseUrl: openaiBaseUrl,
+            apiKeyEncrypted: String(patch.openai?.apiKey || "").trim()
+              ? this.encryptSecret(String(patch.openai.apiKey).trim())
+              : retainOpenAIKey ? current.openai.apiKeyEncrypted : ""
+          },
+          anthropic: {
+            model: trimmedOrFallback(patch.anthropic?.model, current.anthropic.model),
+            baseUrl: patch.anthropic?.baseUrl !== undefined
+              ? String(patch.anthropic.baseUrl || "").trim()
+              : current.anthropic.baseUrl,
+            apiKeyEncrypted: String(patch.anthropic?.apiKey || "").trim()
+              ? this.encryptSecret(String(patch.anthropic.apiKey).trim())
+              : current.anthropic.apiKeyEncrypted
+          },
+          gemini: {
+            model: trimmedOrFallback(patch.gemini?.model, current.gemini.model),
+            apiKeyEncrypted: String(patch.gemini?.apiKey || "").trim()
+              ? this.encryptSecret(String(patch.gemini.apiKey).trim())
+              : current.gemini.apiKeyEncrypted
+          },
+          ollama: {
+            model: trimmedOrFallback(patch.ollama?.model, current.ollama.model),
+            url: patch.ollama?.url !== undefined
+              ? String(patch.ollama.url || "").trim()
+              : current.ollama.url
+          },
+          web: {
+            provider: "",
+            model: "auto"
+          }
+        }
+      });
     });
-
-    this.cache = next;
-    await this.writeCache();
     return this.getConversationModelSettingsView();
   }
 
@@ -592,68 +601,67 @@ class SettingsStore {
   }
 
   async updateTtsSettings(patch = {}) {
-    const current = this.cache.tts || createDefaultSettings().tts;
-    const next = this.normalize({
-      ...this.cache,
-      version: 1,
-      tts: {
-        providers: {
-          en: trimmedOrFallback(patch.providers?.en, current.providers.en),
-          ko: trimmedOrFallback(patch.providers?.ko, current.providers.ko)
-        },
-        elevenlabs: {
-          modelEn: trimmedOrFallback(patch.elevenlabs?.modelEn, current.elevenlabs.modelEn),
-          modelKo: trimmedOrFallback(patch.elevenlabs?.modelKo, current.elevenlabs.modelKo),
-          voiceEn: patch.elevenlabs?.voiceEn !== undefined ? String(patch.elevenlabs.voiceEn || "").trim() : current.elevenlabs.voiceEn,
-          voiceKo: patch.elevenlabs?.voiceKo !== undefined ? String(patch.elevenlabs.voiceKo || "").trim() : current.elevenlabs.voiceKo,
-          apiKeyEncrypted: String(patch.elevenlabs?.apiKey || "").trim()
-            ? this.encryptSecret(String(patch.elevenlabs.apiKey).trim())
-            : current.elevenlabs.apiKeyEncrypted
-        },
-        cartesia: {
-          modelId: trimmedOrFallback(patch.cartesia?.modelId, current.cartesia.modelId),
-          voiceEn: patch.cartesia?.voiceEn !== undefined ? String(patch.cartesia.voiceEn || "").trim() : current.cartesia.voiceEn,
-          voiceKo: patch.cartesia?.voiceKo !== undefined ? String(patch.cartesia.voiceKo || "").trim() : current.cartesia.voiceKo,
-          apiKeyEncrypted: String(patch.cartesia?.apiKey || "").trim()
-            ? this.encryptSecret(String(patch.cartesia.apiKey).trim())
-            : current.cartesia.apiKeyEncrypted
-        },
-        naverClova: {
-          speakerEn: trimmedOrFallback(patch.naverClova?.speakerEn, current.naverClova.speakerEn),
-          speakerKo: trimmedOrFallback(patch.naverClova?.speakerKo, current.naverClova.speakerKo),
-          clientIdEncrypted: String(patch.naverClova?.clientId || "").trim()
-            ? this.encryptSecret(String(patch.naverClova.clientId).trim())
-            : current.naverClova.clientIdEncrypted,
-          clientSecretEncrypted: String(patch.naverClova?.clientSecret || "").trim()
-            ? this.encryptSecret(String(patch.naverClova.clientSecret).trim())
-            : current.naverClova.clientSecretEncrypted
-        },
-        openai: {
-          model: trimmedOrFallback(patch.openai?.model, current.openai.model),
-          voiceEn: trimmedOrFallback(patch.openai?.voiceEn, current.openai.voiceEn),
-          voiceKo: trimmedOrFallback(patch.openai?.voiceKo, current.openai.voiceKo),
-          apiKeyEncrypted: String(patch.openai?.apiKey || "").trim()
-            ? this.encryptSecret(String(patch.openai.apiKey).trim())
-            : current.openai.apiKeyEncrypted
-        },
-        gemini: {
-          model: trimmedOrFallback(patch.gemini?.model, current.gemini.model),
-          voiceEn: trimmedOrFallback(patch.gemini?.voiceEn, current.gemini.voiceEn),
-          voiceKo: trimmedOrFallback(patch.gemini?.voiceKo, current.gemini.voiceKo),
-          apiKeyEncrypted: String(patch.gemini?.apiKey || "").trim()
-            ? this.encryptSecret(String(patch.gemini.apiKey).trim())
-            : current.gemini.apiKeyEncrypted
-        },
-        google: {
-          credentialsPath: patch.google?.credentialsPath !== undefined
-            ? String(patch.google.credentialsPath || "").trim()
-            : current.google.credentialsPath
+    await this.updateCache(() => {
+      const current = this.cache.tts || createDefaultSettings().tts;
+      return this.normalize({
+        ...this.cache,
+        version: 1,
+        tts: {
+          providers: {
+            en: trimmedOrFallback(patch.providers?.en, current.providers.en),
+            ko: trimmedOrFallback(patch.providers?.ko, current.providers.ko)
+          },
+          elevenlabs: {
+            modelEn: trimmedOrFallback(patch.elevenlabs?.modelEn, current.elevenlabs.modelEn),
+            modelKo: trimmedOrFallback(patch.elevenlabs?.modelKo, current.elevenlabs.modelKo),
+            voiceEn: patch.elevenlabs?.voiceEn !== undefined ? String(patch.elevenlabs.voiceEn || "").trim() : current.elevenlabs.voiceEn,
+            voiceKo: patch.elevenlabs?.voiceKo !== undefined ? String(patch.elevenlabs.voiceKo || "").trim() : current.elevenlabs.voiceKo,
+            apiKeyEncrypted: String(patch.elevenlabs?.apiKey || "").trim()
+              ? this.encryptSecret(String(patch.elevenlabs.apiKey).trim())
+              : current.elevenlabs.apiKeyEncrypted
+          },
+          cartesia: {
+            modelId: trimmedOrFallback(patch.cartesia?.modelId, current.cartesia.modelId),
+            voiceEn: patch.cartesia?.voiceEn !== undefined ? String(patch.cartesia.voiceEn || "").trim() : current.cartesia.voiceEn,
+            voiceKo: patch.cartesia?.voiceKo !== undefined ? String(patch.cartesia.voiceKo || "").trim() : current.cartesia.voiceKo,
+            apiKeyEncrypted: String(patch.cartesia?.apiKey || "").trim()
+              ? this.encryptSecret(String(patch.cartesia.apiKey).trim())
+              : current.cartesia.apiKeyEncrypted
+          },
+          naverClova: {
+            speakerEn: trimmedOrFallback(patch.naverClova?.speakerEn, current.naverClova.speakerEn),
+            speakerKo: trimmedOrFallback(patch.naverClova?.speakerKo, current.naverClova.speakerKo),
+            clientIdEncrypted: String(patch.naverClova?.clientId || "").trim()
+              ? this.encryptSecret(String(patch.naverClova.clientId).trim())
+              : current.naverClova.clientIdEncrypted,
+            clientSecretEncrypted: String(patch.naverClova?.clientSecret || "").trim()
+              ? this.encryptSecret(String(patch.naverClova.clientSecret).trim())
+              : current.naverClova.clientSecretEncrypted
+          },
+          openai: {
+            model: trimmedOrFallback(patch.openai?.model, current.openai.model),
+            voiceEn: trimmedOrFallback(patch.openai?.voiceEn, current.openai.voiceEn),
+            voiceKo: trimmedOrFallback(patch.openai?.voiceKo, current.openai.voiceKo),
+            apiKeyEncrypted: String(patch.openai?.apiKey || "").trim()
+              ? this.encryptSecret(String(patch.openai.apiKey).trim())
+              : current.openai.apiKeyEncrypted
+          },
+          gemini: {
+            model: trimmedOrFallback(patch.gemini?.model, current.gemini.model),
+            voiceEn: trimmedOrFallback(patch.gemini?.voiceEn, current.gemini.voiceEn),
+            voiceKo: trimmedOrFallback(patch.gemini?.voiceKo, current.gemini.voiceKo),
+            apiKeyEncrypted: String(patch.gemini?.apiKey || "").trim()
+              ? this.encryptSecret(String(patch.gemini.apiKey).trim())
+              : current.gemini.apiKeyEncrypted
+          },
+          google: {
+            credentialsPath: patch.google?.credentialsPath !== undefined
+              ? String(patch.google.credentialsPath || "").trim()
+              : current.google.credentialsPath
+          }
         }
-      }
+      });
     });
-
-    this.cache = next;
-    await this.writeCache();
     return this.getTtsSettingsView();
   }
 
@@ -668,11 +676,18 @@ class SettingsStore {
   }
 
   async updateGeminiApiKey(key = "") {
-    const encrypted = this.encryptSecret(String(key).trim());
-    this.cache.geminiApiKeyEncrypted = encrypted;
-    this.cache.conversationModel = this.cache.conversationModel || createDefaultSettings().conversationModel;
-    this.cache.conversationModel.gemini.apiKeyEncrypted = encrypted;
-    await this.writeCache();
+    await this.updateCache(() => {
+      const encrypted = this.encryptSecret(String(key).trim());
+      const conversation = this.cache.conversationModel || createDefaultSettings().conversationModel;
+      return {
+        ...this.cache,
+        geminiApiKeyEncrypted: encrypted,
+        conversationModel: {
+          ...conversation,
+          gemini: { ...conversation.gemini, apiKeyEncrypted: encrypted }
+        }
+      };
+    });
     return { success: true };
   }
 }
