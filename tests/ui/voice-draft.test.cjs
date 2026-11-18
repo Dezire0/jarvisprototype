@@ -64,7 +64,15 @@ test("voice preserves drafts, stays in its thread, and submits from an empty com
     const composer = page.getByRole("textbox", { name: "Message input" });
     const start = page.getByRole("button", { name: "Start voice input", exact: true });
     const stop = page.getByRole("button", { name: "Stop voice input", exact: true });
-    const continuous = page.getByRole("button", { name: "Start continuous voice", exact: true });
+    const options = page.getByRole("button", { name: "Voice options", exact: true });
+    const stopContinuous = page.getByRole("button", { name: "Stop continuous voice", exact: true });
+    async function startContinuous() {
+      await options.click();
+      const dialog = page.getByRole("dialog", { name: "Voice options", exact: true });
+      await dialog.getByRole("button", { name: "Start continuous voice", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      await stopContinuous.waitFor();
+    }
     const deliver = (index, text, repeats = 1) => page.evaluate(
       ({ index, text, repeats }) => window.jarvisVoiceFixture.deliver(index, text, repeats), { index, text, repeats },
     );
@@ -105,13 +113,12 @@ test("voice preserves drafts, stays in its thread, and submits from an empty com
     await waitForDraft("");
     assert.equal(chatRequests, 0);
 
-    await continuous.click();
-    await stop.waitFor();
+    await startContinuous();
     await deliver(3, "Set a timer for 3 minutes", 2);
     await page.getByText("Timer started", { exact: true }).waitFor();
     await page.waitForFunction(() => window.jarvisVoiceFixture.started === 5);
     assert.equal(chatRequests, 0);
-    await page.getByRole("button", { name: "Stop continuous voice" }).click();
+    await stopContinuous.click();
     await start.waitFor();
 
     await start.click();
@@ -120,13 +127,12 @@ test("voice preserves drafts, stays in its thread, and submits from an empty com
     await page.getByText("A fixture answer", { exact: true }).waitFor();
     assert.equal(chatRequests, 1);
 
-    await continuous.click();
-    await stop.waitFor();
+    await startContinuous();
     await page.getByRole("button", { name: "Toggle sidebar" }).click();
     await page.getByRole("button", { name: "New Chat", exact: true }).click();
     await page.getByRole("heading", { name: "What would you like to do?" }).waitFor();
     await start.waitFor();
-    await continuous.waitFor();
+    await options.waitFor();
     await composer.fill("Destination draft");
     await deliver(6, "note: stale command");
     await waitForDraft("Destination draft");

@@ -59,9 +59,10 @@ test("wake listening requires a chosen recognizer and routes only the following 
     await page.getByRole("button", { name: "Continue with Free" }).click();
 
     const composer = page.getByRole("textbox", { name: "Message input" });
-    const wake = page.getByRole("button", { name: "Wake word", exact: true });
-    const stop = page.getByRole("button", { name: "Stop wake word", exact: true });
-    const dialog = page.getByRole("dialog", { name: "Wake word", exact: true });
+    const wake = page.getByRole("button", { name: "Voice options", exact: true });
+    const stop = page.getByRole("button", { name: "Stop wake word", exact: true, pressed: true });
+    const dialog = page.getByRole("dialog", { name: "Voice options", exact: true });
+    const choose = dialog.getByRole("button", { name: "Choose wake recognition", exact: true });
     const startDevice = dialog.getByRole("button", { name: "Start on-device listening" });
     const startBrowser = dialog.getByRole("button", { name: "Start with browser recognition" });
     const checkStarts = (count) => page.waitForFunction((count) => window.jarvisWakeFixture.starts.length === count, count);
@@ -70,7 +71,25 @@ test("wake listening requires a chosen recognizer and routes only the following 
       ([index, text, isFinal]) => window.jarvisWakeFixture.deliver(index, text, isFinal), [index, text, isFinal],
     );
 
+    async function openWake() {
+      await wake.click();
+      await choose.click();
+    }
+
+    await composer.fill("Keep the current draft");
     await wake.press("Enter");
+    await choose.press("Enter");
+    await dialog.getByText(/may send microphone audio/).waitFor();
+    await choose.press("Enter");
+    assert.equal(await choose.getAttribute("aria-expanded"), "false");
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Voice options");
+    assert.equal(await composer.inputValue(), "Keep the current draft");
+    assert.deepEqual((await events()).starts, []);
+    await composer.fill("");
+
+    await openWake();
     await dialog.getByText(/may send microphone audio/).waitFor();
     assert.deepEqual((await events()).starts, []);
     await dialog.getByRole("button", { name: "Download on-device language pack" }).press("Enter");
@@ -78,9 +97,11 @@ test("wake listening requires a chosen recognizer and routes only the following 
     assert.deepEqual((await events()).downloads, [{ langs: ["en-US"], processLocally: true }]);
     assert.deepEqual((await events()).starts, []);
     await startDevice.click();
+    await dialog.waitFor({ state: "hidden" });
     await page.getByText("Listening for “Jarvis” on this device").waitFor();
     assert.deepEqual((await events()).starts, [{ locale: "en-US", local: true, continuous: true }]);
     assert.equal(await stop.getAttribute("aria-pressed"), "true");
+    await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Stop wake word");
     await say(0, "An unrelated private sentence");
     await say(0, "I saw Jarvis in a movie");
     await say(0, "Jarvis, message from interim speech", false);
@@ -115,7 +136,7 @@ test("wake listening requires a chosen recognizer and routes only the following 
     await wake.waitFor();
     await composer.fill("");
 
-    await wake.click();
+    await openWake();
     await startDevice.click();
     await checkStarts(5);
     await page.evaluate(() => window.jarvisWakeFixture.fail(4, "language-not-supported"));
@@ -124,7 +145,7 @@ test("wake listening requires a chosen recognizer and routes only the following 
     await page.clock.runFor(550);
     assert.equal((await events()).starts.length, 5);
 
-    await wake.click();
+    await openWake();
     await startBrowser.click();
     await page.getByText("Listening for “Jarvis” with browser recognition").waitFor();
     assert.equal((await events()).starts[5].local, false);
@@ -133,7 +154,7 @@ test("wake listening requires a chosen recognizer and routes only the following 
     await wake.waitFor();
     await say(5, "Jarvis, a stale command");
     assert.deepEqual(chats, ["Tell me something useful"]);
-    await wake.click();
+    await openWake();
     await startBrowser.click();
     await stop.click();
     await wake.waitFor();
