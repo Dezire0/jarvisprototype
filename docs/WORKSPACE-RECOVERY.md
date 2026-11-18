@@ -1,6 +1,8 @@
 # Jarvis workspace recovery
 
-The desktop workspace opens with the conversation composer, voice controls, and shortcuts to Timer, Tasks, and Notes. Each shortcut opens the corresponding tool over the conversation and focuses its first control. Close Local tools to return to the same conversation. Open the sidebar to see threads, projects, and account settings. The interface uses the system typeface, system light/dark preference until a user chooses an appearance, and a visible focus treatment. Local tools also opens from the account screen.
+Jarvis opens to a command field when signed out. Run a timer, add a task, or write a note directly from that screen. The examples fill an empty draft for review and keep existing text. Results and the running timer appear next to the field. The signed-out field uses the existing local tools and does not contact an account or chat service to run these commands. Select **Sign in** to use an account. **Commands** returns to the local draft. **Local tools** opens the full local controls and saved entries.
+
+After sign-in, the desktop workspace opens with a conversation composer, voice controls, and shortcuts to Timer, Tasks, and Notes. Each shortcut opens the corresponding tool over the conversation and focuses its first control. Close Local tools to return to the same conversation. Open the sidebar to see threads, projects, and account settings. The interface uses the system typeface, system light/dark preference until a user chooses an appearance, and a visible focus treatment. Local tools also opens from the account screen.
 
 Use **Command+Shift+Space** on macOS or **Ctrl+Shift+Space** on Windows and Linux to bring Jarvis forward and focus the current command input. **Window → Focus Message Input** is also available from the desktop menu. An open dialog, sign-in, or plan selection keeps its own focus. Bringing an existing window forward preserves its draft and current conversation. On macOS, closing the last window keeps Jarvis available in the menu and by shortcut. Use **Quit Jarvis Desktop** or **Command+Q** to close the app. If you enable the optional floating Quick Panel, the global shortcut opens that panel and the Window menu can still focus the main input.
 
@@ -42,7 +44,7 @@ An exact weather command in the conversation composer opens **Weather** in Local
 
 ## Desktop and API
 
-The first screen offers Local tools immediately. After signing in, use **Computer control** in the workspace toolbar to review, enable, or revoke computer control. Control starts off when a profile first uses this native setting, including profiles that accepted the earlier consent screen. The last saved choice applies to accounts using that desktop profile and survives changes to the app's local address. The Mac Accessibility settings are in the Help menu.
+After signing in, use **Computer control** in the workspace toolbar to review, enable, or revoke computer control. Control starts off when a profile first uses this native setting, including profiles that accepted the earlier consent screen. The last saved choice applies to accounts using that desktop profile and survives changes to the app's local address. The Mac Accessibility settings are in the Help menu.
 
 With control off, the conversation uses a directly connected API model or Ollama and can review files you attach. The planner, direct desktop actions, live previews, and app launcher require computer control. Enabling it preserves existing action confirmations and OS permissions. Turning it off blocks new requests for computer actions and clears pending continuations. Work already underway can finish. Action receipts render the reported outcome and show the hostname for opened pages.
 

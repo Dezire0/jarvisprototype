@@ -69,6 +69,7 @@ test("cloud plan supports keyboard selection, retry, and local tools while signe
     }
 
     await page.goto(url.href);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await signIn();
     const free = page.getByRole("radio", { name: "Free" });
     const pro = page.getByRole("radio", { name: "Pro" });

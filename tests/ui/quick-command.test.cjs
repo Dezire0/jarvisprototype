@@ -52,6 +52,7 @@ test("desktop quick input preserves onboarding, dialogs and the current draft", 
     });
     await page.goto(origin);
     const signal = () => page.evaluate(() => window.invokeQuickInput());
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     const email = page.getByLabel("Email", { exact: true });
     const password = page.getByLabel("Password", { exact: true });
     await email.fill("command@example.invalid");

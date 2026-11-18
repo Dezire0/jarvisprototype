@@ -24,7 +24,7 @@ if (typeof document !== "undefined") {
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LoaderCircleIcon } from "lucide-react";
+import { ArrowLeftIcon, LoaderCircleIcon } from "lucide-react";
 import {
   AUTH_SESSION_CHANGED,
   clearAuthSession,
@@ -38,6 +38,7 @@ import {
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { GoogleSignIn } from "@/components/jarvis/google-sign-in";
 import { LocalToolsLink } from "@/components/jarvis/local-tools-link";
+import { StandaloneLocalTools } from "@/components/jarvis/local-tools";
 import { Assistant } from "./assistant";
 const {
   markPlanConfirmed,
@@ -51,6 +52,7 @@ type OnboardingStep = "loading" | "auth" | "setup" | "ready";
 
 export function OnboardingGate() {
   const [step, setStep] = useState<OnboardingStep>("loading");
+  const [showAuth, setShowAuth] = useState(false);
 
   // Auth state
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -70,6 +72,7 @@ export function OnboardingGate() {
   const [setupLoading, setSetupLoading] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const planHeading = useRef<HTMLHeadingElement>(null);
+  const authHeading = useRef<HTMLHeadingElement>(null);
 
   const isKo =
     typeof navigator !== "undefined" && navigator.language.startsWith("ko");
@@ -113,7 +116,9 @@ export function OnboardingGate() {
 
   useEffect(() => {
     if (step === "setup") planHeading.current?.focus();
-  }, [step]);
+    if (step === "auth" && showAuth) authHeading.current?.focus();
+    if (step === "ready") setShowAuth(false);
+  }, [step, showAuth]);
 
   // Check session on mount. Version tracking is intentionally non-destructive:
   // users should not be logged out just because the desktop/web build updated.
@@ -181,6 +186,7 @@ export function OnboardingGate() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, name: name.trim() || undefined }),
+        signal: AbortSignal.timeout(15000),
       });
 
       const data = (await res.json()) as any;
@@ -197,6 +203,7 @@ export function OnboardingGate() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
+          signal: AbortSignal.timeout(15000),
         });
         const ld = await lr.json() as any;
         token = ld.token;
@@ -236,6 +243,7 @@ export function OnboardingGate() {
       if (!session.token || !session.user) {
         await clearAuthSession();
         setAuthError(t("다시 로그인해 주세요.", "Please sign in again."));
+        setShowAuth(true);
         setStep("auth");
         return;
       }
@@ -251,6 +259,7 @@ export function OnboardingGate() {
       if (response.status === 401) {
         await clearAuthSession();
         setAuthError(t("세션이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again."));
+        setShowAuth(true);
         setStep("auth");
         return;
       }
@@ -285,10 +294,15 @@ export function OnboardingGate() {
     return <Assistant />;
   }
 
-  return (
+  const accountView = (
     <div className="jarvis-auth-shell">
       <header className="jarvis-toolbar">
-        <span className="font-semibold">Jarvis</span>
+        {step === "auth" ? (
+          <button type="button" className="jarvis-toolbar-link" disabled={authLoading || googleBusy} onClick={() => setShowAuth(false)}>
+            <ArrowLeftIcon size={16} aria-hidden="true" />
+            {t("명령 화면", "Commands")}
+          </button>
+        ) : <span className="font-semibold">Jarvis</span>}
         <div className="flex items-center gap-1">
           <LocalToolsLink />
           <ThemeToggle />
@@ -296,7 +310,7 @@ export function OnboardingGate() {
       </header>
       {step === "auth" ? (
         <main className="jarvis-auth-panel">
-          <h1 className="mb-5">{mode === "login" ? t("로그인", "Sign in") : t("회원가입", "Create account")}</h1>
+          <h1 ref={authHeading} tabIndex={-1} className="mb-5 outline-none">{mode === "login" ? t("로그인", "Sign in") : t("회원가입", "Create account")}</h1>
           <form onSubmit={handleAuth} className="flex flex-col gap-3">
             {mode === "register" && (
               <label className="jarvis-auth-field">
@@ -391,5 +405,16 @@ export function OnboardingGate() {
         </main>
       )}
     </div>
+  );
+
+  if (step === "setup") return accountView;
+
+  return (
+    <>
+      <div hidden={showAuth}>
+        <StandaloneLocalTools start={{ active: !showAuth, onSignIn: () => setShowAuth(true) }} />
+      </div>
+      {showAuth && accountView}
+    </>
   );
 }
