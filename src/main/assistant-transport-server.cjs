@@ -2,6 +2,7 @@ const http = require("node:http");
 const { SESSION_HEADER, isDesktopSessionToken, matchesDesktopToken } = require("./desktop-session.cjs");
 const { normalizeMemoryAccountId } = require("./memory-store.cjs");
 const { normalizeFileName, parseAssistantInput } = require("./assistant/chat-attachments.cjs");
+const { parseLocalFileRead } = require("./assistant/local-file-command.cjs");
 const { normalizeMemorySources } = require("./assistant/memory-context.cjs");
 const { maxFiles } = require("./assistant/attachment-contract.json");
 
@@ -306,6 +307,8 @@ function createAssistantTransportServer({
     const state = normalizeState(payload?.state);
     const { text: userText, attachments } = input;
     const attachmentReview = attachments.length > 0;
+    const localFileRead = !attachmentReview && Boolean(parseLocalFileRead(userText));
+    const fileReview = attachmentReview || localFileRead;
     const memoryContext = normalizeMemoryContext(payload?.memoryContext, threadId);
 
     if (!userText && !attachmentReview) {
@@ -332,9 +335,9 @@ function createAssistantTransportServer({
       createdAt: new Date().toISOString(),
       status: "running",
       provider: "",
-      attachmentReview,
+      attachmentReview: fileReview,
       actions: [],
-      details: attachmentReview || computerControl?.enabled === false ? null : buildRunningMessageDetails(userText)
+      details: fileReview || computerControl?.enabled === false ? null : buildRunningMessageDetails(userText)
     };
     const nextState = {
       messages: [
@@ -346,7 +349,7 @@ function createAssistantTransportServer({
           createdAt: new Date().toISOString(),
           status: "complete",
           provider: "",
-          attachmentReview,
+          attachmentReview: fileReview,
           attachmentNames: attachments.map((file) => file.name),
           details: null
         },
@@ -359,7 +362,7 @@ function createAssistantTransportServer({
     writeStateSet(res, nextState);
 
     try {
-      if (!attachmentReview && typeof assistant?.setSessionContext === "function") {
+      if (!fileReview && typeof assistant?.setSessionContext === "function") {
         await assistant.setSessionContext({
           ...memoryContext,
           stateMessages: state.messages.filter((message) => !message.attachmentReview)
@@ -387,7 +390,7 @@ function createAssistantTransportServer({
       writeStateField(res, assistantMessageIndex, "provider", provider);
       writeStateField(res, assistantMessageIndex, "actions", attachmentReview ? [] : result.actions || []);
       writeStateField(res, assistantMessageIndex, "details", attachmentReview ? null : result.details || null);
-      if (!attachmentReview && memoryContext.memoryMode !== "temporary") {
+      if (!fileReview && memoryContext.memoryMode !== "temporary") {
         const sources = normalizeMemorySources(result?.memorySources);
         if (sources.length) writeStateField(res, assistantMessageIndex, "memorySources", sources);
       }

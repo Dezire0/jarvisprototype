@@ -77,7 +77,9 @@ type SensitiveConfirmationDetails = {
   targetLabel?: string;
 };
 
+type LocalFilePreview = { name: string; text: string; truncated: boolean };
 type AssistantResultDetails = {
+  filePreview?: LocalFilePreview | null;
   credentialPrompt?: CredentialPromptDetails | null;
   verificationPrompt?: VerificationPromptDetails | null;
   sensitiveConfirmation?: SensitiveConfirmationDetails | null;
@@ -630,6 +632,7 @@ const AssistantResultPrompts: FC = () => {
   }
 
   const hasPrompt =
+    details.filePreview ||
     details.credentialPrompt ||
     details.verificationPrompt ||
     details.sensitiveConfirmation;
@@ -640,6 +643,7 @@ const AssistantResultPrompts: FC = () => {
 
   return (
     <div className="mt-4 flex flex-col gap-3">
+      {details.filePreview && <FilePreview preview={details.filePreview} />}
       {details.credentialPrompt ? (
         <CredentialPromptCard prompt={details.credentialPrompt} />
       ) : null}
@@ -652,6 +656,27 @@ const AssistantResultPrompts: FC = () => {
     </div>
   );
 };
+
+function FilePreview({ preview }: { preview: LocalFilePreview }) {
+  const isKo = useKorean();
+  if (typeof preview.name !== "string" || typeof preview.text !== "string") return null;
+
+  return (
+    <details className="jarvis-file-preview">
+      <summary>
+        {isKo ? "파일 미리보기" : "File preview"} <span>{preview.name}</span>
+      </summary>
+      {preview.truncated === true && (
+        <p className="jarvis-result-detail">{isKo ? "처음 16KiB까지 표시합니다." : "Showing up to the first 16 KiB."}</p>
+      )}
+      {preview.text ? (
+        <pre tabIndex={0} aria-label={isKo ? "파일 내용" : "File content"}>{preview.text}</pre>
+      ) : (
+        <p className="jarvis-result-detail">{isKo ? "빈 파일입니다." : "This file is empty."}</p>
+      )}
+    </details>
+  );
+}
 
 const CredentialPromptCard: FC<{ prompt: CredentialPromptDetails }> = ({ prompt }) => {
   const [username, setUsername] = useState("");
@@ -911,6 +936,7 @@ const ACTION_LABELS: Record<string, [string, string]> = {
   app_key: ["키보드 입력", "Send keyboard shortcut"],
   app_type: ["텍스트 입력", "Enter text"],
   app_menu_click: ["메뉴 선택", "Choose menu item"],
+  file_read: ["파일 읽기", "Read file"],
 };
 
 const ACTION_STATES: Record<string, [string, string]> = {
@@ -962,6 +988,9 @@ function ExecutionReceipt({ args, fallback }: { args: unknown; fallback: React.R
 const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onOpenModelSettings }) => {
   const isKo = useKorean();
   const attachmentReview = useAuiState((state) => state.message.metadata.custom?.attachmentReview === true);
+  const hasFilePreview = useAuiState((state) => Boolean(
+    (state.message.metadata.custom?.details as AssistantResultDetails | null)?.filePreview,
+  ));
   const provider = useAuiState((state) => state.message.metadata.custom?.provider);
   const memorySources = useAuiState((state) => state.message.metadata.custom?.memorySources);
   const memoryLabel = formatMemorySources(memorySources, isKo);
@@ -991,6 +1020,7 @@ const AssistantMessage: FC<{ onOpenModelSettings?: OpenModelSettings }> = ({ onO
                 return <Reasoning {...part} />;
               }
               if (part.type === "tool-call") {
+                if (hasFilePreview && part.toolName === "file_read") return null;
                 return part.toolUI ?? <ExecutionReceipt args={part.args} fallback={<ToolFallback {...part} />} />;
               }
               return null;

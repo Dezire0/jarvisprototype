@@ -496,9 +496,10 @@ function renderCurrentThread() {
     appendMessageThinking(body, message);
     appendMessagePreview(body, message);
 
-    if (message.detail) {
+    const detail = message.filePreviewText ?? message.detail;
+    if (detail) {
       const detailBlock = document.createElement("pre");
-      detailBlock.textContent = message.detail;
+      detailBlock.textContent = detail;
       body.appendChild(detailBlock);
     }
 
@@ -582,6 +583,7 @@ function startAssistantProgress(messageId, input) {
   stopAssistantProgress();
 
   const steps = buildAssistantProgressSteps(input);
+  const showLivePreview = !/^(?:(?:read|open)[ \t]+file[ \t]+|파일[ \t]+)/i.test(input);
   state.liveTaskMessageId = messageId;
 
   updateMessage(messageId, {
@@ -591,7 +593,7 @@ function startAssistantProgress(messageId, input) {
     progressLabel: steps[0] || "작업을 준비하는 중"
   });
 
-  void refreshLivePreviewForMessage(messageId);
+  if (showLivePreview) void refreshLivePreviewForMessage(messageId);
 
   state.liveTaskTimer = window.setInterval(() => {
     const thread = getCurrentThread();
@@ -612,7 +614,7 @@ function startAssistantProgress(messageId, input) {
       progressLabel: currentSteps[nextIndex] || message.progressLabel || "실행 결과를 다시 확인하는 중"
     });
 
-    void refreshLivePreviewForMessage(messageId);
+    if (showLivePreview) void refreshLivePreviewForMessage(messageId);
   }, 2200);
 }
 
@@ -2084,6 +2086,7 @@ function stripWakeWord(text, wakeWord) {
 }
 
 async function handleAssistantResult(result, pendingMessageId = "") {
+  const filePreviewText = result.details?.filePreview?.text;
   const previewText = result.details?.showInlinePreview === true
     ? result.details?.ocrText || result.details?.text || result.details?.content || ""
     : "";
@@ -2093,6 +2096,7 @@ async function handleAssistantResult(result, pendingMessageId = "") {
       status: "done",
       content: result.reply || "처리를 마쳤어요.",
       detail: previewText,
+      filePreviewText,
       progressLabel: "",
       progressSteps: [],
       progressStepIndex: 0
@@ -2102,7 +2106,8 @@ async function handleAssistantResult(result, pendingMessageId = "") {
     addMessage(
       "assistant",
       result.reply || "처리를 마쳤어요.",
-      previewText
+      previewText,
+      { filePreviewText }
     );
   }
 

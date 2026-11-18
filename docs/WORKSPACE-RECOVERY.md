@@ -82,6 +82,10 @@ The proxy preserves streaming and reports HTTP 503 if the local Assistant is una
 
 The desktop transport shows one message timeline. Chat supports copying assistant replies and exporting Markdown. If a send fails or a response stops before finishing, select **Restore draft** to put the submitted text back in the composer for review. If you're already editing a draft, clear it first. Select attachments again before submitting a recovered request. Restoration does not send the text, and interrupted turns are excluded from the saved transcript.
 
+### Previewing a local file
+
+With desktop computer control enabled, an exact command such as `read file "/path/to/meeting notes.txt"` or `파일 "/경로/회의 메모.txt" 읽어줘` opens a local file preview under the reply. Expand it to read up to the first 16 KiB of a regular UTF-8 file. This preview does not use a model or add a document to memory. Its contents stay in the live workspace and are excluded from the saved transcript and later model requests. Like attachment review, conversations containing a path preview stay out of cloud conversation sync. The local transcript can retain the command and the receipt. For AI analysis, attach the file explicitly.
+
 ### Reviewing attached files
 
 Use **Add Attachment** or drop files into the conversation composer. The composer shows a filename for each selected file. You can preview an image or remove a file before pressing send. Voice input places the transcription in the draft when attachments are present so you can review the submission.
