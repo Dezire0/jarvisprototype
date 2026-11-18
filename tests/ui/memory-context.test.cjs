@@ -75,6 +75,7 @@ test("memory categories are visible on the corresponding answer and saved only i
       };
     }, historyKey);
     await page.goto(url.href);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByLabel("Email", { exact: true }).fill("memory@example.invalid");
     await page.getByLabel("Password", { exact: true }).fill("fixture-password");
     await page.getByRole("button", { name: "Continue with Email" }).click();

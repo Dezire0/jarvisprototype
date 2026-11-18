@@ -2,7 +2,7 @@
 
 import {
   ArrowLeftIcon, ArrowUpIcon, ArrowUpRightIcon, ClockIcon,
-  PlusIcon, RotateCcwIcon, Trash2Icon, Volume2Icon,
+  ListTodoIcon, PlusIcon, RotateCcwIcon, StickyNoteIcon, Trash2Icon, Volume2Icon,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/local-workspace";
 
 type Receipt = Result & { timerDeadline?: number };
+type LocalStart = { active: boolean; onSignIn: () => void };
 export type ToolSection = "timer" | "tasks" | "notes" | "weather" | "activity" | "command" | "diagnostics";
 
 export function TimerCompletionNotice({ onOpen }: {
@@ -41,15 +42,16 @@ export function TimerCompletionNotice({ onOpen }: {
   );
 }
 
-export function StandaloneLocalTools() {
+export function StandaloneLocalTools({ start }: { start?: LocalStart }) {
   const local = useLocalWorkspace();
-  return <LocalTools local={local} />;
+  return <LocalTools local={local} start={start} />;
 }
 
-export function LocalTools({ local, embedded = false, initialSection }: {
+export function LocalTools({ local, embedded = false, initialSection, start }: {
   local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: Exclude<ToolSection, "weather">;
+  start?: LocalStart;
 }) {
   const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
@@ -64,6 +66,8 @@ export function LocalTools({ local, embedded = false, initialSection }: {
   const requestCounter = useRef(0);
   const ko = locale.startsWith("ko");
   const t = (korean: string, english: string) => ko ? korean : english;
+  const isStart = Boolean(start);
+  const active = start?.active ?? true;
 
   useEffect(() => {
     setVoiceAvailable("speechSynthesis" in window);
@@ -72,28 +76,43 @@ export function LocalTools({ local, embedded = false, initialSection }: {
   }, []);
 
   useEffect(() => {
-    if (!workspaceReady) return;
+    if (!workspaceReady || !active) return;
 
     const section = initialSection && toolsRef.current?.querySelector(`[data-tool-section="${initialSection}"]`);
     const control = section ? section.querySelector<HTMLElement>("[data-tool-focus]") : inputRef.current;
     control?.focus();
-  }, [initialSection, workspaceReady]);
+  }, [active, initialSection, workspaceReady]);
 
   useEffect(() => {
-    function keydown(event: KeyboardEvent) {
-      if (inputRef.current && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
+    if (!active) return;
+    function focusCommand() {
+      if (!document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) {
         inputRef.current?.focus();
       }
     }
 
+    function keydown(event: KeyboardEvent) {
+      if (inputRef.current && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        focusCommand();
+      }
+    }
+
     window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
-  }, []);
+    const unsubscribe = isStart ? window.assistantAPI?.onFocusCommandInput?.(focusCommand) : undefined;
+    return () => {
+      window.removeEventListener("keydown", keydown);
+      unsubscribe?.();
+    };
+  }, [active, isStart]);
 
   const remaining = remainingSeconds(workspace.timer, now);
   const timerRunning = workspace.timer.endsAt !== null && remaining > 0;
   const timerFinished = workspace.timer.completedAt !== undefined;
+  const timerPaused = workspace.timer.endsAt === null && !timerFinished && (
+    workspace.timer.remaining < workspace.timer.seconds ||
+    workspace.activity.find(({ kind }) => kind === "timer" || kind === "pause" || kind === "reset")?.kind === "pause"
+  );
   const receipt = lastReceipt?.timerDeadline !== undefined && lastReceipt.timerDeadline !== workspace.timer.endsAt
     ? null
     : lastReceipt;
@@ -138,7 +157,7 @@ export function LocalTools({ local, embedded = false, initialSection }: {
     }
   }
 
-  function execute(action: LocalCommand) {
+  function execute(action: LocalCommand, onSaveFailure?: () => void) {
     if (action.kind === "clear") {
       requestCounter.current++;
       setReceipt(null);
@@ -159,17 +178,33 @@ export function LocalTools({ local, embedded = false, initialSection }: {
       void diagnose(result.result.title);
       return;
     }
-    if (result.workspace !== current) saveWorkspace(result.workspace);
-    if (result.workspace.speakResults && voiceAvailable && !result.result.failed) {
-      speakLocalResult(result.result.title, locale);
-    } else if (action.kind === "speech" && voiceAvailable) {
-      window.speechSynthesis.cancel();
-    }
     setNow(timestamp);
     const timerDeadline = (action.kind === "timer" || action.kind === "resume") && !result.result.failed
       ? result.workspace.timer.endsAt ?? undefined
       : undefined;
-    showReceipt({ ...result.result, timerDeadline });
+    function finish() {
+      if (result.workspace.speakResults && voiceAvailable && !result.result.failed) {
+        speakLocalResult(result.result.title, locale);
+      } else if (action.kind === "speech" && voiceAvailable) {
+        window.speechSynthesis.cancel();
+      }
+      showReceipt({ ...result.result, timerDeadline });
+    }
+    if (result.workspace === current) {
+      finish();
+      return;
+    }
+    showReceipt({ title: t("기기에 저장하는 중…", "Saving on this device…") });
+    const request = requestCounter.current;
+    void saveWorkspace(result.workspace, current).then((saved) => {
+      if (request !== requestCounter.current) return;
+      if (saved) {
+        finish();
+      } else {
+        onSaveFailure?.();
+        showReceipt({ title: t("기기에 저장하지 못했습니다", "Couldn’t save on this device"), failed: true });
+      }
+    });
   }
 
   function submit(event: FormEvent) {
@@ -179,12 +214,14 @@ export function LocalTools({ local, embedded = false, initialSection }: {
     if (!action) {
       showReceipt({
         title: t("이 로컬 명령을 이해하지 못했어요", "This local command wasn’t recognized"),
-        detail: t("“도움말”로 지원 명령을 보거나 대화 화면에서 질문하세요.", "Type “help” for supported commands, or open chat to ask a question."),
+        detail: start
+          ? t("“도움말”로 지원 명령을 보거나 로그인해 대화하세요.", "Type “help” for supported commands or sign in to chat.")
+          : t("“도움말”로 지원 명령을 보거나 대화 화면에서 질문하세요.", "Type “help” for supported commands, or open chat to ask a question."),
         failed: true,
       });
       return;
     }
-    execute(action);
+    execute(action, () => setCommand((draft) => draft || command));
     setCommand("");
   }
 
@@ -222,7 +259,14 @@ export function LocalTools({ local, embedded = false, initialSection }: {
     setReceipt({ title: kind === "tasks" ? t("할 일 삭제", "Task deleted") : t("메모 삭제", "Note deleted"), detail: entry.text });
   }
 
-  const show = (section: ToolSection) => !embedded || initialSection === section;
+  const show = (section: ToolSection) => start
+    ? section === "command"
+    : !embedded || initialSection === section;
+
+  function fillExample(example: string) {
+    if (!command.trim()) setCommand(example);
+    inputRef.current?.focus();
+  }
   const activityContent = workspace.activity.length ? (
     <>
       <ol>
@@ -249,16 +293,28 @@ export function LocalTools({ local, embedded = false, initialSection }: {
   ) : <p className="jarvis-result-detail" role="status">{t("기록된 활동이 없습니다.", "No activity yet.")}</p>;
 
   return (
-    <div className="jarvis-local" data-embedded={embedded || undefined}>
-      {!embedded && <header className="jarvis-toolbar">
+    <div className="jarvis-local" data-embedded={embedded || undefined} data-start={isStart || undefined}>
+      {start ? <header className="jarvis-toolbar">
+        <span className="font-semibold">Jarvis</span>
+        <div className="flex items-center gap-1">
+          <Link href="/tools" className="jarvis-toolbar-link">{t("로컬 도구", "Local tools")}</Link>
+          <ThemeToggle />
+          <button type="button" className="jarvis-toolbar-link jarvis-start-sign-in" onClick={start.onSignIn}>
+            {t("로그인", "Sign in")}
+          </button>
+        </div>
+      </header> : !embedded && <header className="jarvis-toolbar">
         <Link href="/" className="jarvis-toolbar-link">
           <ArrowLeftIcon size={16} aria-hidden="true" />
-          {t("대화 및 계정", "Chat and account")}
+          {t("작업 공간", "Workspace")}
         </Link>
         <ThemeToggle />
       </header>}
       <div className="jarvis-local-content" role={embedded ? undefined : "main"}>
-        {!embedded && <h1>{t("로컬 도구", "Local tools")}</h1>}
+        {start ? <div className="jarvis-start">
+          <h1>{t("무엇을 할까요?", "What would you like to do?")}</h1>
+          <p className="jarvis-result-detail">{t("명령을 이 기기에서 실행합니다.", "Run commands on this device.")}</p>
+        </div> : !embedded && <h1>{t("로컬 도구", "Local tools")}</h1>}
         {timerFinished && show("timer") && <TimerCompletionNotice />}
         <fieldset ref={toolsRef} className="min-w-0" disabled={!workspaceReady || local.clearingData}>
         {show("command") && <form className="jarvis-local-command" onSubmit={submit}>
@@ -270,7 +326,7 @@ export function LocalTools({ local, embedded = false, initialSection }: {
             <ArrowUpIcon size={18} />
           </button>
         </form>}
-        {!embedded && <div className="flex flex-wrap gap-1">
+        {!embedded && !start && <div className="flex flex-wrap gap-1">
           <button type="button" className="jarvis-toolbar-link"
             onClick={() => execute({ kind: "diagnostics" })}>
             {t("시스템 진단", "Diagnostics")}
@@ -305,7 +361,7 @@ export function LocalTools({ local, embedded = false, initialSection }: {
         {weatherOpen && <WeatherPanel canUseBrowserLocation={!nativeStorage} />}
         {receipt && (
           <div className="jarvis-local-result" data-error={receipt.failed || undefined}>
-            <div role="status">
+            <div role={receipt.failed ? "alert" : "status"}>
               <p className="font-semibold">{receipt.title}</p>
               {receipt.detail && <p className="jarvis-result-detail">{receipt.detail}</p>}
             </div>
@@ -332,6 +388,31 @@ export function LocalTools({ local, embedded = false, initialSection }: {
             </div>
           </div>
         )}
+        {start && <div className="jarvis-start-actions items-center" role="group" aria-label={t("명령 예시", "Example commands")}>
+          <button type="button" className="jarvis-secondary-button"
+            onClick={() => fillExample(t("3분 타이머 맞춰줘", "Set a timer for 3 minutes"))}>
+            <ClockIcon size={16} aria-hidden="true" />{t("3분 타이머", "3-minute timer")}
+          </button>
+          <button type="button" className="jarvis-secondary-button"
+            onClick={() => fillExample(t("할 일 추가 ", "Add task "))}>
+            <ListTodoIcon size={16} aria-hidden="true" />{t("할 일 추가", "Add task")}
+          </button>
+          <button type="button" className="jarvis-secondary-button"
+            onClick={() => fillExample(t("메모 ", "Note "))}>
+            <StickyNoteIcon size={16} aria-hidden="true" />{t("메모 쓰기", "Write a note")}
+          </button>
+        </div>}
+        {start && (timerRunning || timerPaused) && (
+          <div className="jarvis-start-timer">
+            <span>{t("타이머", "Timer")}</span>
+            <span role="timer" aria-live="off">{formatTimer(remaining)}</span>
+            <button type="button" className="jarvis-toolbar-link"
+              onClick={() => execute({ kind: timerPaused ? "resume" : "pause" })}>
+              {timerPaused ? t("재개", "Resume") : t("일시 정지", "Pause")}
+            </button>
+          </div>
+        )}
+        {start && timerFinished && <TimerCompletionNotice />}
         {!storageAvailable && <p role="alert" className="jarvis-result-detail">{t("변경사항을 저장하지 못했습니다. 창을 닫기 전에 필요한 내용을 복사하세요.", "Changes could not be saved. Copy anything you need before closing this window.")}</p>}
         {show("timer") && <section className="jarvis-tool-section" data-tool-section="timer" aria-labelledby={embedded ? undefined : "jarvis-timer"}>
           <div className="jarvis-timer-layout">

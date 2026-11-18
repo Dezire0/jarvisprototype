@@ -472,6 +472,28 @@
   padding-block: clamp(1.75rem, 8dvh, 4rem) 3rem;
 }
 
+.jarvis-local[data-start] .jarvis-local-content {
+  width: min(100% - 2rem, 46rem);
+  padding-top: clamp(2rem, 12dvh, 6rem);
+}
+
+.jarvis-start-sign-in {
+  border: 1px solid var(--jarvis-control-border);
+  background: var(--jarvis-control);
+}
+
+.jarvis-start-timer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .5rem;
+  margin-top: 1.25rem;
+  padding-block: .25rem;
+  border-block: 1px solid var(--border);
+  font-size: .875rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .jarvis-local-command {
   display: flex;
   align-items: center;

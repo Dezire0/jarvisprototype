@@ -51,6 +51,7 @@ test("game commands prefill the chosen store and leave lookup and install to exp
       };
     });
     await page.goto(url.href);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByLabel("Email", { exact: true }).fill("games@example.invalid");
     await page.getByLabel("Password", { exact: true }).fill("fixture-password");
     await page.getByRole("button", { name: "Continue with Email" }).click();

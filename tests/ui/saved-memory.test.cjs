@@ -71,6 +71,7 @@ test("saved memory previews belong to the signed-in account and clear only after
       };
     });
     await page.goto(origin);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByLabel("Email", { exact: true }).fill("memory@example.invalid");
     await page.getByLabel("Password", { exact: true }).fill("fixture-password");
     await page.getByRole("button", { name: "Continue with Email" }).click();
