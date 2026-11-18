@@ -44,7 +44,7 @@ export function StandaloneLocalTools() {
   return <LocalTools local={local} />;
 }
 
-export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject, onOpenGames, onOpenSpotify }: {
+export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject, onOpenGames, onOpenSpotify, onOpenApps }: {
   local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: Exclude<ToolSection, "weather">;
@@ -55,6 +55,7 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
   onCreateProject?: () => void;
   onOpenGames?: () => void;
   onOpenSpotify?: () => void;
+  onOpenApps?: () => void;
 }) {
   const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
@@ -273,6 +274,9 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
           </button>}
           {onOpenGames && <button type="button" className="jarvis-toolbar-link" onClick={onOpenGames}>
             {t("게임", "Games")}
+          </button>}
+          {onOpenApps && <button type="button" className="jarvis-toolbar-link" onClick={onOpenApps}>
+            {t("앱", "Apps")}
           </button>}
           {onOpenSpotify && <button type="button" className="jarvis-toolbar-link" onClick={onOpenSpotify}>Spotify</button>}
           {onOpenObs && <button type="button" className="jarvis-toolbar-link" onClick={onOpenObs}>OBS</button>}

@@ -110,6 +110,14 @@ With Computer control enabled, open **Local tools → OBS** or enter `OBS status
 
 **Start broadcast** and **Stop broadcast** open a system confirmation with the server and current scene. If OBS or the desktop permission changes during confirmation, review the current state before trying again. The panel displays the reported state after the request and can refresh if OBS is still starting or stopping. Direct OBS controls keep credentials and requests in the desktop app. The legacy controls use the same approval.
 
+### Finding installed apps
+
+In Jarvis Desktop, open **Local tools → Apps** or enter `installed apps` or `설치된 앱 목록`. Use `find app TextEdit` or `앱 찾기 TextEdit` to search by name. With Computer control enabled, the macOS catalog reads known application folders and Spotlight. Each result shows the installed bundle's location so you can distinguish copies of the same app. **Refresh catalog** scans again after apps are added, removed, or moved.
+
+Choose **Open** on a result to send its precise path to macOS. Search again if the app was moved, replaced, or its bundle metadata changed. Direct app requests that encounter same-name results can guide you to this picker. The status reports the OS request. On Windows and Linux the picker shows that their catalog is unavailable.
+
+The desktop `apps:catalog` tool returns an opaque result ID and a catalog revision. `apps:open-selected` uses those values and rechecks the chosen bundle. The local picker never attaches the catalog to a conversation.
+
 ### Searching and controlling Spotify
 
 With Computer control enabled, open **Local tools → Spotify** or enter `Spotify controls` or `스포티파이`. A command such as `Spotify search jazz piano` or `스포티파이 검색 재즈 피아노` fills the input locally. **Search on Spotify** opens the search in the browser. You can also paste a supported Spotify share link or URI and choose **Open link**. [Spotify search](https://support.spotify.com/dm/article/search/) · [Share links and URIs](https://support.spotify.com/pg/article/share-from-spotify/)
@@ -159,6 +167,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | Protocol telemetry, diagnostics and event stream | Local tools and Electron host diagnostics | On-demand host CPU and memory and recent local tool changes are available |
 | Chat, projects, local/cloud history and model settings | Next workspace and Assistant transport | Existing entry points retained. Chat stream, receipt and unavailable-transport flows checked against a local test assistant |
 | File attachments | Composer, local transport, direct model APIs | Selectable PDF text, other text documents and raster images use a bounded model-only review turn |
+| App discovery and explicit bundle launch | macOS app catalog, desktop picker and Electron IPC | Local catalog and selected bundle validation on macOS |
 | macOS/Windows/Linux app operations and browser actions | Electron services and browser runtime | Existing routes retained. Native permissions and real apps/sites require manual verification |
 | Voice recognition, continuous mode and TTS | Voice provider, Electron STT/TTS, Friday | Existing controls retained. Real microphone and provider verification remains open, including [#4](https://github.com/Dezire0/jarvisprototype/issues/4) |
 | OBS connection, status, scenes and broadcast transitions | Desktop OBS panel and Electron OBS WebSocket service | Verified against a loopback protocol fixture. Live OBS and physical confirmation remain to be verified |
