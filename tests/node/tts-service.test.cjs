@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { TtsService } = require("../../src/main/tts-service.cjs");
-const { synthesizeWorkspaceVoice, workspaceVoiceProvider } = require("../../src/main/workspace-voice.cjs");
+const { synthesizeWorkspaceVoice, workspaceVoiceProvider, workspaceAutoReadEngine } = require("../../src/main/workspace-voice.cjs");
 
 function createSettingsStore(overrides = {}) {
   return {
@@ -126,4 +126,31 @@ test("workspace speech uses one named provider and sanitizes failures", async ()
   fail = true;
   assert.deepEqual(await synthesizeWorkspaceVoice(tts, request), { status: "failed" });
   assert.deepEqual(calls, Array(2).fill(["cartesia", { text: request.text, languageCode: "ko-KR" }]));
+});
+
+test("automatic provider speech requires a matching saved opt-in", async () => {
+  const config = { providers: { en: "cartesia", ko: "system" } };
+  const autoRead = { en: "off", ko: "system" };
+  let calls = 0;
+  const tts = {
+    getRuntimeConfig: () => config,
+    async speakWithProvider() {
+      calls++;
+      return { audioContentBase64: "QUJD", mimeType: "audio/wav" };
+    },
+  };
+  const request = { text: "Test speech.", language: "en", provider: "cartesia", automatic: true };
+  assert.deepEqual(await synthesizeWorkspaceVoice(tts, request, autoRead), { status: "settings-changed" });
+  autoRead.en = "system";
+  assert.deepEqual(await synthesizeWorkspaceVoice(tts, request, autoRead), { status: "settings-changed" });
+  assert.deepEqual(await synthesizeWorkspaceVoice(tts, { ...request, provider: "system" }, autoRead), { status: "system" });
+  assert.equal(calls, 0);
+  autoRead.en = "cartesia";
+  assert.equal((await synthesizeWorkspaceVoice(tts, request, autoRead)).status, "audio");
+  config.providers.en = "openai";
+  assert.deepEqual(await synthesizeWorkspaceVoice(tts, { ...request, provider: "openai" }, autoRead), { status: "settings-changed" });
+  assert.equal(calls, 1);
+  assert.equal(workspaceAutoReadEngine("system", "off"), "off");
+  assert.equal(workspaceAutoReadEngine("system", "auto"), "system");
+  assert.equal(workspaceAutoReadEngine("unknown", "unknown"), "off");
 });

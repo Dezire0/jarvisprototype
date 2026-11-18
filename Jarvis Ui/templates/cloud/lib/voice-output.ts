@@ -1,4 +1,5 @@
 import contract from "../../../../src/main/assistant/voice-output.json";
+import { workspaceAutoReadEngine } from "../../../../src/main/workspace-voice.cjs";
 
 export type VoiceLanguage = "en" | "ko";
 export type VoiceEngine = keyof typeof contract.providers;
@@ -14,9 +15,10 @@ export type VoiceSection = "elevenlabs" | "naverClova" | "gemini" | "openai" | "
 export type VoiceOutputSettings = {
   providers: Record<VoiceLanguage, string>;
   systemVoices: Record<VoiceLanguage, string>;
+  autoRead: Record<VoiceLanguage, VoiceEngine>;
 } & Record<VoiceSection, Record<string, string | boolean>>;
 
-export type VoicePayload = { language: VoiceLanguage; provider: VoiceEngine; text: string };
+export type VoicePayload = { language: VoiceLanguage; provider: VoiceEngine; text: string; automatic?: true };
 export type VoiceResponse =
   { status: "audio"; audioBase64: string; mimeType: string } |
   { status: "failed" | "invalid" | "settings-changed" | "muted" | "off" | "system" };
@@ -25,6 +27,9 @@ export function voiceEngine(value?: string): VoiceEngine {
   return voiceEngines.includes(value as VoiceEngine) ? value as VoiceEngine : "system";
 }
 
+export function autoReadEngine(preference: string | undefined, engine: string): VoiceEngine {
+  return workspaceAutoReadEngine(preference, engine) as VoiceEngine;
+}
 export function voiceEngineName(engine: VoiceEngine, ko: boolean) {
   if (engine === "system") return ko ? "기기 음성" : "Device voice";
   if (engine === "off") return ko ? "끄기" : "Off";

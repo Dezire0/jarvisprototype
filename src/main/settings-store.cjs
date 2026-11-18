@@ -1,11 +1,14 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 const { safeStorage } = require("electron");
 const { hasSecureStorage } = require("./secure-storage.cjs");
 const { getOpenAIEndpointOrigin } = require("./openai-endpoint.cjs");
+const { workspaceAutoReadEngine } = require("./workspace-voice.cjs");
 
 const DEFAULT_TTS_SETTINGS = {
   systemVoices: { en: "", ko: "" },
+  autoReadByAccount: {},
   providers: {
     en: "auto",
     ko: "auto"
@@ -103,6 +106,7 @@ function createDefaultSettings() {
     },
     tts: {
       systemVoices: { ...DEFAULT_TTS_SETTINGS.systemVoices },
+      autoReadByAccount: { ...DEFAULT_TTS_SETTINGS.autoReadByAccount },
       providers: {
         ...DEFAULT_TTS_SETTINGS.providers
       },
@@ -202,6 +206,10 @@ class SettingsStore {
   normalize(raw = {}) {
     const defaults = createDefaultSettings();
     const storedTts = raw.tts || {};
+    const ttsProviders = {
+      en: trimmedOrFallback(storedTts.providers?.en, defaults.tts.providers.en),
+      ko: trimmedOrFallback(storedTts.providers?.ko, defaults.tts.providers.ko)
+    };
     const storedConversation = raw.conversationModel || raw.llm || {};
 
     return {
@@ -238,14 +246,17 @@ class SettingsStore {
         }
       },
       tts: {
+        autoReadByAccount: Object.fromEntries(Object.entries(storedTts.autoReadByAccount ?? {})
+          .filter(([key]) => /^[a-f0-9]{64}$/.test(key))
+          .map(([key, preference]) => [key, {
+            en: workspaceAutoReadEngine(preference?.en, ttsProviders.en),
+            ko: workspaceAutoReadEngine(preference?.ko, ttsProviders.ko)
+          }])),
         systemVoices: {
           en: typeof storedTts.systemVoices?.en === "string" ? storedTts.systemVoices.en.slice(0, 512) : "",
           ko: typeof storedTts.systemVoices?.ko === "string" ? storedTts.systemVoices.ko.slice(0, 512) : ""
         },
-        providers: {
-          en: trimmedOrFallback(storedTts.providers?.en, defaults.tts.providers.en),
-          ko: trimmedOrFallback(storedTts.providers?.ko, defaults.tts.providers.ko)
-        },
+        providers: ttsProviders,
         elevenlabs: {
           modelEn: trimmedOrFallback(storedTts.elevenlabs?.modelEn, defaults.tts.elevenlabs.modelEn),
           modelKo: trimmedOrFallback(storedTts.elevenlabs?.modelKo, defaults.tts.elevenlabs.modelKo),
@@ -563,11 +574,17 @@ class SettingsStore {
     return this.getConversationModelSettingsView();
   }
 
-  getTtsSettingsView() {
+  getAutoReadSettings(accountId) {
+    const key = accountId ? createHash("sha256").update(accountId).digest("hex") : "";
+    return { en: "off", ko: "off", ...this.cache.tts.autoReadByAccount[key] };
+  }
+
+  getTtsSettingsView(accountId) {
     const tts = this.getTtsSettings();
 
     return {
       systemVoices: { ...this.cache.tts.systemVoices },
+      autoRead: this.getAutoReadSettings(accountId),
       providers: {
         ...tts.providers
       },
@@ -608,13 +625,19 @@ class SettingsStore {
     };
   }
 
-  async updateTtsSettings(patch = {}) {
+  async updateTtsSettings(patch = {}, accountId) {
     await this.updateCache(() => {
       const current = this.cache.tts || createDefaultSettings().tts;
+      const autoReadByAccount = { ...current.autoReadByAccount };
+      if (accountId && patch.autoRead) {
+        const key = createHash("sha256").update(accountId).digest("hex");
+        autoReadByAccount[key] = { ...autoReadByAccount[key], ...patch.autoRead };
+      }
       return this.normalize({
         ...this.cache,
         version: 1,
         tts: {
+          autoReadByAccount,
           systemVoices: {
             ...current.systemVoices,
             ...patch.systemVoices
@@ -674,7 +697,7 @@ class SettingsStore {
         }
       });
     });
-    return this.getTtsSettingsView();
+    return this.getTtsSettingsView(accountId);
   }
 
   getGeminiApiKey() {

@@ -3,8 +3,11 @@
 import { useAui } from "@assistant-ui/react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
+import { useFinishedReplies } from "@/app/jarvis-runtime-provider";
+import { useWorkspaceLocale } from "@/lib/workspace-language";
 import {
-  deviceVoices, voiceEngine, voiceTextLimit, type VoiceEngine, type VoiceLanguage, type VoiceOutputSettings,
+  autoReadEngine, deviceVoices, voiceEngine, voiceLanguage, voiceTextLimit,
+  type VoiceEngine, type VoiceLanguage, type VoiceOutputSettings,
 } from "@/lib/voice-output";
 
 type Playback = {
@@ -26,7 +29,14 @@ type VoiceOutput = {
 };
 
 const VoiceOutputContext = createContext<VoiceOutput | null>(null);
-type Operation = { id: string; threadId: string; cancel?: () => void };
+type Operation = { id: string; threadId: string; cancel?: () => void; release?: () => void; timeout?: number };
+
+function releasePlayback(operation: Operation | null) {
+  if (!operation) return;
+  window.clearTimeout(operation.timeout);
+  operation.cancel?.();
+  operation.release?.();
+}
 
 export function VoiceOutputProvider({ children }: { children: ReactNode }) {
   const [available, setAvailable] = useState(false);
@@ -37,13 +47,15 @@ export function VoiceOutputProvider({ children }: { children: ReactNode }) {
   const [playback, setPlayback] = useState<Playback | null>(null);
   const active = useRef<Operation | null>(null);
   const voice = useJarvisVoice();
+  const finishedReplies = useFinishedReplies();
+  const locale = useWorkspaceLocale().startsWith("ko") ? "ko" : "en";
   const aui = useAui();
 
   const stop = useCallback((id?: string) => {
     if (!id || active.current?.id === id) {
       const operation = active.current;
       active.current = null;
-      operation?.cancel?.();
+      releasePlayback(operation);
     }
     setPlayback((current) => !id || current?.id === id ? null : current);
   }, []);
@@ -91,9 +103,20 @@ export function VoiceOutputProvider({ children }: { children: ReactNode }) {
     const operation = active.current;
     if (operation && operation.threadId !== aui.threads().getState().mainThreadId) stop();
   }), [aui, stop]);
+  const onMicrophoneStart = voice.onMicrophoneStart;
+  useEffect(() => onMicrophoneStart(() => stop()), [onMicrophoneStart, stop]);
+
   useEffect(() => {
-    if (voice.status === "starting" || voice.status === "listening") stop();
-  }, [voice.status, stop]);
+    if (!finishedReplies || !settings || muted) return;
+    const readReply = ({ threadId, id, text }: { threadId: string; id: string; text: string }) => {
+      if (document.hidden || threadId !== aui.threads().getState().mainThreadId) return;
+      const language = voiceLanguage(text, locale);
+      const engine = autoReadEngine(settings.autoRead?.[language], settings.providers[language]);
+      if (engine !== "off") void play(id, text, language, engine, true);
+    };
+    finishedReplies.add(readReply);
+    return () => { finishedReplies.delete(readReply); };
+  });
 
   async function save(draft: VoiceOutputSettings) {
     const write = window.assistantAPI?.saveTtsSettings;
@@ -120,19 +143,30 @@ export function VoiceOutputProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function play(id: string, rawText: string, language: VoiceLanguage, engine: VoiceEngine) {
+  async function play(id: string, rawText: string, language: VoiceLanguage, engine: VoiceEngine, automatic = false) {
     const text = rawText.trim().slice(0, voiceTextLimit).replace(/[\uD800-\uDBFF]$/, "");
-    if (!settings || !text) return;
+    if (!settings || !text || (automatic && active.current && !active.current.release)) return;
     stop();
-    voice.stop();
-    const operation: Operation = { id, threadId: aui.threads().getState().mainThreadId };
+    const release = automatic ? voice.beginReplyAudio() : undefined;
+    if (release === null) return;
+    if (!automatic) voice.stop();
+    const operation: Operation = { id, threadId: aui.threads().getState().mainThreadId, release };
     active.current = operation;
     const isCurrent = () => active.current === operation && !document.hidden &&
       operation.threadId === aui.threads().getState().mainThreadId;
     const update = (status: Playback["status"]) => {
-      if (isCurrent()) setPlayback({ id, status });
+      if (!isCurrent()) return;
+      if (status === "playing") {
+        window.clearTimeout(operation.timeout);
+        operation.timeout = window.setTimeout(() => update("failed"), 120000);
+      } else {
+        active.current = null;
+        releasePlayback(operation);
+      }
+      setPlayback({ id, status });
     };
     setPlayback({ id, status: "loading" });
+    operation.timeout = window.setTimeout(() => update("failed"), 20000);
     const api = window.assistantAPI;
     try {
       const mute = await api?.getMuteState?.();
@@ -141,7 +175,10 @@ export function VoiceOutputProvider({ children }: { children: ReactNode }) {
         update("muted");
         return;
       }
-      if (engine !== voiceEngine(settings.providers[language])) {
+      const expected = automatic
+        ? autoReadEngine(settings.autoRead?.[language], settings.providers[language])
+        : voiceEngine(settings.providers[language]);
+      if (engine !== expected) {
         update("settings-changed");
         return;
       }
@@ -174,7 +211,7 @@ export function VoiceOutputProvider({ children }: { children: ReactNode }) {
         update("playing");
         return;
       }
-      const result = await api?.speakWorkspace?.({ language, provider: engine, text });
+      const result = await api?.speakWorkspace?.({ language, provider: engine, text, ...(automatic && { automatic: true }) });
       if (!isCurrent()) return;
       if (result?.status !== "audio") {
         update(result?.status === "muted" || result?.status === "off" || result?.status === "settings-changed"

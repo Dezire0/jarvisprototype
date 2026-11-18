@@ -58,6 +58,14 @@ const FileError = createContext<{ error: AttachmentError | null; clear: () => vo
   error: null,
   clear: () => {},
 });
+type FinishedReply = { threadId: string; id: string; text: string };
+type FinishedReplyListener = (reply: FinishedReply) => void;
+const FinishedReplies = createContext<Set<FinishedReplyListener> | null>(null);
+const silentReplyProviders = new Set(["local-error", "model-required", "model-error", "model-settings", "attachment-error"]);
+
+export function useFinishedReplies() {
+  return useContext(FinishedReplies);
+}
 
 export function useJarvisTransportNotice() {
   const id = useAuiState((state) => state.threadListItem.remoteId ?? state.threadListItem.id);
@@ -296,10 +304,13 @@ function useJarvisTransportRuntime(
   history: ChatHistory,
   setNotice: SetTransportNotice,
   setFileError: (value: AttachmentError | null) => void,
+  finishedReplies: Set<FinishedReplyListener>,
 ) {
   const aui = useAui();
   const id = useAuiState((state) => state.threadListItem.remoteId);
-  const attempt = useRef<{ threadId: string; before: TransportState; draft: ReturnType<typeof draftFromCommands> } | null>(null);
+  type Attempt = { threadId: string; localId: string; before: TransportState; draft: ReturnType<typeof draftFromCommands>; temporary: boolean };
+  const attempt = useRef<Attempt | null>(null);
+  const finished = useRef<Attempt | null>(null);
   const attachments = useMemo(() => createChatAttachmentAdapter(setFileError), [setFileError]);
   const runtime = useAssistantTransportRuntime<TransportState>({
     initialState: id ? { messages: history.get(id)?.messages ?? [] } : INITIAL_STATE,
@@ -311,16 +322,22 @@ function useJarvisTransportRuntime(
       setFileError(null);
       const thread = aui.threadListItem().getState();
       const threadId = thread.remoteId ?? thread.id;
+      const memoryContext = buildMemoryContext(history, threadId, thread.status === "new");
       setNotice(threadId, null);
-      attempt.current = { threadId, before: body.state as TransportState, draft: draftFromCommands(body.commands) };
-      return { ...body, threadId, memoryContext: buildMemoryContext(history, threadId, thread.status === "new") };
+      attempt.current = {
+        threadId, localId: thread.id, before: body.state as TransportState,
+        draft: draftFromCommands(body.commands), temporary: memoryContext.memoryMode === "temporary",
+      };
+      return { ...body, threadId, memoryContext };
     },
     converter: transportConverter,
     onFinish: () => {
+      finished.current = attempt.current;
       attempt.current = null;
     },
     onCancel: ({ commands, error, updateState }) => {
       const request = attempt.current;
+      attempt.current = null;
       if (request) updateState(() => request.before);
       const thread = aui.threadListItem().getState();
       const threadId = request?.threadId ?? thread.remoteId ?? thread.id;
@@ -330,20 +347,28 @@ function useJarvisTransportRuntime(
   });
 
   useEffect(() => {
-    if (!id) return;
     const thread = runtime.thread;
     let seen: TransportMessage[] | undefined;
     function checkpoint() {
       const state = thread.getState();
       const messages = (state.state as TransportState | null)?.messages;
-      if (!state.isRunning && Array.isArray(messages) && messages.length &&
-          messages !== seen && messages.at(-1)?.status !== "running") {
+      if (state.isRunning || !Array.isArray(messages) || !messages.length) return;
+      const reply = messages.at(-1);
+      const completed = finished.current;
+      finished.current = null;
+      if (completed && !completed.temporary && !completed.draft.hadAttachments &&
+          reply?.role === "assistant" && reply.status === "complete" && reply.text.trim() && !reply.attachmentReview &&
+          !reply.details && !reply.actions?.length && !silentReplyProviders.has(reply.provider ?? "") &&
+          !completed.before?.messages?.some((message) => message.id === reply.id)) {
+        finishedReplies.forEach((listener) => listener({ threadId: completed.localId, id: reply.id, text: reply.text }));
+      }
+      if (id && messages !== seen && reply?.status !== "running") {
         seen = messages;
-        history.checkpoint(id!, messages);
+        history.checkpoint(id, messages);
       }
     }
     return thread.subscribe(checkpoint);
-  }, [runtime, history, id]);
+  }, [runtime, history, id, finishedReplies]);
 
   return runtime;
 }
@@ -365,9 +390,10 @@ function ConversationRuntime({ history, failed, children }: {
     });
   }, []);
   const [fileError, setFileError] = useState<AttachmentError | null>(null);
+  const [finishedReplies] = useState(() => new Set<FinishedReplyListener>());
   const adapter = useMemo(() => createThreadListAdapter(history), [history]);
   const runtime = useRemoteThreadListRuntime({
-    runtimeHook: () => useJarvisTransportRuntime(history, setNotice, setFileError),
+    runtimeHook: () => useJarvisTransportRuntime(history, setNotice, setFileError, finishedReplies),
     adapter,
   });
 
@@ -377,7 +403,9 @@ function ConversationRuntime({ history, failed, children }: {
         <TransportNotices.Provider value={{ notices, setNotice }}>
           <FileError.Provider value={{ error: fileError, clear: () => setFileError(null) }}>
             <WorkspaceLanguageContext.Provider value={language}>
-              <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+              <FinishedReplies.Provider value={finishedReplies}>
+                <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
+              </FinishedReplies.Provider>
             </WorkspaceLanguageContext.Provider>
           </FileError.Provider>
         </TransportNotices.Provider>
