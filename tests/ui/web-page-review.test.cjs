@@ -39,6 +39,7 @@ test("the desktop page review reads on demand, discards closed reviews, and atta
         return browserFetch(input, options);
       };
       window.reviewReads = [];
+      window.reviewAddresses = [];
       let account = { token: null, user: null };
       window.assistantAPI = {
         restoreAccountSession: async () => account,
@@ -47,8 +48,9 @@ test("the desktop page review reads on demand, discards closed reviews, and atta
           return account;
         },
         getComputerControl: async () => true,
-        invokeTool: (tool) => {
+        invokeTool: (tool, payload) => {
           window.reviewReads.push(tool);
+          if (tool === "browser:read-address") window.reviewAddresses.push(payload.address);
           return new Promise((resolve) => { window.resolveReview = resolve; });
         },
       };
@@ -77,6 +79,34 @@ test("the desktop page review reads on demand, discards closed reviews, and atta
       ok: true, data: { title: "Discarded page", origin: "https://fixture.invalid", text: "Discarded contents", truncated: false }
     }));
 
+    await composer.fill("review url https://requested.invalid/Document?key=fixture");
+    await composer.press("Enter");
+    const address = panel.getByRole("textbox", { name: "Page address" });
+    await address.waitFor();
+    assert.equal(await address.inputValue(), "https://requested.invalid/Document?key=fixture");
+    assert.equal(await address.evaluate((input) => input === document.activeElement), true);
+    assert.equal(await panel.getByRole("button", { name: "Web address", exact: true }).getAttribute("aria-pressed"), "true");
+    assert.deepEqual(await page.evaluate(() => window.reviewAddresses), []);
+    await address.fill("file:///example");
+    await address.press("Enter");
+    await panel.getByRole("alert").getByText("Enter an HTTP or HTTPS address without a username or password.").waitFor();
+    assert.deepEqual(await page.evaluate(() => window.reviewAddresses), []);
+    await address.fill("https://requested.invalid/Document?key=fixture");
+    await panel.getByRole("button", { name: "Open and read", exact: true }).click();
+    await panel.getByText("Reading page…").waitFor();
+    assert.deepEqual(await page.evaluate(() => window.reviewAddresses), ["https://requested.invalid/Document?key=fixture"]);
+    await page.evaluate(() => window.resolveReview({
+      ok: true, data: { title: "New Page", origin: "https://redirected.invalid", text: "Page loaded from an address", truncated: false }
+    }));
+    await panel.getByText("https://redirected.invalid", { exact: true }).waitFor();
+    assert.equal(await preview.inputValue(), "Page loaded from an address");
+    assert.equal(chatRequests.length, 0);
+    await panel.getByRole("button", { name: "Current page", exact: true }).click();
+    await read.waitFor();
+    assert.equal(await preview.count(), 0);
+    await page.keyboard.press("Escape");
+    await panel.waitFor({ state: "hidden" });
+
     await composer.fill("Keep this draft.");
     await page.getByRole("button", { name: "Local tools", exact: true }).click();
     await page.getByRole("button", { name: "Read web page", exact: true }).click();
@@ -94,7 +124,7 @@ test("the desktop page review reads on demand, discards closed reviews, and atta
     await panel.waitFor({ state: "hidden" });
     await page.getByRole("button", { name: "Remove file Web page text.txt" }).waitFor();
     assert.equal(await composer.inputValue(), "Keep this draft.");
-    assert.deepEqual(await page.evaluate(() => window.reviewReads), ["browser:read", "browser:read"]);
+    assert.deepEqual(await page.evaluate(() => window.reviewReads), ["browser:read", "browser:read-address", "browser:read"]);
     assert.equal(chatRequests.length, 0);
     const chat = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/chat");
     await composer.press("Enter");
