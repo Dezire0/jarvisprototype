@@ -1,14 +1,18 @@
 const assert = require("node:assert/strict");
 const { createServer } = require("node:http");
 const { test } = require("node:test");
+const { setTimeout: delay } = require("node:timers/promises");
 const { AssistantService } = require("../../src/main/assistant-service.cjs");
 const { createManagedCloudChat } = require("../../src/main/assistant/managed-cloud.cjs");
 const { setExternalLlmSettingsProvider } = require("../../src/main/ollama-service.cjs");
+const { createAssistantTransportServer } = require("../../src/main/assistant-transport-server.cjs");
+const { SESSION_HEADER, createDesktopSessionToken } = require("../../src/main/desktop-session.cjs");
 
 async function fixture(t) {
   let directStatus = 503;
   let cloudStatus = 200;
   let cloudCode = "";
+  let directHold;
   const cloudRequests = [];
   const directRequests = [];
   let redirectHits = 0;
@@ -20,6 +24,12 @@ async function fixture(t) {
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/v1/chat/completions") {
       directRequests.push(data);
+      if (directHold) {
+        const hold = directHold;
+        directHold = undefined;
+        hold.started.resolve();
+        await hold.released.promise;
+      }
       res.writeHead(directStatus).end(JSON.stringify(directStatus === 200
         ? { choices: [{ message: { content: "Direct response" } }] }
         : { error: "fixture direct outage" }));
@@ -41,7 +51,10 @@ async function fixture(t) {
     res.writeHead(404).end("{}");
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
+  t.after(() => {
+    server.closeAllConnections();
+    return new Promise(resolve => server.close(resolve));
+  });
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   setExternalLlmSettingsProvider(() => ({
     provider: "openai-compatible",
@@ -49,10 +62,10 @@ async function fixture(t) {
   }));
   t.after(() => setExternalLlmSettingsProvider(null));
 
-  function assistant({ tier, enabled = true, computerControl = false }) {
+  function assistant({ tier, enabled = true, computerControl = false, readAccountSession }) {
     const service = new AssistantService({
       computerControl: { enabled: computerControl },
-      readAccountSession: () => tier ? { token: tier + "-fixture", user: { id: tier, plan: tier } } : null,
+      readAccountSession: readAccountSession || (() => tier ? { token: tier + "-fixture", user: { id: tier, plan: tier } } : null),
       managedCloudChat: createManagedCloudChat({ enabled, baseUrl }),
       memory: {
         formatForPrompt: () => "private local fixture context",
@@ -72,6 +85,13 @@ async function fixture(t) {
     directRequests,
     setCloudStatus(status, code = "") { cloudStatus = status; cloudCode = code; },
     setDirectStatus(status) { directStatus = status; },
+    holdNextDirect() {
+      const started = Promise.withResolvers();
+      const released = Promise.withResolvers();
+      directHold = { started, released };
+      t.after(released.resolve);
+      return { started: started.promise, release: released.resolve };
+    },
     getRedirectHits: () => redirectHits,
   };
 }
@@ -102,6 +122,95 @@ test("the normal desktop turn uses the same managed request for both tiers after
   assert.equal(test.directRequests.length, 2);
   assert.ok(test.directRequests.every((request) => JSON.stringify(request).includes("private local fixture context")));
   assert.equal(test.cloudRequests.length, 2);
+});
+
+test("the desktop stream honors the fallback choice in both routing modes", async (t) => {
+  const model = await fixture(t);
+  const token = createDesktopSessionToken();
+  const server = createAssistantTransportServer({
+    port: 0,
+    sessionToken: token,
+    getActiveAccountId: () => "free",
+    createAssistantForThread: (threadId) => model.assistant({ tier: "free", computerControl: threadId === "control-on" }),
+  });
+  await server.start();
+  t.after(() => server.stop());
+  for (const threadId of ["control-off", "control-on"]) {
+    const send = (allowCloudFallback) => fetch(server.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [SESSION_HEADER]: token },
+      body: JSON.stringify({
+        threadId, allowCloudFallback, memoryContext: { accountId: "free" },
+        commands: [{ type: "add-message", message: { role: "user", parts: [{ type: "text", text: "Write a sentence" }] } }],
+      }),
+    }).then(response => response.text());
+    assert.match(await send(false), /model-error/);
+    assert.match(await send(true), /jarvis-cloud-gemini-/);
+  }
+  assert.equal(model.directRequests.length, 4);
+  assert.equal(model.cloudRequests.length, 2);
+});
+
+test("a failed direct request cannot start fallback after disconnect or session replacement", { timeout: 7000 }, async (t) => {
+  const model = await fixture(t);
+  const token = createDesktopSessionToken();
+  let session = { token: "initial-fixture", user: { id: "free" } };
+  const assistant = model.assistant({ readAccountSession: () => session });
+  let completed;
+  let canUseCloud;
+  const handleInput = assistant.handleInput.bind(assistant);
+  assistant.handleInput = (input, options) => {
+    canUseCloud = options.canUseCloud;
+    completed = handleInput(input, options);
+    return completed;
+  };
+  const server = createAssistantTransportServer({
+    port: 0,
+    sessionToken: token,
+    getActiveAccountId: () => session?.user.id,
+    getActiveSession: () => session,
+    createAssistantForThread: () => assistant,
+  });
+  await server.start();
+  t.after(() => server.stop());
+  const send = (signal) => fetch(server.url, {
+    method: "POST", signal,
+    headers: { "Content-Type": "application/json", [SESSION_HEADER]: token },
+    body: JSON.stringify({
+      threadId: "turn", allowCloudFallback: true, memoryContext: { accountId: "free" },
+      commands: [{ type: "add-message", message: { role: "user", parts: [{ type: "text", text: "Write a sentence" }] } }],
+    }),
+  });
+
+  for (const replacement of [
+    null,
+    { token: "new-fixture", user: { id: "other" } },
+    { token: "new-fixture", user: { id: "free" } },
+    { token: "initial-fixture", user: { id: "free" } },
+  ]) {
+    session = { token: "initial-fixture", user: { id: "free" } };
+    const hold = model.holdNextDirect();
+    const response = await send();
+    await hold.started;
+    session = replacement;
+    hold.release();
+    await response.text();
+    assert.equal((await completed).provider, "model-error");
+  }
+
+  session = { token: "initial-fixture", user: { id: "free" } };
+  const hold = model.holdNextDirect();
+  const cancel = new AbortController();
+  const response = await send(cancel.signal);
+  await hold.started;
+  // Cancelling the response tells the desktop transport to close its side.
+  await response.body.cancel();
+  cancel.abort();
+  for (let attempt = 0; canUseCloud() && attempt < 100; attempt++) await delay(20);
+  assert.equal(canUseCloud(), false);
+  hold.release();
+  assert.equal((await completed).provider, "model-error");
+  assert.equal(model.cloudRequests.length, 0);
 });
 
 test("the normal turn keeps direct success and avoids fallback while disabled, signed out or temporary", async (t) => {

@@ -39,9 +39,10 @@ type Snapshot = {
   sidebar: SidebarHistory;
   cloudSync?: boolean;
   savedMemory?: boolean;
+  allowCloudFallback?: boolean;
   profile?: { name: string; language: WorkspaceLanguage };
 };
-type Profile = NonNullable<Snapshot["profile"]> & { cloudSync: boolean; savedMemory: boolean };
+type Profile = NonNullable<Snapshot["profile"]> & { cloudSync: boolean; savedMemory: boolean; allowCloudFallback: boolean };
 type SaveOutcome = "saved" | "changed" | "storage-changed";
 type HistoryStorage = {
   read: () => Promise<string | null>;
@@ -60,6 +61,7 @@ function readSnapshot(raw: string | null): Snapshot {
       !data.sidebar.threadMetaById || typeof data.sidebar.threadMetaById !== "object" ||
       data.threads.some((thread) => !thread?.remoteId || !Array.isArray(thread.messages)) ||
       (data.savedMemory !== undefined && typeof data.savedMemory !== "boolean") ||
+      (data.allowCloudFallback !== undefined && typeof data.allowCloudFallback !== "boolean") ||
       (data.profile !== undefined &&
         (typeof data.profile?.name !== "string" || data.profile.name.length > 80 ||
           !isWorkspaceLanguage(data.profile.language)))) {
@@ -96,9 +98,17 @@ export class ChatHistory {
   private pendingCloud = Promise.resolve();
   private pendingSyncChanges = 0;
   private syncWriteFailed = false;
+  private savingCloudFallback = false;
+  private cloudFallbackWriteFailed = false;
+  private cloudFallbackEnabled = false;
   private preferences: Profile;
   get profile(): Readonly<Profile> { return this.preferences; }
   get cloudSync() { return this.preferences.cloudSync; }
+  get cloudFallbackAvailable() { return this.cloudFallbackEnabled; }
+  get allowCloudFallback() {
+    return this.cloudFallbackAvailable && this.preferences.allowCloudFallback &&
+      !this.savingCloudFallback && !this.cloudFallbackWriteFailed;
+  }
   sidebar: SidebarHistory;
 
   static async open(accountId: string, onError: (failed: boolean) => void) {
@@ -118,7 +128,9 @@ export class ChatHistory {
       return history;
     } catch {
       onError(true);
-      return new ChatHistory(accountId, { version: 1, threads: [], sidebar: EMPTY_SIDEBAR, savedMemory: false }, null, onError);
+      return new ChatHistory(accountId, {
+        version: 1, threads: [], sidebar: EMPTY_SIDEBAR, savedMemory: false, allowCloudFallback: false,
+      }, null, onError);
     }
   }
 
@@ -138,6 +150,7 @@ export class ChatHistory {
       language: snapshot.profile?.language ?? (isWorkspaceLanguage(previousLanguage) ? previousLanguage : "auto"),
       cloudSync: snapshot.cloudSync === true,
       savedMemory: snapshot.savedMemory !== false,
+      allowCloudFallback: snapshot.allowCloudFallback !== false,
     };
     this.saved = new Map(snapshot.threads.map((thread) => [thread.remoteId, thread]));
   }
@@ -185,6 +198,23 @@ export class ChatHistory {
     }
   }
 
+  async saveCloudFallback(allowed: boolean) {
+    if (this.savingCloudFallback) return false;
+    this.savingCloudFallback = true;
+    this.update(false);
+    const saved = await this.saveProfile({ allowCloudFallback: allowed });
+    this.cloudFallbackWriteFailed = !saved;
+    this.savingCloudFallback = false;
+    this.update(false);
+    return saved;
+  }
+
+  setCloudFallbackAvailable(available: boolean) {
+    if (available === this.cloudFallbackEnabled) return;
+    this.cloudFallbackEnabled = available;
+    this.update(false);
+  }
+
   private update(save: boolean) {
     this.revision++;
     this.listeners.forEach((listener) => listener());
@@ -208,6 +238,7 @@ export class ChatHistory {
       const next = { ...this.preferences, ...patch };
       const snapshot = {
         version: 1, threads, sidebar, cloudSync: next.cloudSync, savedMemory: next.savedMemory,
+        allowCloudFallback: next.allowCloudFallback,
         profile: { name: next.name, language: next.language },
       } satisfies Snapshot;
       const serialized = JSON.stringify(snapshot);

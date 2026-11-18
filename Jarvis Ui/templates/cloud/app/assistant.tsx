@@ -108,10 +108,14 @@ function AssistantWorkspace() {
     let request = 0;
     const refresh = () => {
       const current = ++request;
-      void read().then(({ availability }) => {
-        if (current === request) setModelAvailability(availability);
+      void read().then(({ availability, cloudFallbackAvailable }) => {
+        if (current !== request) return;
+        setModelAvailability(availability);
+        history.setCloudFallbackAvailable(cloudFallbackAvailable === true);
       }).catch(() => {
-        if (current === request) setModelAvailability(null);
+        if (current !== request) return;
+        setModelAvailability(null);
+        history.setCloudFallbackAvailable(false);
       });
     };
 
@@ -121,7 +125,7 @@ function AssistantWorkspace() {
       request++;
       window.removeEventListener(MODEL_SETTINGS_SAVED, refresh);
     };
-  }, [computerControl]);
+  }, [computerControl, history]);
 
   function openModelSettings(trigger: HTMLButtonElement) {
     modelSettingsTrigger.current = trigger;

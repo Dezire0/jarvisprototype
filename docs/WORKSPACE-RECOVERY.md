@@ -66,6 +66,8 @@ After a model replies, its connection and model identifier appear below the answ
 
 Desktop conversation uses the configured model first. Set `JARVIS_ENABLE_CLOUD_AI_FALLBACK=1` in the desktop environment to allow ordinary signed-in conversations to use the managed Worker when the configured model fails. If no model has been selected, open **Model settings** to connect one. Use `JARVIS_CLOUD_API_BASE` to point a test or private installation at its Worker base URL. Use HTTPS or an HTTP loopback address for local testing.
 
+When the installation enables fallback, the composer shows **Jarvis Cloud fallback on** or **Configured connection only**. Open that control to review what can be sent and save your choice for this account on this device. The choice applies to new requests. New requests skip fallback while the choice is being saved or if saving fails in the current session. Existing profiles retain the installation's fallback default until they save a preference. A request that was stopped or lost its account session before fallback begins stays on its original request path.
+
 Fallback sends the current request and up to ten recent text turns in that account's conversation. The fallback returns text and labels a successful reply with **Jarvis Cloud** and its model. Temporary chats and attachment review use the configured model path. Free and Pro use the same account endpoint, and both draw on their respective Jarvis Cloud allowance. See the [Worker setup](../backend/README.md#managed-cloud-chat).
 
 ### Voice output
