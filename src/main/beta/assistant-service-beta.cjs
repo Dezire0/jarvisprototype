@@ -4461,11 +4461,9 @@ class AssistantService {
       data = await this.obs.connect();
       action = this.makeAction("obs_connect", data.address);
     } else if (route.route === "obs_start") {
-      data = await this.obs.startStream();
-      action = this.makeAction("obs_start_stream", data.currentScene);
+      return { reply: "Open the OBS panel to confirm starting a broadcast.", actions: [], provider: "local" };
     } else if (route.route === "obs_stop") {
-      data = await this.obs.stopStream();
-      action = this.makeAction("obs_stop_stream", data.currentScene);
+      return { reply: "Open the OBS panel to confirm stopping a broadcast.", actions: [], provider: "local" };
     } else if (route.route === "obs_scene") {
       if (!route.sceneName) {
         return this.beginClarification(
