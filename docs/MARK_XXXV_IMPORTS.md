@@ -117,7 +117,7 @@ MARK XXXV의 “간단한 프로젝트를 바로 만들어 주는 흐름”을 �
 - `스네이크 게임 만들어줘`
 - `간단한 todo 앱 만들어줘`
 
-같은 요청을 받아 `generated-projects/` 아래에 실제 파일을 만들고, 가능하면 VS Code까지 엽니다.
+당시에는 같은 요청으로 `generated-projects/` 아래에 파일을 만든 뒤 VS Code를 열었습니다. 현재는 로컬 도구에서 파일을 검토하고 저장 위치를 고릅니다. [현재 사용법](WORKSPACE-RECOVERY.md#creating-a-coding-project)
 
 반영 위치:
 

@@ -1,7 +1,16 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const { chat, getTierProviderLabel } = require("./ollama-service.cjs");
+const { chat, resolveConfig, isDirectConversationConfigured } = require("./ollama-service.cjs");
+
+const MAX_PROJECT_FILES = 12;
+const MAX_FILE_BYTES = 64 * 1024;
+const MAX_PROJECT_BYTES = 128 * 1024;
+const RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
+
+function projectError(code, message, details) {
+  return Object.assign(new Error(message), { code, details });
+}
 
 function safeJsonParse(raw = "") {
   try {
@@ -32,46 +41,17 @@ function slugifyProjectName(value = "") {
   return normalized || "jarvis-project";
 }
 
-function pathExists(targetPath) {
-  return fs.access(targetPath).then(
-    () => true,
-    () => false
-  );
-}
-
-function sanitizeRelativePath(filePath = "") {
-  const normalized = String(filePath)
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "");
-
-  if (!normalized || normalized.includes("..")) {
-    throw new Error(`Unsafe project file path: ${filePath}`);
+function sanitizeRelativePath(filePath) {
+  if (typeof filePath !== "string" || !filePath || filePath.length > 240) {
+    throw projectError("PROJECT_INVALID_FILES", "The draft contains an invalid file path.");
   }
-
-  return normalized;
-}
-
-function extractExplicitProjectName(input = "") {
-  const quoted = String(input).match(/["“'`](.+?)["”'`]/)?.[1];
-
-  if (quoted) {
-    return quoted.trim();
+  const parts = filePath.normalize("NFC").split("/");
+  if (parts.some((part) => !part || part.length > 100 || part === "." || part === ".." ||
+      /[. ]$/.test(part) || /[\x00-\x1f\x7f<>:"\\|?*\u202a-\u202e\u2066-\u2069]/.test(part) ||
+      RESERVED_NAME.test(part) || part.toLowerCase() === ".git")) {
+    throw projectError("PROJECT_INVALID_FILES", "The draft contains an invalid file path.");
   }
-
-  const namedMatch =
-    String(input).match(/(?:called|named|name it)\s+([A-Za-z0-9 _-]+)/i) ||
-    String(input).match(/(?:이름은|이름을)\s+([A-Za-z0-9가-힣 _-]+)/i);
-
-  return String(namedMatch?.[1] || "").trim();
-}
-
-function looksLikeSnakeRequest(input = "") {
-  return /(snake|스네이크)/i.test(String(input));
-}
-
-function looksLikeTodoRequest(input = "") {
-  return /(todo|to-do|할 일|task list)/i.test(String(input));
+  return parts.join("/");
 }
 
 function buildSnakeProject(projectName = "snake-game") {
@@ -601,181 +581,222 @@ ${summary || "Replace this section with the exact goal of the project."}
   };
 }
 
-function buildFallbackProject(input = "", explicitProjectName = "") {
-  const projectName = slugifyProjectName(explicitProjectName || extractExplicitProjectName(input));
+const TEMPLATES = new Map([
+  ["web", { name: "web-project", build: buildGenericProject }],
+  ["tasks", { name: "task-list", build: buildTodoProject }],
+  ["grid", { name: "grid-game", build: buildSnakeProject }],
+]);
 
-  if (looksLikeSnakeRequest(input)) {
-    return buildSnakeProject(projectName || "snake-game");
+function validateProjectScaffold(scaffold) {
+  if (!scaffold || typeof scaffold.projectName !== "string" || scaffold.projectName.length > 120 ||
+      !Array.isArray(scaffold.files) || !scaffold.files.length || scaffold.files.length > MAX_PROJECT_FILES) {
+    throw projectError("PROJECT_INVALID_FILES", "The draft must contain a valid folder name and file list.");
+  }
+  const projectName = slugifyProjectName(scaffold.projectName.normalize("NFC"));
+  if (RESERVED_NAME.test(projectName) || Buffer.byteLength(projectName) > 180) {
+    throw projectError("PROJECT_INVALID_NAME", "Choose a valid project folder name.");
   }
 
-  if (looksLikeTodoRequest(input)) {
-    return buildTodoProject(projectName || "todo-app");
-  }
-
-  return buildGenericProject(projectName, String(input).trim());
-}
-
-function sanitizeProjectFiles(files = []) {
-  return files
-    .filter((file) => file && typeof file === "object")
-    .map((file) => ({
-      path: sanitizeRelativePath(file.path),
-      content: String(file.content || "")
-    }))
-    .filter((file) => file.path && file.content);
-}
-
-function parseProjectScaffold(raw = "", input = "") {
-  const parsed = safeJsonParse(raw);
-
-  if (!parsed || typeof parsed !== "object") {
-    return buildFallbackProject(input);
-  }
-
-  const explicitProjectName = String(parsed.projectName || parsed.name || extractExplicitProjectName(input) || "").trim();
-  const projectName = slugifyProjectName(explicitProjectName);
-  const files = sanitizeProjectFiles(Array.isArray(parsed.files) ? parsed.files : []);
-
-  if (!files.length) {
-    return buildFallbackProject(input, explicitProjectName);
-  }
-
+  let totalBytes = 0;
+  const entries = new Map();
+  const files = scaffold.files.map((file) => {
+    const filePath = sanitizeRelativePath(file?.path);
+    const parts = filePath.split("/");
+    for (let count = 1; count <= parts.length; count++) {
+      const location = parts.slice(0, count).join("/");
+      const key = location.toLowerCase();
+      const directory = count < parts.length;
+      const previous = entries.get(key);
+      if (previous && (!directory || !previous.directory || previous.location !== location)) {
+        throw projectError("PROJECT_INVALID_FILES", "The draft contains conflicting paths.");
+      }
+      entries.set(key, { location, directory });
+    }
+    if (typeof file.content !== "string" || file.content.includes("\0")) {
+      throw projectError("PROJECT_INVALID_FILES", "The draft must contain plain-text files.");
+    }
+    const bytes = Buffer.byteLength(file.content);
+    totalBytes += bytes;
+    if (bytes > MAX_FILE_BYTES || totalBytes > MAX_PROJECT_BYTES) {
+      throw projectError("PROJECT_TOO_LARGE", "The draft exceeds the project size limit.");
+    }
+    return { path: filePath, content: file.content };
+  });
   return {
     projectName,
-    summary: String(parsed.summary || parsed.description || "").trim(),
+    summary: typeof scaffold.summary === "string" ? scaffold.summary.trim().slice(0, 300) : "",
     files
   };
 }
 
-function buildVsCodeFolderUrl(targetPath) {
-  return `vscode://file${encodeURI(targetPath)}`;
+function parseProjectScaffold(raw = "", preferredName = "") {
+  const parsed = safeJsonParse(raw);
+  if (!parsed || typeof parsed !== "object") {
+    throw projectError("PROJECT_INVALID_FILES", "The model did not return a project draft.");
+  }
+  return validateProjectScaffold({
+    projectName: preferredName || parsed.projectName || parsed.name,
+    summary: parsed.summary || parsed.description,
+    files: parsed.files
+  });
+}
+
+function projectGuidance(language) {
+  const reply = language === "ko"
+    ? "로컬 도구에서 코딩 프로젝트 만들기를 열어 주세요. 템플릿을 고르거나 설명으로 초안을 만든 뒤 저장할 수 있습니다."
+    : "Open Create coding project from Local tools. Choose a template or draft a project from a description, then review and save it.";
+  return { reply, language, actions: [], provider: "local" };
 }
 
 class CodeProjectService {
-  constructor({ files, automation } = {}) {
-    this.files = files || null;
-    this.automation = automation || null;
+  constructor({ automation, requestModel = chat, modelConfig = resolveConfig } = {}) {
+    this.automation = automation;
+    this.requestModel = requestModel;
+    this.modelConfig = modelConfig;
   }
 
-  async resolveUniqueProjectDir(baseFolder = "generated-projects", projectName = "jarvis-project") {
-    const rootPath = this.files.resolvePath(baseFolder);
-    let candidate = path.join(baseFolder, projectName);
-    let index = 2;
-
-    while (await pathExists(this.files.resolvePath(candidate))) {
-      candidate = path.join(baseFolder, `${projectName}-${index}`);
-      index += 1;
+  async prepareProject({ template, name = "", prompt = "" } = {}) {
+    if (typeof name !== "string" || name.length > 120) {
+      throw projectError("PROJECT_INVALID_NAME", "Choose a shorter project name.");
+    }
+    if (TEMPLATES.has(template)) {
+      const starter = TEMPLATES.get(template);
+      const scaffold = starter.build(slugifyProjectName(name.trim().normalize("NFC") || starter.name));
+      return { ...validateProjectScaffold(scaffold), source: { type: "template" } };
     }
 
-    await fs.mkdir(rootPath, {
-      recursive: true
-    });
+    if (template !== "model" || typeof prompt !== "string" || !prompt.trim() || prompt.length > 2000) {
+      throw projectError("PROJECT_INVALID_REQUEST", "Enter a project description up to 2,000 characters.");
+    }
+    const config = this.modelConfig();
+    if (!isDirectConversationConfigured(config)) {
+      throw projectError("PROJECT_MODEL_REQUIRED", "Choose a direct model in Model settings.");
+    }
+    let raw;
+    try {
+      raw = await this.requestModel({
+        ...config,
+        exactModel: true,
+        history: [],
+        systemPrompt: [
+          "Draft a small starter coding project for the user to review. Never use tools or run code.",
+          'Return JSON only with {"projectName":"starter","summary":"one sentence","files":[{"path":"index.html","content":"text"}]}.',
+          "Use 1 to 6 compact plain-text files with relative paths. Prefer simple HTML/CSS/JS for web prototypes."
+        ].join(" "),
+        userPrompt: JSON.stringify({ description: prompt.trim(), preferredName: name.trim() }),
+        signal: AbortSignal.timeout(45000)
+      });
+    } catch {
+      throw projectError("PROJECT_MODEL_FAILED", "The model did not respond. Check Model settings and try again.");
+    }
+    return { ...parseProjectScaffold(raw, name.trim()), source: { type: "model", provider: config.provider, model: config.model } };
+  }
 
-    return candidate;
+  async saveProject(scaffold, selectedFolder, assertAllowed) {
+    const { projectName, files } = validateProjectScaffold(scaffold);
+    const parent = await fs.realpath(selectedFolder);
+    if (!(await fs.stat(parent)).isDirectory()) {
+      throw projectError("PROJECT_INVALID_DESTINATION", "Choose an existing folder.");
+    }
+    const projectPath = path.join(parent, projectName);
+    assertAllowed();
+    try {
+      await fs.mkdir(projectPath, { mode: 0o700 });
+    } catch (error) {
+      if (error.code === "EEXIST") throw projectError("PROJECT_EXISTS", "That folder name already exists.");
+      throw error;
+    }
+
+    const created = [];
+    const directories = new Map();
+
+    const recordDirectory = async (location) => {
+      const identity = await fs.lstat(location, { bigint: true });
+      if (!identity.isDirectory()) {
+        throw projectError("PROJECT_INVALID_DESTINATION", "The destination changed while saving.");
+      }
+      directories.set(location, identity);
+      created.push({ path: location, identity, directory: true });
+    };
+    const matchesEntry = async (location, identity) => {
+      const actual = await fs.lstat(location, { bigint: true }).catch(() => null);
+      return Boolean(actual && actual.dev === identity.dev && actual.ino === identity.ino);
+    };
+    const sameDirectoryChain = async (directory) => {
+      for (let current = directory; directories.has(current); current = path.dirname(current)) {
+        if (!(await matchesEntry(current, directories.get(current)))) return false;
+      }
+      return true;
+    };
+    const checkDestination = async (directory) => {
+      if (!(await sameDirectoryChain(directory))) {
+        throw projectError("PROJECT_INVALID_DESTINATION", "The destination changed while saving.");
+      }
+      assertAllowed();
+    };
+
+    try {
+      await recordDirectory(projectPath);
+      for (const file of files) {
+        const parts = file.path.split("/");
+        let directory = projectPath;
+        for (const name of parts.slice(0, -1)) {
+          const next = path.join(directory, name);
+          if (!directories.has(next)) {
+            await checkDestination(directory);
+            await fs.mkdir(next, { mode: 0o700 });
+            await recordDirectory(next);
+          }
+          directory = next;
+        }
+        await checkDestination(directory);
+        const absoluteFile = path.join(directory, parts.at(-1));
+        const handle = await fs.open(absoluteFile, "wx", 0o600);
+        try {
+          created.push({ path: absoluteFile, identity: await handle.stat({ bigint: true }), directory: false });
+          await handle.writeFile(file.content, "utf8");
+        } finally {
+          await handle.close();
+        }
+      }
+      await checkDestination(projectPath);
+    } catch (error) {
+      let incomplete = !directories.has(projectPath);
+      for (const entry of created.reverse()) {
+        if (!(await sameDirectoryChain(path.dirname(entry.path))) || !(await matchesEntry(entry.path, entry.identity))) {
+          incomplete = true;
+          continue;
+        }
+        const remove = entry.directory ? fs.rmdir : fs.unlink;
+        await remove(entry.path).catch((cleanupError) => {
+          if (cleanupError.code !== "ENOENT") incomplete = true;
+        });
+      }
+      if (incomplete) {
+        throw projectError("PROJECT_PARTIAL", "Some new project files may remain.", { path: projectPath });
+      }
+      throw error;
+    }
+    return { path: projectPath, fileCount: files.length };
   }
 
   async openProjectInVsCode(projectPath) {
-    if (!this.automation || typeof this.automation.execute !== "function") {
-      return {
-        opened: false
-      };
-    }
-
+    if (!this.automation || typeof this.automation.execute !== "function") return false;
     try {
+      await this.automation.execute({ type: "open_app", target: "Visual Studio Code" });
       await this.automation.execute({
-        type: "open_app",
-        target: "Visual Studio Code"
+        type: "open_url", target: "vscode://file" + encodeURI(projectPath).replace(/#/g, "%23").replace(/\?/g, "%3F")
       });
-    } catch (_error) {
-      return {
-        opened: false
-      };
+      return true;
+    } catch {
+      return false;
     }
-
-    try {
-      await this.automation.execute({
-        type: "open_url",
-        target: buildVsCodeFolderUrl(projectPath)
-      });
-      return {
-        opened: true
-      };
-    } catch (_error) {
-      return {
-        opened: false
-      };
-    }
-  }
-
-  async createProject(input = "") {
-    if (!this.files) {
-      throw new Error("File service is not available.");
-    }
-
-    const explicitProjectName = extractExplicitProjectName(input);
-    let scaffold;
-    let provider = getTierProviderLabel("complex");
-
-    try {
-      const raw = await chat({
-        systemPrompt: [
-          "You generate small runnable starter coding projects for a desktop assistant.",
-          "Respond with valid JSON only.",
-          'Schema: {"projectName":"snake-game","summary":"one sentence","files":[{"path":"index.html","content":"..."}]}',
-          "Return 2 to 6 text files.",
-          "Keep the project compact and practical.",
-          "Prefer HTML/CSS/JS for browser toys and demos unless the user explicitly asks for another stack.",
-          "Do not include markdown fences.",
-          "Do not use binary files.",
-          "Every file must be directly runnable or immediately editable."
-        ].join(" "),
-        tier: "complex",
-        history: [],
-        userPrompt: [
-          "Create a starter project from this request.",
-          explicitProjectName ? `Preferred project name: ${explicitProjectName}` : "",
-          `User request: ${String(input).trim()}`
-        ].filter(Boolean).join("\n")
-      });
-
-      scaffold = parseProjectScaffold(raw, input);
-    } catch (_error) {
-      scaffold = buildFallbackProject(input, explicitProjectName);
-      provider = "fallback-template";
-    }
-
-    const baseProjectName = slugifyProjectName(scaffold.projectName || explicitProjectName || "jarvis-project");
-    const relativeProjectDir = await this.resolveUniqueProjectDir("generated-projects", baseProjectName);
-    const absoluteProjectDir = this.files.resolvePath(relativeProjectDir);
-    const writtenFiles = [];
-
-    for (const file of scaffold.files) {
-      const relativePath = path.join(relativeProjectDir, sanitizeRelativePath(file.path));
-      const result = await this.files.writeFile(relativePath, file.content);
-      writtenFiles.push({
-        path: result.path,
-        bytes: result.bytes
-      });
-    }
-
-    const vsCode = await this.openProjectInVsCode(absoluteProjectDir);
-
-    return {
-      projectName: path.basename(relativeProjectDir),
-      projectPath: absoluteProjectDir,
-      summary: scaffold.summary || `Created ${path.basename(relativeProjectDir)}.`,
-      files: writtenFiles,
-      fileCount: writtenFiles.length,
-      openedInVsCode: vsCode.opened,
-      provider
-    };
   }
 }
 
 module.exports = {
   CodeProjectService,
-  buildFallbackProject,
-  buildSnakeProject,
   parseProjectScaffold,
+  projectGuidance,
   slugifyProjectName
 };

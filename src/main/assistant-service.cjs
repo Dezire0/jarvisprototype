@@ -1,3 +1,5 @@
+const { projectGuidance } = require("./code-project-service.cjs");
+const projectCommands = require("./assistant/project-commands.json");
 const {
   chat: officialChat,
   buildBasePrompt,
@@ -2840,10 +2842,9 @@ const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
 ]);
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, computerControl, credentials, extensions, files, games, managedCloudChat = defaultManagedCloudChat, memory, obs, openClaw, readAccountSession, screen, tts, settings, threadId }) {
+  constructor({ automation, browser, computerControl, credentials, extensions, files, games, managedCloudChat = defaultManagedCloudChat, memory, obs, openClaw, readAccountSession, screen, tts, settings, threadId }) {
     this.automation = automation;
     this.browser = browser;
-    this.codeProjects = codeProjects || null;
     this.computerControl = computerControl;
     this.credentials = credentials;
     this.extensions = extensions || null;
@@ -6527,41 +6528,7 @@ class AssistantService {
   }
 
   async handleCodeProject(input) {
-    if (!this.codeProjects || typeof this.codeProjects.createProject !== "function") {
-      throw new Error("Project generation is not available in this build.");
-    }
-
-    const data = await this.codeProjects.createProject(input);
-    const language = detectReplyLanguage(input);
-    const actions = [this.makeAction("code_project", data.projectName)];
-
-    if (data.openedInVsCode) {
-      actions.push(this.makeAction("open_app", "Visual Studio Code"));
-      this.rememberAppContext("Visual Studio Code");
-    }
-
-    const fallback =
-      language === "ko"
-        ? data.openedInVsCode
-          ? `${data.projectName} 프로젝트를 만들고 VS Code에서 열어뒀어요.`
-          : `${data.projectName} 프로젝트를 만들어뒀어요.`
-        : data.openedInVsCode
-          ? `I created ${data.projectName} and opened it in VS Code.`
-          : `I created ${data.projectName}.`;
-
-    return {
-      reply: await this.polishCommandReply(
-        input,
-        {
-          actions,
-          details: data
-        },
-        fallback
-      ),
-      actions,
-      provider: data.provider || "local",
-      details: data
-    };
+    return projectGuidance(detectReplyLanguage(input));
   }
 
   async handleStreamPrep(input) {
@@ -6786,6 +6753,8 @@ class AssistantService {
 
     const cleanInput = normalizeWhitespace(input);
     const command = cleanInput.toLowerCase();
+    if (projectCommands.ko.includes(command)) return projectGuidance("ko");
+    if (projectCommands.en.includes(command)) return projectGuidance("en");
     if (obsCommands.includes(command)) return this.obsGuidance(detectReplyLanguage(input));
     if (Object.values(browserReviewCommands).some(({ ko, en }) => ko.includes(command) || en.includes(command))) {
       return this.browserReviewGuidance(detectReplyLanguage(input));
