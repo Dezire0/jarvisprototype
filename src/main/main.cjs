@@ -499,6 +499,7 @@ async function createServices() {
     port: Number(process.env.JARVIS_ASSISTANT_PORT || 8010),
     sessionToken: desktopSessionToken,
     computerControl,
+    getActiveAccountId: () => accountSession.active?.user.id,
     async createAssistantForThread(threadId, context) {
       const accountMemory = await resolveAccountMemory(context);
       return new AssistantService({
@@ -1395,6 +1396,7 @@ registerChatHistoryHandlers({
   getWindow: () => settingsWindow,
   getDesktopUiUrl,
   getUserDataDirectory: () => app.getPath("userData"),
+  getActiveAccountId: () => accountSession.active?.user.id,
 });
 
 ipcMain.handle("assistant:get-gemini-status", async () => {

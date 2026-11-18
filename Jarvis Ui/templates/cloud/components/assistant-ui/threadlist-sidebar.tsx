@@ -149,12 +149,14 @@ export function ThreadListSidebar({
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileDraftName, setProfileDraftName] = useState("");
   const [profileAutoSync, setProfileAutoSync] = useState(history.cloudSync);
+  const [profileSavedMemory, setProfileSavedMemory] = useState(history.profile.savedMemory);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState(false);
   const [profileDraftLanguage, setProfileDraftLanguage] = useState<WorkspaceLanguage>("auto");
   const [languageSaving, setLanguageSaving] = useState(false);
   const [languageSaveError, setLanguageSaveError] = useState(false);
   const profileNameInputId = useId();
+  const profileMemoryHintId = useId();
   const profileTrigger = useRef<HTMLButtonElement>(null);
 
   const isKo = useWorkspaceLocale().startsWith("ko");
@@ -390,6 +392,7 @@ export function ThreadListSidebar({
       name: profileDraftName.trim(),
       language: profileDraftLanguage,
       cloudSync: profileAutoSync,
+      savedMemory: profileSavedMemory,
     });
     setProfileSaving(false);
     if (!saved) {
@@ -709,6 +712,21 @@ export function ThreadListSidebar({
                   className="size-4 shrink-0 accent-foreground"
                 />
               </label>
+              <div className="space-y-1 border-t border-border pt-4">
+                <label className="flex min-h-7 items-center justify-between gap-4 text-sm">
+                  <span>{t("저장된 기억 사용", "Use saved memory")}</span>
+                  <input
+                    type="checkbox"
+                    aria-describedby={profileMemoryHintId}
+                    checked={profileSavedMemory}
+                    onChange={(event) => setProfileSavedMemory(event.target.checked)}
+                    className="size-4 shrink-0 accent-foreground"
+                  />
+                </label>
+                <p id={profileMemoryHintId} className="text-xs leading-relaxed text-muted-foreground">
+                  {t("끄면 새 요청에서 저장된 기억의 읽기와 쓰기를 멈춥니다. 대화 기록과 기존 기억은 기기에 남습니다.", "Turn off to stop reading and updating saved memory for new requests. Your chat history and existing memory stay on this device.")}
+                </p>
+              </div>
             </fieldset>
             {profileSaveError && <p className="jarvis-auth-error" role="alert">{saveError}</p>}
             <DialogFooter>
@@ -886,6 +904,7 @@ export function ThreadListSidebar({
                 if (authUser) {
                   setProfileDraftName(history.profile.name);
                   setProfileAutoSync(history.cloudSync);
+                  setProfileSavedMemory(history.profile.savedMemory);
                   setProfileDraftLanguage(history.profile.language);
                   setProfileSaveError(false);
                   setProfileOpen(true);

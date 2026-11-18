@@ -1123,8 +1123,8 @@ function normalizeMemoryAccountId(accountId) {
 
 function createAccountMemoryResolver(directory) {
   const stores = new Map();
-  return async ({ accountId, memoryMode }) => {
-    if (memoryMode === "temporary" || !normalizeMemoryAccountId(accountId)) return null;
+  return async ({ accountId, memoryMode, savedMemory }) => {
+    if (savedMemory === false || memoryMode === "temporary" || !normalizeMemoryAccountId(accountId)) return null;
     if (!stores.has(accountId)) {
       const key = createHash("sha256").update(accountId).digest("hex");
       const store = new MemoryStore({ memoryPath: path.join(directory, "account-memory", key + ".json") });
