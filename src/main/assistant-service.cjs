@@ -29,6 +29,7 @@ const {
 const { routeInputWithLlm } = require("./assistant/router.cjs");
 const { parseLocalFileRead, parseLocalFileWrite } = require("./assistant/local-file-command.cjs");
 const screenReviewCommands = require("./assistant/screen-review-commands.json");
+const obsCommands = require("./assistant/obs-commands.json");
 const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
 
@@ -6273,18 +6274,15 @@ class AssistantService {
   }
 
   async handleObsRoute(input, route) {
+    if (route.route === "obs_start" || route.route === "obs_stop") {
+      return this.obsGuidance(detectReplyLanguage(input));
+    }
     let data;
     let action;
 
     if (route.route === "obs_connect") {
       data = await this.obs.connect();
       action = this.makeAction("obs_connect", data.address);
-    } else if (route.route === "obs_start") {
-      data = await this.obs.startStream();
-      action = this.makeAction("obs_start_stream", data.currentScene);
-    } else if (route.route === "obs_stop") {
-      data = await this.obs.stopStream();
-      action = this.makeAction("obs_stop_stream", data.currentScene);
     } else if (route.route === "obs_scene") {
       if (!route.sceneName) {
         return this.beginClarification(
@@ -6787,6 +6785,7 @@ class AssistantService {
 
     const cleanInput = normalizeWhitespace(input);
     const command = cleanInput.toLowerCase();
+    if (obsCommands.includes(command)) return this.obsGuidance(detectReplyLanguage(input));
     for (const phrases of Object.values(screenReviewCommands)) {
       if (phrases.ko.includes(command)) return this.screenReviewGuidance("ko");
       if (phrases.en.includes(command)) return this.screenReviewGuidance("en");
@@ -6803,6 +6802,13 @@ class AssistantService {
       looksLikeModelIdentityQuestion,
       promoteFollowUpRoute
     });
+  }
+
+  obsGuidance(language) {
+    const reply = language === "ko"
+      ? "로컬 도구에서 OBS를 열어 방송 상태를 확인하고 시작 또는 종료를 선택하세요."
+      : "Open OBS in Local tools, review the broadcast status, and choose Start or Stop.";
+    return { reply, language, provider: "local", actions: [] };
   }
 
   screenReviewGuidance(language) {

@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { formatMemorySources } from "@/lib/chat-memory";
 import { resolveScreenReviewCommand } from "@/lib/screen-review";
 import { resolveFileSaveCommand } from "@/lib/file-save";
+import { isObsCommand } from "@/lib/obs-commands";
 import { LOCAL_COMMAND_EXAMPLE, resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
 import { useChatHistoryError, useJarvisAttachmentError, useJarvisTransportNotice, useTemporaryChat } from "@/app/jarvis-runtime-provider";
 import {
@@ -330,7 +331,8 @@ const Composer: FC<{
   ));
   const localCommand = resolveComposerCommand(text, hasAttachmentsOrQuote) ||
     resolveScreenReviewCommand(text, hasAttachmentsOrQuote) ||
-    resolveFileSaveCommand(text, hasAttachmentsOrQuote);
+    resolveFileSaveCommand(text, hasAttachmentsOrQuote) ||
+    isObsCommand(text, hasAttachmentsOrQuote);
   const {
     supported,
     status,

@@ -44,12 +44,13 @@ export function StandaloneLocalTools() {
   return <LocalTools local={local} />;
 }
 
-export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onSaveFile }: {
+export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onSaveFile, onOpenObs }: {
   local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: Exclude<ToolSection, "weather">;
   onReadScreen?: () => void;
   onSaveFile?: () => void;
+  onOpenObs?: () => void;
 }) {
   const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
@@ -260,6 +261,7 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
           {onSaveFile && <button type="button" className="jarvis-toolbar-link" onClick={onSaveFile}>
             {t("파일 저장", "Save file")}
           </button>}
+          {onOpenObs && <button type="button" className="jarvis-toolbar-link" onClick={onOpenObs}>OBS</button>}
         </div>
         {weatherOpen && <WeatherPanel canUseBrowserLocation={!nativeStorage} />}
         {receipt && (

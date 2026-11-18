@@ -1,0 +1,7 @@
+[
+  "obs", "obs status", "connect obs", "obs connect", "obs scene", "obs switch scene",
+  "start stream", "start obs stream", "obs start stream", "stop stream", "stop obs stream", "obs stop stream",
+  "obs 상태", "obs 연결", "obs 장면", "obs 씬", "obs 장면 전환", "obs 씬 변경",
+  "방송 상태", "방송 시작", "방송 시작해줘", "방송 종료", "방송 종료해줘",
+  "obs 방송 시작", "obs 방송 종료"
+]

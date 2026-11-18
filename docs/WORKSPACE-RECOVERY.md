@@ -98,6 +98,12 @@ In the desktop workspace, open **Local tools → Read screen** or enter `read sc
 
 Review and edit the recognized text, then use **Attach to draft**. Summary or study commands fill an empty message draft with the corresponding request. An existing draft stays intact. Send explicitly to let your configured model review the attached text. The attachment path handles history and cloud sync as it does for other file reviews. The legacy screen OCR control shows text for the current session, and its study control directs users to the workspace review flow.
 
+### Controlling OBS
+
+With Computer control enabled, open **Local tools → OBS** or enter `OBS status`, `start stream`, or `방송 시작`. The panel shows the scene and broadcast state reported by the OBS WebSocket API. Connect explicitly to a WebSocket address. The default is the local OBS server at `ws://127.0.0.1:4455`. Enter any required WebSocket password in the local form. Use **Refresh** to read current state and **Switch scene** to apply your scene selection. [OBS WebSocket protocol](https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md#stream-requests)
+
+**Start broadcast** and **Stop broadcast** open a system confirmation with the server and current scene. If OBS or the desktop permission changes during confirmation, review the current state before trying again. The panel displays the reported state after the request and can refresh if OBS is still starting or stopping. Direct OBS controls keep credentials and requests in the desktop app. The legacy controls use the same approval.
+
 ### Reviewing attached files
 
 Use **Add Attachment** or drop files into the conversation composer. The composer shows a filename for each selected file. You can preview an image or remove a file before pressing send. Voice input places the transcription in the draft when attachments are present so you can review the submission.
@@ -125,6 +131,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | File attachments | Composer, local transport, direct model APIs | Selectable PDF text, other text documents and raster images use a bounded model-only review turn |
 | macOS/Windows/Linux app operations and browser actions | Electron services and browser runtime | Existing routes retained. Native permissions and real apps/sites require manual verification |
 | Voice recognition, continuous mode and TTS | Voice provider, Electron STT/TTS, Friday | Existing controls retained. Real microphone and provider verification remains open, including [#4](https://github.com/Dezire0/jarvisprototype/issues/4) |
-| Files, OCR, screen briefing, OBS, music, game and project-generation actions | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |
+| OBS connection, status, scenes and broadcast transitions | Desktop OBS panel and Electron OBS WebSocket service | Verified against a loopback protocol fixture. Live OBS and physical confirmation remain to be verified |
+| Files, OCR, screen briefing, music, game and project-generation actions | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |
 | Registration, Google sign-in and saved model state | Worker, D1, and existing onboarding | Account API work tracked in [#19](https://github.com/Dezire0/jarvisprototype/issues/19) |
 | OpenClaw planner, memory and direct tool dispatch | Desktop Assistant and memory services | Follow-up tracked in [#7–#11](https://github.com/Dezire0/jarvisprototype/issues) |
