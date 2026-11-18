@@ -237,36 +237,6 @@ function writeFinish(res) {
   });
 }
 
-function writeAuthCallbackPage(res) {
-  res.writeHead(200, {
-    "Access-Control-Allow-Origin": "*",
-    "Cache-Control": "no-store",
-    "Referrer-Policy": "no-referrer",
-    "Content-Type": "text/html; charset=utf-8"
-  });
-  res.end(`<!doctype html>
-<html lang="ko">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Jarvis Login Complete</title>
-    <style>
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #080808; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      main { width: min(420px, calc(100vw - 32px)); padding: 28px; border: 1px solid rgba(255,255,255,.12); border-radius: 18px; background: rgba(255,255,255,.04); }
-      h1 { margin: 0 0 10px; font-size: 22px; }
-      p { margin: 0; color: #a1a1aa; line-height: 1.5; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Jarvis 로그인 완료</h1>
-      <p>세션을 Jarvis Desktop으로 전달했습니다. 이 창은 닫아도 됩니다.</p>
-    </main>
-    <script>setTimeout(() => window.close(), 900);</script>
-  </body>
-</html>`);
-}
-
 function createThreadAssistantResolver(createAssistantForThread, computerControl) {
   const cache = new Map();
   let revision = computerControl?.revision;
@@ -296,7 +266,6 @@ function createAssistantTransportServer({
   sessionToken,
   computerControl,
   createAssistantForThread,
-  onAuthCallback,
   allowDynamicPort = true
 }) {
   if (!isDesktopSessionToken(sessionToken)) throw new Error("A desktop session token is required.");
@@ -443,33 +412,6 @@ function createAssistantTransportServer({
       return;
     }
 
-    if (req.method === "GET" && req.url?.startsWith("/auth/callback")) {
-      const requestUrl = new URL(req.url, `http://${host}:${activePort}`);
-      const token = requestUrl.searchParams.get("token") || "";
-      const userRaw = requestUrl.searchParams.get("user") || "";
-
-      if (!token || !userRaw) {
-        res.writeHead(400, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: "Missing auth callback payload" }));
-        return;
-      }
-
-      try {
-        const user = JSON.parse(userRaw);
-
-        if (typeof onAuthCallback === "function") {
-          await onAuthCallback({ token, user });
-        }
-
-        writeAuthCallbackPage(res);
-      } catch {
-        res.writeHead(400, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: "Invalid auth callback payload" }));
-      }
-
-      return;
-    }
-
     if (req.method === "POST" && req.url === "/assistant") {
       if (!matchesDesktopToken(sessionToken, req.headers[SESSION_HEADER])) {
         return respondError(res, 401, "A valid desktop session is required.");
@@ -491,9 +433,6 @@ function createAssistantTransportServer({
   return {
     get url() {
       return `http://${host}:${activePort}/assistant`;
-    },
-    get authCallbackUrl() {
-      return `http://${host}:${activePort}/auth/callback`;
     },
     start() {
       if (server) {

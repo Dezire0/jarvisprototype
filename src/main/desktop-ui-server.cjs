@@ -48,12 +48,11 @@ async function waitForDesktopUi(url, token, signal) {
 }
 
 class DesktopUiServer {
-  constructor({ app, sessionToken, transportUrl, authCallbackUrl, resourcesPath = process.resourcesPath }) {
+  constructor({ app, sessionToken, transportUrl, resourcesPath = process.resourcesPath }) {
     if (!isDesktopSessionToken(sessionToken)) throw new Error("A desktop session token is required.");
     this.app = app;
     this.sessionToken = sessionToken;
     this.transportUrl = transportUrl;
-    this.authCallbackUrl = authCallbackUrl;
     this.resourcesPath = resourcesPath;
     this.child = null;
     this.url = "";
@@ -94,7 +93,6 @@ class DesktopUiServer {
         HOSTNAME: HOST,
         PORT: String(port),
         NEXT_PUBLIC_JARVIS_SITE_MODE: "app",
-        NEXT_PUBLIC_JARVIS_AUTH_CALLBACK_URL: this.authCallbackUrl,
         NEXT_TELEMETRY_DISABLED: "1",
         JARVIS_UI_ORIGIN: targetUrl,
         JARVIS_TRANSPORT_URL: this.transportUrl,

@@ -9,16 +9,6 @@ const { app, BrowserWindow, Menu, globalShortcut, ipcMain, screen, session, safe
 const { configureDesktopProfile } = require("./desktop-profile.cjs");
 const isolatedProfile = configureDesktopProfile(app);
 
-if (!isolatedProfile) {
-  if (process.defaultApp) {
-    if (process.argv.length >= 2) {
-      app.setAsDefaultProtocolClient("jarvis-desktop", process.execPath, [path.resolve(process.argv[1])]);
-    }
-  } else {
-    app.setAsDefaultProtocolClient("jarvis-desktop");
-  }
-}
-
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
@@ -71,7 +61,6 @@ let updaterService;
 let popupStateCache = null;
 let popupDragState = null;
 let assistantMuted = false;
-let pendingAuthCallback = null;
 const POPUP_ENABLED = String(process.env.JARVIS_POPUP_ENABLED || "0").trim() === "1";
 const DESKTOP_UI_MODE = String(process.env.JARVIS_DESKTOP_UI_MODE || "next").trim().toLowerCase() === "next"
   ? "next"
@@ -131,24 +120,6 @@ function persistAuthSession(payload = {}) {
   if (payload.user) {
     piiManager.set("auth.user", JSON.stringify(payload.user));
   }
-}
-
-function deliverAuthCallback(payload) {
-  persistAuthSession(payload);
-  pendingAuthCallback = payload;
-
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.webContents.send("auth:callback", payload);
-    pendingAuthCallback = null;
-    if (settingsWindow.isMinimized()) settingsWindow.restore();
-    settingsWindow.show();
-    settingsWindow.focus();
-    settingsWindow.moveTop();
-    app.focus({ steal: true });
-    return;
-  }
-
-  openSettingsWindow();
 }
 
 function ensureReadyServices() {
@@ -285,9 +256,6 @@ async function createServices() {
     port: Number(process.env.JARVIS_ASSISTANT_PORT || 8010),
     sessionToken: desktopSessionToken,
     computerControl,
-    onAuthCallback(payload) {
-      deliverAuthCallback(payload);
-    },
     async createAssistantForThread(threadId, context) {
       const accountMemory = await resolveAccountMemory(context);
       return new AssistantService({
@@ -320,8 +288,7 @@ async function ensureDesktopUiServer() {
     desktopUiServer = new DesktopUiServer({
       app,
       sessionToken: desktopSessionToken,
-      transportUrl: assistantTransportServer.url,
-      authCallbackUrl: assistantTransportServer.authCallbackUrl
+      transportUrl: assistantTransportServer.url
     });
   }
 
@@ -485,46 +452,7 @@ async function resolvePopupBounds(windowWidth, windowHeight) {
   return clampPopupBounds(persisted, windowWidth, windowHeight);
 }
 
-// Deep Link Handling
-function handleDeepLink(url) {
-  if (isolatedProfile) return;
-  try {
-    const parsedUrl = new URL(url);
-    if (parsedUrl.protocol === "jarvis-desktop:") {
-      const token = parsedUrl.searchParams.get("token");
-      const userRaw = parsedUrl.searchParams.get("user");
-      if (token && userRaw) {
-        deliverAuthCallback({ token, user: JSON.parse(userRaw) });
-      }
-    }
-  } catch {
-    console.error("Failed to read the desktop sign-in callback.");
-  }
-}
-
-function extractDeepLinkFromCommandLine(commandLine = []) {
-  return commandLine.find((arg) => typeof arg === "string" && (arg.startsWith("jarvis-desktop://") || arg.startsWith("jarvis-desktop:")));
-}
-
-app.on("open-url", (event, url) => {
-  event.preventDefault();
-  handleDeepLink(url);
-});
-
-app.on("second-instance", (_event, commandLine) => {
-  const url = extractDeepLinkFromCommandLine(commandLine);
-  if (url) {
-    handleDeepLink(url);
-  }
-
-  openSettingsWindow();
-});
-
-// Windows/Linux startup deep link
-if (process.platform !== "darwin") {
-  const url = extractDeepLinkFromCommandLine(process.argv);
-  if (url) handleDeepLink(url);
-}
+app.on("second-instance", () => openSettingsWindow());
 
 async function createPopupWindow() {
   const windowWidth = 430;
@@ -650,10 +578,6 @@ function createSettingsWindow() {
   settingsWindow.webContents.on("did-finish-load", () => {
     console.log("Jarvis Desktop window finished loading.");
     broadcastMuteState("bootstrap");
-    if (pendingAuthCallback) {
-      settingsWindow?.webContents.send("auth:callback", pendingAuthCallback);
-      pendingAuthCallback = null;
-    }
   });
 
   settingsWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {

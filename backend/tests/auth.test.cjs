@@ -77,8 +77,9 @@ test("Worker sessions use a required private key and keep existing D1 accounts",
     "VALUES ('legacy-fixture', 'legacy@example.invalid', '" + legacyHash + "', 'synthetic-ciphertext')",
   ], { cwd: dir, env });
 
-  const profileMigration = "0002_restore_user_profile.sql";
-  await copyFile(path.join(backend, "migrations", profileMigration), path.join(migrations, profileMigration));
+  for (const migration of ["0002_restore_user_profile.sql", "0003_google_sign_in_attempts.sql"]) {
+    await copyFile(path.join(backend, "migrations", migration), path.join(migrations, migration));
+  }
   await execute(process.execPath, [wrangler, "d1", "migrations", "apply", "DB", ...localArguments], { cwd: dir, env });
 
   let output = "";
@@ -201,10 +202,10 @@ test("Worker sessions use a required private key and keep existing D1 accounts",
   assert.deepEqual((await separateThreads.json()).threads, []);
 
   const querySentinel = "synthetic-private-query-fixture";
-  const badCallback = await fetch(base + "/api/auth/google-callback?state=" + querySentinel);
-  assert.equal(badCallback.status, 400);
+  const badCallback = await fetch(base + "/api/auth/google-callback?state=" + querySentinel, { redirect: "manual" });
+  assert.equal(badCallback.status, 303);
   assert.equal(badCallback.headers.get("referrer-policy"), "no-referrer");
-  assert.deepEqual(await badCallback.json(), { error: "No code provided" });
+  assert.equal(badCallback.headers.get("location"), "/api/auth/google/result?status=failed");
   const appLogLines = output.split("\n").filter((line) => line.includes("[REQUEST]"));
   assert.ok(appLogLines.length > 0, "Expected API request events");
   assert.ok(appLogLines.every((line) => /\[REQUEST\] [A-Z]+ [0-9]{3}\s*$/.test(line)));
