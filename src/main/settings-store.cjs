@@ -5,6 +5,7 @@ const { hasSecureStorage } = require("./secure-storage.cjs");
 const { getOpenAIEndpointOrigin } = require("./openai-endpoint.cjs");
 
 const DEFAULT_TTS_SETTINGS = {
+  systemVoices: { en: "", ko: "" },
   providers: {
     en: "auto",
     ko: "auto"
@@ -101,6 +102,7 @@ function createDefaultSettings() {
       }
     },
     tts: {
+      systemVoices: { ...DEFAULT_TTS_SETTINGS.systemVoices },
       providers: {
         ...DEFAULT_TTS_SETTINGS.providers
       },
@@ -236,6 +238,10 @@ class SettingsStore {
         }
       },
       tts: {
+        systemVoices: {
+          en: typeof storedTts.systemVoices?.en === "string" ? storedTts.systemVoices.en.slice(0, 512) : "",
+          ko: typeof storedTts.systemVoices?.ko === "string" ? storedTts.systemVoices.ko.slice(0, 512) : ""
+        },
         providers: {
           en: trimmedOrFallback(storedTts.providers?.en, defaults.tts.providers.en),
           ko: trimmedOrFallback(storedTts.providers?.ko, defaults.tts.providers.ko)
@@ -561,6 +567,7 @@ class SettingsStore {
     const tts = this.getTtsSettings();
 
     return {
+      systemVoices: { ...this.cache.tts.systemVoices },
       providers: {
         ...tts.providers
       },
@@ -608,6 +615,10 @@ class SettingsStore {
         ...this.cache,
         version: 1,
         tts: {
+          systemVoices: {
+            ...current.systemVoices,
+            ...patch.systemVoices
+          },
           providers: {
             en: trimmedOrFallback(patch.providers?.en, current.providers.en),
             ko: trimmedOrFallback(patch.providers?.ko, current.providers.ko)

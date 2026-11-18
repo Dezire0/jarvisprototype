@@ -22,12 +22,16 @@ test("failed settings replacement preserves committed values and concurrent edit
   await fs.rmdir(temporary);
   await Promise.all([
     store.updateConversationModelSettings({ ollama: { model: "new-model" } }),
-    store.updateTtsSettings({ openai: { model: "voice-model" } }),
+    store.updateTtsSettings({ openai: { model: "voice-model" }, systemVoices: { ko: "fixture-ko", en: "fixture-en" } }),
     store.updateConversationModelSettings({ ollama: { url: "http://127.0.0.1:11434" } }),
   ]);
   await reopened.load();
   assert.deepEqual(reopened.getConversationModelSettingsView().ollama, { model: "new-model", url: "http://127.0.0.1:11434" });
   assert.equal(reopened.getTtsSettingsView().openai.model, "voice-model");
+  await reopened.updateTtsSettings({ providers: { ko: "system", en: "off" }, systemVoices: { ko: "another-ko" } });
+  const afterVoiceSave = reopened.getTtsSettingsView();
+  assert.deepEqual(afterVoiceSave.systemVoices, { en: "fixture-en", ko: "another-ko" });
+  assert.deepEqual(afterVoiceSave.providers, { en: "off", ko: "system" });
 });
 
 test("changing a compatible API origin clears a saved key unless a replacement is supplied", async (t) => {

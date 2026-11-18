@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld("assistantAPI", {
   speak(payload = {}) {
     return ipcRenderer.invoke("assistant:speak", payload);
   },
+  speakWorkspace(payload) {
+    return ipcRenderer.invoke("assistant:speak-workspace", payload);
+  },
   getMuteState() {
     return ipcRenderer.invoke("assistant:get-mute-state");
   },
