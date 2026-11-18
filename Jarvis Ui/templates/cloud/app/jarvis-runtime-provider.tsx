@@ -305,12 +305,16 @@ function useJarvisTransportRuntime(
       const thread = aui.threadListItem().getState();
       const threadId = thread.remoteId ?? thread.id;
       const memoryContext = buildMemoryContext(history, threadId, thread.status === "new");
+      const draft = draftFromCommands(body.commands);
       setNotice(threadId, null);
       attempt.current = {
         threadId, localId: thread.id, before: body.state as TransportState,
-        draft: draftFromCommands(body.commands), temporary: memoryContext.memoryMode === "temporary",
+        draft, temporary: memoryContext.memoryMode === "temporary",
       };
-      return { ...body, threadId, memoryContext };
+      return {
+        ...body, threadId, memoryContext,
+        allowCloudFallback: memoryContext.memoryMode !== "temporary" && !draft.hadAttachments && history.allowCloudFallback,
+      };
     },
     converter: transportConverter,
     onFinish: () => {

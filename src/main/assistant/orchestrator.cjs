@@ -1,4 +1,4 @@
-async function runAssistantTurn(service, cleanInput, helpers = {}) {
+async function runAssistantTurn(service, cleanInput, helpers = {}, cloudRequest) {
   if (!cleanInput) {
     return {
       reply:
@@ -22,7 +22,7 @@ async function runAssistantTurn(service, cleanInput, helpers = {}) {
     });
   }
 
-  const pendingClarificationResult = await service.continuePendingClarification(cleanInput);
+  const pendingClarificationResult = await service.continuePendingClarification(cleanInput, cloudRequest);
   if (pendingClarificationResult) {
     pendingClarificationResult.language = helpers.detectReplyLanguage(cleanInput);
     return service.finalizeResponse(cleanInput, pendingClarificationResult, {
@@ -76,7 +76,7 @@ async function runAssistantTurn(service, cleanInput, helpers = {}) {
   let result;
 
   try {
-    result = await service.executeRoute(cleanInput, route);
+    result = await service.executeRoute(cleanInput, route, cloudRequest);
   } catch (error) {
     result = {
       reply:

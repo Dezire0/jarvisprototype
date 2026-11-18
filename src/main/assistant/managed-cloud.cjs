@@ -1,6 +1,10 @@
 const { normalizeReplySource } = require("./reply-source.cjs");
 const DEFAULT_CLOUD_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
 
+function managedCloudFallbackEnabled() {
+  return process.env.JARVIS_ENABLE_CLOUD_AI_FALLBACK?.trim() === "1";
+}
+
 function cloudEndpoint(baseUrl) {
   const url = new URL(baseUrl);
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
@@ -14,7 +18,7 @@ function cloudEndpoint(baseUrl) {
 }
 
 function createManagedCloudChat({
-  enabled = process.env.JARVIS_ENABLE_CLOUD_AI_FALLBACK?.trim() === "1",
+  enabled = managedCloudFallbackEnabled(),
   baseUrl = process.env.JARVIS_CLOUD_API_BASE?.trim() || DEFAULT_CLOUD_BASE
 } = {}) {
   return async ({ token, input, history, language, memoryMode }) => {
@@ -90,4 +94,4 @@ function createManagedCloudChat({
   };
 }
 
-module.exports = { createManagedCloudChat };
+module.exports = { createManagedCloudChat, managedCloudFallbackEnabled };

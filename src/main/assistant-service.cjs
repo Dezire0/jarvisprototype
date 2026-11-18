@@ -3325,7 +3325,7 @@ class AssistantService {
     );
   }
 
-  async continuePendingClarification(input) {
+  async continuePendingClarification(input, cloudRequest) {
     if (!this.pendingClarification) {
       return null;
     }
@@ -3372,7 +3372,7 @@ class AssistantService {
       return this.executeRoute(pending.originalInput || input, {
         ...(pending.route || {}),
         appRecoveryChoice: choice
-      });
+      }, cloudRequest);
     }
 
     let resolvedValue = cleanupParsedText(input);
@@ -3417,7 +3417,7 @@ class AssistantService {
       mergedRoute[pending.field] = resolvedValue;
     }
 
-    return this.executeRoute(pending.originalInput || input, mergedRoute);
+    return this.executeRoute(pending.originalInput || input, mergedRoute, cloudRequest);
   }
 
   rememberBrowserContext(url = "", title = "", extras = {}) {
@@ -4438,7 +4438,7 @@ class AssistantService {
     };
   }
 
-  async executeRoute(cleanInput, route) {
+  async executeRoute(cleanInput, route, cloudRequest) {
     // 사용자의 입력 의도(Route)에 따라 적절한 핸들러를 호출합니다.
     switch (route.route) {
       case "system_briefing":
@@ -4481,7 +4481,7 @@ class AssistantService {
         return this.handleSpotifyRoute(cleanInput, route);
       case "chat":
       default:
-        return this.handleGeneral(cleanInput);
+        return this.handleGeneral(cleanInput, cloudRequest);
     }
   }
 
@@ -6311,7 +6311,7 @@ class AssistantService {
     );
   }
 
-  async handleGeneral(input) {
+  async handleGeneral(input, cloudRequest) {
     const { user } = this.readAccountSession?.() || {};
 
     const preferredLang = user?.settings?.language || "auto";
@@ -6380,7 +6380,7 @@ class AssistantService {
         memorySources
       };
     } catch (error) {
-      const cloud = await this.tryManagedCloudChat(input, language);
+      const cloud = await this.tryManagedCloudChat(input, language, cloudRequest);
       if (cloud) return cloud;
 
       return {
@@ -6391,18 +6391,26 @@ class AssistantService {
     }
   }
 
-  async tryManagedCloudChat(input, language) {
+  captureCloudRequest({ allowCloudFallback = true, canUseCloud } = {}) {
+    if (!allowCloudFallback || this.memoryMode === "temporary") return null;
     const token = this.readAccountSession?.()?.token;
+    return token ? { token, history: this.getRecentHistory(10), canUseCloud } : null;
+  }
+
+  async tryManagedCloudChat(input, language, request) {
+    if (!request || request.canUseCloud?.() === false || request.token !== this.readAccountSession?.()?.token) {
+      return null;
+    }
     return this.managedCloudChat({
-      token,
+      token: request.token,
       input,
-      history: this.getRecentHistory(10),
+      history: request.history,
       language,
-      memoryMode: this.memoryMode
+      memoryMode: "persistent"
     });
   }
 
-  async handleInput(input) {
+  async handleInput(input, options) {
     const save = parseLocalFileWrite(input);
     if (save) return {
       reply: save.language === "ko"
@@ -6443,8 +6451,9 @@ class AssistantService {
       if (phrases.ko.includes(command)) return this.screenReviewGuidance("ko");
       if (phrases.en.includes(command)) return this.screenReviewGuidance("en");
     }
+    const cloudRequest = this.captureCloudRequest(options);
     if (cleanInput && this.computerControl?.enabled === false) {
-      const result = await this.handleModelConversation(cleanInput);
+      const result = await this.handleModelConversation(cleanInput, cloudRequest);
       return this.finalizeResponse(cleanInput, result, { route: "chat" });
     }
     return runAssistantTurn(this, cleanInput, {
@@ -6454,7 +6463,7 @@ class AssistantService {
       looksLikeFreshWorkspaceCommand,
       looksLikeModelIdentityQuestion,
       promoteFollowUpRoute
-    });
+    }, cloudRequest);
   }
 
   obsGuidance(language) {
@@ -6518,7 +6527,7 @@ class AssistantService {
     }
   }
 
-  async handleModelConversation(input) {
+  async handleModelConversation(input, cloudRequest) {
     const language = detectReplyLanguage(input);
     const korean = language === "ko";
     if (looksLikeModelIdentityQuestion(input)) {
@@ -6553,7 +6562,7 @@ class AssistantService {
       });
       return { ...result(reply, modelProvider(responseSource, "local")), responseSource, memorySources };
     } catch {
-      const cloud = await this.tryManagedCloudChat(input, language);
+      const cloud = await this.tryManagedCloudChat(input, language, cloudRequest);
       if (cloud) return cloud;
 
       return result(korean

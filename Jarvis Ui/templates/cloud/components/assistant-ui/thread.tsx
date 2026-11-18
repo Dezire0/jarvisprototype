@@ -11,6 +11,7 @@ import type { ModelAvailability } from "@/components/jarvis/model-settings";
 import type { ToolSection } from "@/components/jarvis/local-tools";
 import { useJarvisVoice } from "@/components/jarvis/voice-provider";
 import { ComposerVoiceControls } from "@/components/jarvis/composer-voice-controls";
+import { CloudFallbackControl } from "@/components/jarvis/cloud-fallback-control";
 import { VoicePlaybackStatus, useVoiceOutput } from "@/components/jarvis/voice-output-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -185,7 +186,7 @@ export const Thread: FC<{
           className="jarvis-composer-dock mx-auto w-full max-w-(--thread-max-width)"
         >
           {!isEmpty && <ThreadScrollToBottom />}
-          <Composer runLocalCommand={runLocalCommand} inputRef={inputRef} />
+          <Composer runLocalCommand={runLocalCommand} inputRef={inputRef} temporary={temporary} />
           {historyError && !temporary && <p role="alert" className="jarvis-auth-error mt-2">
             {isKo ? "기기의 대화 기록에 접근하지 못했습니다. 현재 대화에서 필요한 내용을 복사하세요."
               : "Conversation history is unavailable on this device. Copy anything you need from this conversation."}
@@ -327,7 +328,8 @@ const ThreadScrollToBottom: FC = () => {
 const Composer: FC<{
   runLocalCommand: ComposerCommandHandler;
   inputRef: Ref<HTMLTextAreaElement>;
-}> = ({ runLocalCommand, inputRef }) => {
+  temporary: boolean;
+}> = ({ runLocalCommand, inputRef, temporary }) => {
   const aui = useAui();
   const text = useAuiState((state) => state.composer.text);
   const { error: fileError, clear: clearFileError } = useJarvisAttachmentError();
@@ -449,6 +451,7 @@ const Composer: FC<{
               </ComposerPrimitive.Send>
             </div>
           )}
+          {!temporary && !hasFiles && <CloudFallbackControl />}
           <div className="flex items-center justify-between gap-2 px-1">
             <div role="status" className={cn("min-w-0 break-words text-xs", error ? "text-destructive" : "text-muted-foreground")}>
               {voiceSummary}

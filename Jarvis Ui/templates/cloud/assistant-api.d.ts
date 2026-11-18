@@ -19,7 +19,11 @@ declare global {
       startMacWakeSpeech?: (request: { id: string; locale: string }) => Promise<{ ok: boolean; reason?: string }>;
       stopMacWakeSpeech?: (id: string) => Promise<void>;
       onMacWakeSpeech?: (callback: (event: MacWakeSpeechEvent) => void) => (() => void);
-      getConversationModelSettings?: () => Promise<{ settings: ConversationModelSettings; availability: ModelAvailability }>;
+      getConversationModelSettings?: () => Promise<{
+        settings: ConversationModelSettings;
+        availability: ModelAvailability;
+        cloudFallbackAvailable?: boolean;
+      }>;
       saveConversationModelSettings?: (draft: ConversationModelDraft) => Promise<{ settings: ConversationModelSettings }>;
       testConversationModel?: () => Promise<ModelConnectionResult>;
       getTtsSettings?: () => Promise<{ settings: VoiceOutputSettings }>;

@@ -20,6 +20,7 @@ const { createAssistantTransportServer } = require("./assistant-transport-server
 const { AppPicker } = require("./app-picker.cjs");
 const { BrowserService } = require("./browser-service.cjs");
 const { browserHandoffTarget } = require("./assistant/browser-handoff.cjs");
+const { managedCloudFallbackEnabled } = require("./assistant/managed-cloud.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
 const { ComputerControl, COMPUTER_CONTROL_OFF, isTrustedDesktopFrame, requiresComputerControl } = require("./computer-control.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
@@ -509,6 +510,7 @@ async function createServices() {
     sessionToken: desktopSessionToken,
     computerControl,
     getActiveAccountId: () => accountSession.active?.user.id,
+    getActiveSession: () => accountSession.active,
     async createAssistantForThread(threadId, context) {
       const accountMemory = await resolveAccountMemory(context);
       return new AssistantService({
@@ -1418,7 +1420,8 @@ ipcMain.handle("assistant:get-conversation-model-settings", async (event) => {
 
   return {
     settings: liveServices.settings.getConversationModelSettingsView(),
-    availability: getSavedModelAvailability(computerControl.enabled)
+    availability: getSavedModelAvailability(computerControl.enabled),
+    cloudFallbackAvailable: managedCloudFallbackEnabled()
   };
 });
 

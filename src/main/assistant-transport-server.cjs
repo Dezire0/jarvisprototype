@@ -284,6 +284,7 @@ function createAssistantTransportServer({
   sessionToken,
   computerControl,
   getActiveAccountId,
+  getActiveSession,
   createAssistantForThread,
   allowDynamicPort = true
 }) {
@@ -323,6 +324,7 @@ function createAssistantTransportServer({
     const attachmentReview = attachments.length > 0;
     const fileReview = attachmentReview || Boolean(parseLocalFileRead(userText) || parseLocalFileWrite(userText));
     const memoryContext = normalizeMemoryContext(payload?.memoryContext, threadId);
+    const activeSession = getActiveSession?.();
     const accountIsActive = () => !getActiveAccountId ||
       Boolean(memoryContext.accountId && memoryContext.accountId === getActiveAccountId());
 
@@ -391,7 +393,12 @@ function createAssistantTransportServer({
       if (!accountIsActive()) throw new Error("Sign in to this account in Jarvis.");
       const result = attachmentReview
         ? await assistant.handleAttachmentInput(userText, attachments, { signal: attachmentAbort.signal })
-        : await assistant.handleInput(userText);
+        : await assistant.handleInput(userText, {
+            allowCloudFallback: !fileReview && memoryContext.memoryMode !== "temporary" &&
+              (payload?.allowCloudFallback === undefined || payload.allowCloudFallback === true),
+            canUseCloud: () => !disconnected() && accountIsActive() &&
+              (!getActiveSession || getActiveSession() === activeSession)
+          });
       if (disconnected()) return;
       const reply = typeof result?.reply === "string" ? result.reply : "";
       const provider = typeof result?.provider === "string" ? result.provider : "local";
