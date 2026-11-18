@@ -86,6 +86,7 @@ function buildMemoryContext(history: ChatHistory, threadId: string, isDraft: boo
     threadTitle: history.get(threadId)?.title || "",
     accountId,
     memoryMode: "persistent",
+    savedMemory: history.profile.savedMemory,
   };
 }
 

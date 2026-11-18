@@ -12,6 +12,7 @@ function validateSnapshot(serialized) {
   const data = JSON.parse(serialized);
   if (data?.version !== 1 || !Array.isArray(data.threads) || !Array.isArray(data.sidebar?.projects) ||
       !data.sidebar.threadMetaById || typeof data.sidebar.threadMetaById !== "object" ||
+      (data.savedMemory !== undefined && typeof data.savedMemory !== "boolean") ||
       (data.profile !== undefined &&
         (typeof data.profile?.name !== "string" || data.profile.name.length > 80 ||
           !["auto", "ko", "en"].includes(data.profile.language)))) {
@@ -60,20 +61,23 @@ class ChatHistoryStore {
   }
 }
 
-function registerChatHistoryHandlers({ ipcMain, getWindow, getDesktopUiUrl, getUserDataDirectory }) {
+function registerChatHistoryHandlers({ ipcMain, getWindow, getDesktopUiUrl, getUserDataDirectory, getActiveAccountId }) {
   let store;
-  function trustedStore(event) {
+  function trustedStore(event, accountId) {
     const contents = getWindow()?.webContents;
     if (!contents || event.sender !== contents || event.senderFrame !== contents.mainFrame ||
         !isLocalWorkspacePage(event.senderFrame?.url, getDesktopUiUrl()) ||
         new URL(event.senderFrame.url).pathname !== "/") {
       throw new Error("Conversation history requires the desktop chat window.");
     }
+    if (!accountId || accountId !== getActiveAccountId()) {
+      throw new Error("Conversation history requires the active account.");
+    }
     return store ||= new ChatHistoryStore(getUserDataDirectory());
   }
 
-  ipcMain.handle("assistant:load-chat-history", (event, accountId) => trustedStore(event).read(accountId));
-  ipcMain.handle("assistant:save-chat-history", (event, accountId, serialized) => trustedStore(event).write(accountId, serialized));
+  ipcMain.handle("assistant:load-chat-history", (event, accountId) => trustedStore(event, accountId).read(accountId));
+  ipcMain.handle("assistant:save-chat-history", (event, accountId, serialized) => trustedStore(event, accountId).write(accountId, serialized));
 }
 
 module.exports = { ChatHistoryStore, registerChatHistoryHandlers };

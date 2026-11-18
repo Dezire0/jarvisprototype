@@ -194,7 +194,8 @@ function normalizeMemoryContext(rawContext = {}, threadId = "") {
     projectId: typeof context.projectId === "string" ? context.projectId.trim() : "",
     projectName: typeof context.projectName === "string" ? context.projectName.trim() : "",
     threadTitle: typeof context.threadTitle === "string" ? context.threadTitle.trim() : "",
-    memoryMode: context.memoryMode === "temporary" ? "temporary" : "persistent"
+    memoryMode: context.memoryMode === "temporary" ? "temporary" : "persistent",
+    savedMemory: context.memoryMode !== "temporary" && context.savedMemory !== false
   };
 }
 
@@ -251,8 +252,8 @@ function createThreadAssistantResolver(createAssistantForThread, computerControl
       cache.clear();
       revision = computerControl?.revision;
     }
-    const { accountId, threadId, memoryMode } = context;
-    const cacheKey = JSON.stringify([accountId, threadId, memoryMode]);
+    const { accountId, threadId, memoryMode, savedMemory } = context;
+    const cacheKey = JSON.stringify([accountId, threadId, memoryMode, savedMemory]);
 
     if (!cache.has(cacheKey)) {
       cache.set(cacheKey, Promise.resolve().then(() => createAssistantForThread(threadId, context)).catch((error) => {
@@ -270,6 +271,7 @@ function createAssistantTransportServer({
   port = DEFAULT_PORT,
   sessionToken,
   computerControl,
+  getActiveAccountId,
   createAssistantForThread,
   allowDynamicPort = true
 }) {
@@ -309,6 +311,10 @@ function createAssistantTransportServer({
     const attachmentReview = attachments.length > 0;
     const fileReview = attachmentReview || Boolean(parseLocalFileRead(userText) || parseLocalFileWrite(userText));
     const memoryContext = normalizeMemoryContext(payload?.memoryContext, threadId);
+    const accountIsActive = () => !getActiveAccountId ||
+      Boolean(memoryContext.accountId && memoryContext.accountId === getActiveAccountId());
+
+    if (!accountIsActive()) return respondError(res, 401, "Sign in to this account in Jarvis.");
 
     if (!userText && !attachmentReview) {
       res.writeHead(200, STREAM_HEADERS);
@@ -321,6 +327,7 @@ function createAssistantTransportServer({
     if (disconnected()) return;
     const assistant = await resolveAssistant(memoryContext);
     if (disconnected()) return;
+    if (!accountIsActive()) return respondError(res, 401, "Sign in to this account in Jarvis.");
     const attachmentAbort = attachmentReview ? new AbortController() : null;
     if (attachmentAbort) {
       res.once("close", () => {
@@ -369,6 +376,7 @@ function createAssistantTransportServer({
       }
 
       if (disconnected()) return;
+      if (!accountIsActive()) throw new Error("Sign in to this account in Jarvis.");
       const result = attachmentReview
         ? await assistant.handleAttachmentInput(userText, attachments, { signal: attachmentAbort.signal })
         : await assistant.handleInput(userText);
@@ -389,7 +397,7 @@ function createAssistantTransportServer({
       writeStateField(res, assistantMessageIndex, "provider", provider);
       writeStateField(res, assistantMessageIndex, "actions", attachmentReview ? [] : result.actions || []);
       writeStateField(res, assistantMessageIndex, "details", attachmentReview ? null : result.details || null);
-      if (!fileReview && memoryContext.memoryMode !== "temporary") {
+      if (!fileReview && memoryContext.savedMemory) {
         const sources = normalizeMemorySources(result?.memorySources);
         if (sources.length) writeStateField(res, assistantMessageIndex, "memorySources", sources);
       }

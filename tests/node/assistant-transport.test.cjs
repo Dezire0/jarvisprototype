@@ -108,6 +108,8 @@ test("the conversation stream emits only allowlisted memory categories for regul
   assert.doesNotMatch(regular, /private\.md/);
   const temporary = await send({ ...payload, memoryContext: { memoryMode: "temporary" } });
   assert.doesNotMatch(temporary, /memorySources/);
+  const memoryOff = await send({ ...payload, memoryContext: { savedMemory: false } });
+  assert.doesNotMatch(memoryOff, /memorySources/);
   const attachment = await send({
     ...payload,
     commands: [{
@@ -120,6 +122,56 @@ test("the conversation stream emits only allowlisted memory categories for regul
   });
   assert.match(attachment, /"attachmentReview":true/);
   assert.doesNotMatch(attachment, /memorySources/);
+});
+
+test("only the active account resolves an Assistant and disabled recall gets a separate instance", async (t) => {
+  const token = createDesktopSessionToken();
+  const instances = [];
+  const conversations = [];
+  let activeAccount = "account-a";
+  const server = createAssistantTransportServer({
+    port: 0,
+    sessionToken: token,
+    getActiveAccountId: () => activeAccount,
+    createAssistantForThread(_id, context) {
+      instances.push([context.accountId, context.savedMemory]);
+      return {
+        async setSessionContext(session) {
+          conversations.push([session.savedMemory, session.stateMessages.map((message) => message.text)]);
+        },
+        async handleInput() { return { reply: "Account reply" }; },
+      };
+    },
+  });
+  await server.start();
+  t.after(() => server.stop());
+
+  const send = async (memoryContext) => {
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [SESSION_HEADER]: token },
+      body: JSON.stringify({
+        ...payload,
+        memoryContext,
+        state: { messages: [{ role: "user", text: "Visible earlier message" }] },
+      }),
+    });
+    await response.text();
+    return response.status;
+  };
+
+  assert.equal(await send({}), 401);
+  assert.equal(await send({ accountId: "account-b" }), 401);
+  assert.equal(await send({ accountId: "account-a" }), 200);
+  assert.equal(await send({ accountId: "account-a", savedMemory: false }), 200);
+  assert.equal(await send({ accountId: "account-a", savedMemory: false }), 200);
+  activeAccount = undefined;
+  assert.equal(await send({ accountId: "account-a" }), 401);
+  activeAccount = "account-b";
+  assert.equal(await send({ accountId: "account-a", savedMemory: false }), 401);
+  assert.equal(await send({ accountId: "account-b" }), 200);
+  assert.deepEqual(instances, [["account-a", true], ["account-a", false], ["account-b", true]]);
+  assert.deepEqual(conversations, [true, false, false, true].map((enabled) => [enabled, ["Visible earlier message"]]));
 });
 
 test("assistant validates session and JSON before resolving or invoking a thread", async (t) => {

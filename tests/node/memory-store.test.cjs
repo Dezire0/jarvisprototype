@@ -41,6 +41,7 @@ test("desktop account memory isolates each layer and leaves unscoped memory in t
   const [account, other] = await Promise.all([resolve({ accountId: "account-a" }), resolve({ accountId: "account-b" })]);
   assert.equal(await resolve({ accountId: "account-a" }), account);
   assert.equal(await resolve({ accountId: "account-a", memoryMode: "temporary" }), null);
+  assert.equal(await resolve({ accountId: "account-a", savedMemory: false }), null);
   assert.equal(await resolve({}), null);
   assert.equal(await resolve({ accountId: "" }), null);
   assert.equal(await resolve({ accountId: "x".repeat(257) }), null);
