@@ -23,10 +23,11 @@ import {
 import { cn } from "@/lib/utils";
 import { useChatHistory } from "@/app/jarvis-runtime-provider";
 import { VoiceOutputSettingsButton } from "@/components/jarvis/voice-output-settings";
-import type { SidebarHistory } from "@/lib/chat-history";
+import type { SidebarHistory, ThreadHistory } from "@/lib/chat-history";
 import { isWorkspaceLanguage, useWorkspaceLocale, WORKSPACE_LANGUAGES, type WorkspaceLanguage } from "@/lib/workspace-language";
 import { LoginModal } from "@/components/jarvis/login-modal";
 import { DesktopUpdateControl } from "@/components/jarvis/desktop-update-control";
+import { ConversationCleanup } from "@/components/jarvis/conversation-cleanup";
 import {
   clearAuthSession,
   restoreAuthSession,
@@ -113,10 +114,12 @@ function scoreSearch(query: string, haystack: string, title: string) {
 export function ThreadListSidebar({
   computerControlEnabled,
   onOpenModelSettings,
+  clearConversationRequest,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   computerControlEnabled: boolean;
   onOpenModelSettings?: (trigger: HTMLButtonElement) => void;
+  clearConversationRequest?: { thread: ThreadHistory; trigger: HTMLElement | null } | null;
 }) {
   const aui = useAui();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -137,6 +140,7 @@ export function ThreadListSidebar({
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [cleanup, setCleanup] = useState<{ thread?: ThreadHistory; trigger: HTMLElement | null } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [launcherQuery, setLauncherQuery] = useState("");
@@ -163,12 +167,16 @@ export function ThreadListSidebar({
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const allThreads = threadsState.threadItems.filter(
-    (item) => item.status === "regular" && !history.isTemporary(item.remoteId ?? item.id),
+    (item) => item.status === "regular" && history.get(item.remoteId ?? item.id) &&
+      !history.isTemporary(item.remoteId ?? item.id),
   );
   const activeThread =
     allThreads.find((thread) => thread.id === threadsState.mainThreadId) ||
     null;
   const activeThreadId = activeThread?.remoteId ?? activeThread?.id ?? null;
+  useEffect(() => {
+    if (clearConversationRequest) setCleanup(clearConversationRequest);
+  }, [clearConversationRequest]);
   useEffect(() => {
     void (async () => {
       const session = await restoreAuthSession();
@@ -473,6 +481,10 @@ export function ThreadListSidebar({
 
   return (
     <>
+      {cleanup && <ConversationCleanup key={cleanup.thread?.remoteId ?? "all"} history={history}
+        currentId={threadsState.threadItems.find((thread) => thread.id === threadsState.mainThreadId)?.remoteId ?? threadsState.mainThreadId}
+        requested={cleanup.thread} trigger={cleanup.trigger}
+        onClose={() => setCleanup(null)} onDeleted={() => setThreadMetaById(history.sidebar.threadMetaById)} />}
       <LoginModal
         open={loginOpen}
         onClose={() => setLoginOpen(false)}
@@ -833,10 +845,16 @@ export function ThreadListSidebar({
             )}
           </div>
 
-          <div className="mt-6 mb-1 px-3">
+          <div className="mt-6 mb-1 flex items-center justify-between gap-2 px-3">
             <p className="font-semibold text-foreground/72 text-xs uppercase tracking-wider dark:text-muted-foreground/80">
               {t("최근 대화", "Recent")} {selectedProject ? `· ${selectedProject.name}` : ""}
             </p>
+            <button type="button" className="jarvis-toolbar-link shrink-0 text-xs"
+              aria-label={t("대화 관리", "Manage conversations")} aria-haspopup="dialog"
+              disabled={!history.localThreads().length}
+              onClick={(event) => setCleanup({ trigger: event.currentTarget })}>
+              {t("관리", "Manage")}
+            </button>
           </div>
 
           <div className="flex flex-col gap-0.5">
