@@ -110,6 +110,14 @@ With Computer control enabled, open **Local tools → OBS** or enter `OBS status
 
 **Start broadcast** and **Stop broadcast** open a system confirmation with the server and current scene. If OBS or the desktop permission changes during confirmation, review the current state before trying again. The panel displays the reported state after the request and can refresh if OBS is still starting or stopping. Direct OBS controls keep credentials and requests in the desktop app. The legacy controls use the same approval.
 
+### Searching and controlling Spotify
+
+With Computer control enabled, open **Local tools → Spotify** or enter `Spotify controls` or `스포티파이`. A command such as `Spotify search jazz piano` or `스포티파이 검색 재즈 피아노` fills the input locally. **Search on Spotify** opens the search in the browser. You can also paste a supported Spotify share link or URI and choose **Open link**. [Spotify search](https://support.spotify.com/dm/article/search/) · [Share links and URIs](https://support.spotify.com/pg/article/share-from-spotify/)
+
+With Spotify for macOS installed, **Check playback** queries the running app through Apple Events. Playback controls can resume, pause, skip, or go back. Use **Play linked track** to explicitly request playback of a Spotify track link in the running app. Jarvis shows the reported playback state and track details as a snapshot. The app opens only when you request it. On other platforms or when Spotify is unavailable, use the web player. If access is denied, allow Spotify for Jarvis Desktop in macOS System Settings → Privacy & Security → Automation.
+
+Desktop tools expose `spotify:availability`, `spotify:status`, `spotify:control`, `spotify:play-track`, `spotify:open` and `spotify:search`. They require Computer control in the trusted desktop window. The panel shows search and open requests separately from the playback state.
+
 ### Finding and managing games
 
 Open **Local tools → Games** or enter `installed games` or `설치된 게임`. With Computer control enabled, Jarvis checks Steam and Epic launcher records on the device. The list includes records whose installation directory exists. It shows whether a library is missing, partly readable, or unsupported. Use **Refresh** after changes to the launcher library.
@@ -156,6 +164,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | OBS connection, status, scenes and broadcast transitions | Desktop OBS panel and Electron OBS WebSocket service | Verified against a loopback protocol fixture. Live OBS and physical confirmation remain to be verified |
 | Coding project templates, model drafts and save review | Desktop project creation and Electron project service | Uses built-in templates or a configured direct model and a native destination picker |
 | Steam and Epic installed games and store handoffs | Desktop Games panel and Electron game service | Local manifest scan and explicit store or launcher handoff |
-| Files, OCR, screen briefing and music actions | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |
+| Spotify search, share links and macOS transport | Desktop Spotify panel and Electron Spotify service | Web handoff and macOS Apple Events with explicit status reads |
+| Files, OCR and screen briefing | Electron tool services and Friday MCP | Existing implementation retained. Per-capability runtime verification remains open |
 | Registration, Google sign-in and saved model state | Worker, D1, and existing onboarding | Account API work tracked in [#19](https://github.com/Dezire0/jarvisprototype/issues/19) |
 | OpenClaw planner, memory and direct tool dispatch | Desktop Assistant and memory services | Follow-up tracked in [#7–#11](https://github.com/Dezire0/jarvisprototype/issues) |

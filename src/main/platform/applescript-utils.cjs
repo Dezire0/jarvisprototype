@@ -30,7 +30,7 @@ function buildKeystrokeLines(text = "") {
   return lines;
 }
 
-async function runAppleScript(lines) {
+async function runAppleScript(lines, { timeout } = {}) {
   const scriptLines = Array.isArray(lines) ? lines : [lines];
   const args = [];
 
@@ -39,10 +39,16 @@ async function runAppleScript(lines) {
   });
 
   try {
-    const { stdout } = await execFileAsync("osascript", args);
+    const { stdout } = await execFileAsync("osascript", args, { timeout });
     return stdout.trim();
   } catch (error) {
     const detail = String(error.stderr || error.stdout || error.message || "").trim();
+
+    if (/not authorized to send Apple events|\(-1743\)/i.test(detail)) {
+      throw Object.assign(new Error("Allow Apple Events in macOS Privacy & Security > Automation."), {
+        code: "APPLE_EVENTS_PERMISSION"
+      });
+    }
 
     if (/assistive access|not authorized|not allowed|(-1719)|(-25211)/i.test(detail)) {
       throw new Error(

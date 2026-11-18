@@ -44,7 +44,7 @@ export function StandaloneLocalTools() {
   return <LocalTools local={local} />;
 }
 
-export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject, onOpenGames }: {
+export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject, onOpenGames, onOpenSpotify }: {
   local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: Exclude<ToolSection, "weather">;
@@ -54,6 +54,7 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
   onOpenObs?: () => void;
   onCreateProject?: () => void;
   onOpenGames?: () => void;
+  onOpenSpotify?: () => void;
 }) {
   const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
@@ -273,6 +274,7 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
           {onOpenGames && <button type="button" className="jarvis-toolbar-link" onClick={onOpenGames}>
             {t("게임", "Games")}
           </button>}
+          {onOpenSpotify && <button type="button" className="jarvis-toolbar-link" onClick={onOpenSpotify}>Spotify</button>}
           {onOpenObs && <button type="button" className="jarvis-toolbar-link" onClick={onOpenObs}>OBS</button>}
         </div>
         {weatherOpen && <WeatherPanel canUseBrowserLocation={!nativeStorage} />}
