@@ -44,7 +44,7 @@ export function StandaloneLocalTools() {
   return <LocalTools local={local} />;
 }
 
-export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject, onOpenGames, onOpenSpotify, onOpenApps }: {
+export function LocalTools({ local, embedded = false, initialSection, onReadScreen, onReadPage, onSaveFile, onOpenObs, onCreateProject, onOpenGames, onOpenSpotify, onOpenApps, onBrowseFiles }: {
   local: LocalWorkspace;
   embedded?: boolean;
   initialSection?: Exclude<ToolSection, "weather">;
@@ -56,6 +56,7 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
   onOpenGames?: () => void;
   onOpenSpotify?: () => void;
   onOpenApps?: () => void;
+  onBrowseFiles?: () => void;
 }) {
   const locale = useWorkspaceLocale();
   const { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace } = local;
@@ -265,6 +266,9 @@ export function LocalTools({ local, embedded = false, initialSection, onReadScre
           </button>}
           {onReadPage && <button type="button" className="jarvis-toolbar-link" onClick={onReadPage}>
             {t("웹 페이지 읽기", "Read web page")}
+          </button>}
+          {onBrowseFiles && <button type="button" className="jarvis-toolbar-link" onClick={onBrowseFiles}>
+            {t("폴더 찾아보기", "Browse files")}
           </button>}
           {onSaveFile && <button type="button" className="jarvis-toolbar-link" onClick={onSaveFile}>
             {t("파일 저장", "Save file")}

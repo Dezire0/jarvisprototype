@@ -1,3 +1,4 @@
+const { folderGuidance } = require("../folder-browser.cjs");
 const { appPickerGuidance } = require("../app-picker.cjs");
 const { spotifyGuidance } = require("../spotify-service.cjs");
 const { gameLibraryGuidance } = require("../game-service.cjs");
@@ -4337,53 +4338,7 @@ class AssistantService {
       };
     }
 
-    if (route.route === "file_read") {
-      if (!route.path) {
-        throw new Error("A file path is required.");
-      }
-
-      const data = await this.files.readFile(route.path);
-      const reply = await this.replyWithModel(
-        input,
-        `The user asked about a file. Here is its content:\n\n${data.content.slice(0, 12000)}`,
-        {
-          tier: "complex"
-        }
-      ).catch(() =>
-        detectReplyLanguage(input) === "ko"
-          ? `${data.path} 파일 내용을 읽어왔어요. 필요한 부분을 설명하거나 수정안도 도와드릴게요.`
-          : `I read ${data.path}. I can explain it or suggest edits if you want.`
-      );
-
-      return {
-        reply,
-        actions: [this.makeAction("file_read", data.path)],
-        provider: getTierProviderLabel("complex"),
-        details: {
-          ...data,
-          showInlinePreview: true
-        }
-      };
-    }
-
-    const data = await this.files.listDirectory(route.path || ".");
-    const fallback = detectReplyLanguage(input) === "ko"
-      ? `${data.path} 목록을 읽었어요.`
-      : `I listed ${data.path}.`;
-
-    return {
-      reply: await this.polishCommandReply(
-        input,
-        {
-          actions: [this.makeAction("file_list", data.path)],
-          details: data
-        },
-        fallback
-      ),
-      actions: [this.makeAction("file_list", data.path)],
-      provider: "local",
-      details: data
-    };
+    return folderGuidance(detectReplyLanguage(input));
   }
 
   async handleGameRoute(input) {
