@@ -15,6 +15,7 @@ import type { ComposerCommandHandler } from "@/lib/local-workspace";
 
 type VoiceStatus =
   | "idle"
+  | "starting"
   | "listening"
   | "processing"
   | "unsupported"
@@ -65,11 +66,14 @@ type AssistantApiBridge = {
   }>;
 };
 
+type VoiceSession = { threadId: string; keepContinuous: boolean };
+
 type VoiceContextValue = {
   supported: boolean;
   status: VoiceStatus;
   transcript: string;
   error: string;
+  reviewPending: boolean;
   continuous: boolean;
   startOnce: () => void;
   toggleContinuous: () => void;
@@ -135,6 +139,7 @@ export function JarvisVoiceProvider({
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState("");
+  const [reviewPending, setReviewPending] = useState(false);
   const [continuous, setContinuous] = useState(false);
   const [sttProviderLabel, setSttProviderLabel] = useState("web-speech-only");
   const recognitionRef = useRef<BrowserRecognition | null>(null);
@@ -149,15 +154,11 @@ export function JarvisVoiceProvider({
   const recorderMaxTimeoutRef = useRef<number | null>(null);
   const recorderHeardSpeechRef = useRef(false);
   const recorderSilenceStartedAtRef = useRef(0);
-  const statusRef = useRef<VoiceStatus>("idle");
   const shouldResumeRef = useRef(false);
-  const isMountedRef = useRef(true);
-  const recognitionSession = useRef(0);
-  const isCurrent = (session: number) => isMountedRef.current && session === recognitionSession.current;
-
-  useEffect(() => {
-    statusRef.current = status;
-  }, [status]);
+  const sessionRef = useRef<VoiceSession | null>(null);
+  const currentThreadId = () => aui.threads().getState().mainThreadId;
+  const isCurrent = (session: VoiceSession) => sessionRef.current === session &&
+    session.threadId === currentThreadId() && !document.hidden;
 
   useEffect(() => {
     const available = canUseAssistantSttBridge() || Boolean(getRecognitionConstructor());
@@ -189,31 +190,39 @@ export function JarvisVoiceProvider({
   }, []);
 
   useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      recognitionSession.current++;
-      recognitionRef.current?.abort();
-      recognitionRef.current = null;
-      stopRecorderRecognition();
-      void disposeRecorderResources();
+    const unsubscribe = aui.subscribe(() => {
+      const session = sessionRef.current;
+      if (session && session.threadId !== currentThreadId()) stopRecognition();
+    });
+    const onVisibilityChange = () => {
+      if (document.hidden) stopRecognition();
     };
-  }, []);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", stopRecognition);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", stopRecognition);
+      releaseVoiceSession();
+    };
+  }, [aui]);
 
   useEffect(() => {
-    if (!continuous || isThreadRunning || status !== "idle" || !shouldResumeRef.current) {
+    const session = sessionRef.current;
+    if (!continuous || isThreadRunning || status !== "idle" || !session || !shouldResumeRef.current) {
       return;
     }
 
     const restartTimer = window.setTimeout(() => {
-      shouldResumeRef.current = false;
-      startRecognition(true);
+      if (isCurrent(session) && shouldResumeRef.current && !aui.thread().getState().isRunning) {
+        startRecognition(true);
+      }
     }, 420);
 
     return () => {
       window.clearTimeout(restartTimer);
     };
-  }, [continuous, isThreadRunning, status]);
+  }, [aui, continuous, isThreadRunning, status]);
 
   function hasConfiguredAssistantStt() {
     return canUseAssistantSttBridge() && sttProviderLabel.startsWith("cloud-stt:");
@@ -264,19 +273,31 @@ export function JarvisVoiceProvider({
     if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
-  function stopRecognition() {
-    recognitionSession.current++;
+  function releaseVoiceSession() {
+    sessionRef.current = null;
     shouldResumeRef.current = false;
-    recognitionRef.current?.abort();
+    const recognition = recognitionRef.current;
     recognitionRef.current = null;
+    try {
+      recognition?.abort();
+    } catch {
+      // Recognition may already have ended.
+    }
     stopRecorderRecognition();
     void disposeRecorderResources();
-    setTranscript("");
-    setError("");
-    setStatus(supported ? "idle" : "unsupported");
   }
 
-  function finalizeTranscript(value: string, keepContinuous: boolean) {
+  function stopRecognition() {
+    releaseVoiceSession();
+    setContinuous(false);
+    setTranscript("");
+    setError("");
+    setReviewPending(false);
+    setStatus((current) => current === "unsupported" ? current : "idle");
+  }
+
+  function finalizeTranscript(value: string, session: VoiceSession) {
+    if (!isCurrent(session)) return;
     const normalized = value.trim();
 
     if (!normalized) {
@@ -288,25 +309,32 @@ export function JarvisVoiceProvider({
     setTranscript(normalized);
     setError("");
     setStatus("idle");
-    shouldResumeRef.current = keepContinuous;
-    const composer = aui.composer();
-    const { attachments, quote } = composer.getState();
-    if (attachments.length) {
+    const composer = aui.thread().composer();
+    const { text, attachments, quote } = composer.getState();
+    if (text || attachments.length || quote || aui.thread().getState().isRunning) {
       shouldResumeRef.current = false;
       setContinuous(false);
-      composer.setText(normalized);
+      composer.setText(text ? `${text}\n${normalized}` : normalized);
+      setReviewPending(true);
       return;
     }
+
     const destination = runLocalCommand?.(normalized, {
-      hasAttachmentsOrQuote: Boolean(attachments.length || quote),
-      allowSpeech: !keepContinuous,
+      hasAttachmentsOrQuote: false,
+      allowSpeech: !session.keepContinuous,
     });
+    shouldResumeRef.current = session.keepContinuous && destination !== "retry";
     if (destination === "local") return;
     composer.setText(normalized);
-    if (destination !== "retry") composer.send();
+    if (destination === "retry") {
+      setContinuous(false);
+      setReviewPending(true);
+    } else {
+      composer.send();
+    }
   }
 
-  async function transcribeRecorderAudio(chunks: Blob[], mimeType: string, language: string) {
+  async function transcribeRecorderAudio(chunks: Blob[], mimeType: string, language: string, session: VoiceSession) {
     const bridge = getAssistantBridge();
 
     if (!bridge?.transcribeAudio) {
@@ -321,6 +349,7 @@ export function JarvisVoiceProvider({
       type: mimeType,
     });
     const arrayBuffer = await blob.arrayBuffer();
+    if (!isCurrent(session)) return "";
     let binary = "";
     const bytes = new Uint8Array(arrayBuffer);
 
@@ -339,7 +368,7 @@ export function JarvisVoiceProvider({
     return String(result?.text || "").trim();
   }
 
-  async function startRecorderRecognition(session: number, keepContinuous: boolean) {
+  async function startRecorderRecognition(session: VoiceSession) {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       throw new Error("이 환경에서는 녹음 기반 음성 입력을 사용할 수 없어요.");
     }
@@ -349,12 +378,6 @@ export function JarvisVoiceProvider({
         "앱 내 STT가 아직 준비되지 않았어요. GROQ_API_KEY 또는 OPENAI_API_KEY를 설정하거나 브라우저 음성 입력을 사용해 주세요.",
       );
     }
-
-    recognitionRef.current?.abort();
-    recognitionRef.current = null;
-    stopRecorderRecognition();
-    await disposeRecorderResources();
-    if (!isCurrent(session)) return;
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -411,16 +434,17 @@ export function JarvisVoiceProvider({
     const silenceThreshold = 18;
 
     recorderMaxTimeoutRef.current = window.setTimeout(() => {
-      stopRecorderRecognition();
+      if (isCurrent(session)) stopRecorderRecognition();
     }, 12000);
 
     recorderSilenceTimeoutRef.current = window.setTimeout(() => {
-      if (!recorderHeardSpeechRef.current) {
+      if (isCurrent(session) && !recorderHeardSpeechRef.current) {
         stopRecorderRecognition();
       }
     }, 5000);
 
     recorderSilenceIntervalRef.current = window.setInterval(() => {
+      if (!isCurrent(session)) return;
       analyser.getByteTimeDomainData(samples);
 
       let sum = 0;
@@ -476,8 +500,8 @@ export function JarvisVoiceProvider({
 
       setStatus("processing");
       setTranscript("음성을 텍스트로 변환하고 있어요...");
-      const text = await transcribeRecorderAudio(chunks, mimeType, language);
-      if (isCurrent(session)) finalizeTranscript(text, keepContinuous);
+      const text = await transcribeRecorderAudio(chunks, mimeType, language, session);
+      finalizeTranscript(text, session);
     } catch (voiceError) {
       if (!isCurrent(session)) return;
       const message =
@@ -490,7 +514,7 @@ export function JarvisVoiceProvider({
     }
   }
 
-  function startBrowserRecognition(session: number, keepContinuous: boolean) {
+  function startBrowserRecognition(session: VoiceSession) {
     const Recognition = getRecognitionConstructor();
 
     if (!Recognition) {
@@ -498,8 +522,6 @@ export function JarvisVoiceProvider({
       setError("현재 환경에서는 Web Speech 음성 인식을 사용할 수 없어요.");
       return;
     }
-
-    recognitionRef.current?.abort();
 
     const recognition = new Recognition();
     recognitionRef.current = recognition;
@@ -548,7 +570,7 @@ export function JarvisVoiceProvider({
 
       if (finalTranscript.trim()) {
         finalReceived = true;
-        finalizeTranscript(finalTranscript, keepContinuous);
+        finalizeTranscript(finalTranscript, session);
         recognition.stop();
       }
     };
@@ -557,9 +579,8 @@ export function JarvisVoiceProvider({
       if (!isCurrent(session) || finalReceived) return;
       const reason = String(event?.error || event?.message || "unknown");
 
-      if (reason === "aborted") {
-        return;
-      }
+      if (reason === "aborted") return;
+      finalReceived = true;
 
       if (reason === "no-speech") {
         setStatus("idle");
@@ -590,27 +611,34 @@ export function JarvisVoiceProvider({
 
     recognition.onend = () => {
       if (!isCurrent(session)) return;
+      finalReceived = true;
       if (recognitionRef.current === recognition) recognitionRef.current = null;
-      if (statusRef.current === "listening") setStatus("idle");
+      setStatus((current) => current === "starting" || current === "listening" ? "idle" : current);
     };
 
     recognition.start();
   }
 
   function startRecognition(keepContinuous = false) {
-    const session = ++recognitionSession.current;
-    shouldResumeRef.current = false;
+    if (document.hidden) {
+      stopRecognition();
+      return;
+    }
+    releaseVoiceSession();
+    const session = { threadId: currentThreadId(), keepContinuous };
+    sessionRef.current = session;
+    setError("");
+    setTranscript("");
+    setReviewPending(false);
+    setStatus("starting");
+
     const start = async () => {
-      if (hasConfiguredAssistantStt()) {
-        await startRecorderRecognition(session, keepContinuous);
-      } else {
-        startBrowserRecognition(session, keepContinuous);
-      }
+      if (hasConfiguredAssistantStt()) await startRecorderRecognition(session);
+      else startBrowserRecognition(session);
     };
     void start().catch((error: unknown) => {
       if (!isCurrent(session)) return;
-      stopRecorderRecognition();
-      void disposeRecorderResources();
+      releaseVoiceSession();
       setStatus("error");
       setError(error instanceof Error ? error.message : "음성 입력을 시작하지 못했습니다.");
       setContinuous(false);
@@ -619,7 +647,6 @@ export function JarvisVoiceProvider({
 
   function toggleContinuous() {
     if (continuous) {
-      setContinuous(false);
       stopRecognition();
       return;
     }
@@ -640,6 +667,7 @@ export function JarvisVoiceProvider({
         status,
         transcript,
         error,
+        reviewPending,
         continuous,
         startOnce,
         toggleContinuous,

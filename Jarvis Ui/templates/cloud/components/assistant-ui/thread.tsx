@@ -329,6 +329,7 @@ const Composer: FC<{
     status,
     transcript,
     error,
+    reviewPending,
     continuous,
     startOnce,
     stop,
@@ -353,11 +354,15 @@ const Composer: FC<{
       : "Reading this PDF timed out. Choose a smaller file.",
   };
   const fileIssue = fileError ? fileIssues[fileError] : "";
-  const voiceSummary = error || (status === "listening"
-    ? (transcript || (isKo ? "듣는 중" : "Listening"))
-    : status === "processing"
-      ? (isKo ? "음성을 처리하는 중" : "Processing voice")
-      : continuous ? (isKo ? "연속 듣기" : "Continuous voice") : "");
+  const voiceSummary = error || (status === "starting"
+    ? (isKo ? "마이크 준비 중" : "Getting the microphone ready")
+    : status === "listening"
+      ? (transcript || (isKo ? "듣는 중" : "Listening"))
+      : status === "processing"
+        ? (isKo ? "음성을 처리하는 중" : "Processing voice")
+        : reviewPending && text
+          ? (isKo ? "음성 입력을 초안에 추가했습니다." : "Voice input added to your draft.")
+          : continuous ? (isKo ? "연속 듣기" : "Continuous voice") : "");
 
   function routeSubmission(event: { preventDefault(): void }) {
     const composer = aui.composer();
@@ -455,7 +460,8 @@ const ComposerAction: FC<{
   const continuousLabel = continuous
     ? (isKo ? "연속 듣기 중지" : "Stop continuous voice")
     : (isKo ? "연속 듣기 시작" : "Start continuous voice");
-  const voiceLabel = status === "listening"
+  const voiceActive = status === "starting" || status === "listening" || status === "processing";
+  const voiceLabel = voiceActive
     ? (isKo ? "음성 입력 중지" : "Stop voice input")
     : (isKo ? "음성 입력 시작" : "Start voice input");
 
@@ -485,12 +491,12 @@ const ComposerAction: FC<{
         variant="ghost"
         className={cn(
           "jarvis-icon-button",
-          status === "listening" && "jarvis-icon-active",
+          voiceActive && "jarvis-icon-active",
         )}
-        onClick={status === "listening" ? stop : startOnce}
+        onClick={voiceActive ? stop : startOnce}
         aria-label={voiceLabel}
-        aria-pressed={status === "listening"}
-        disabled={!supported || status === "processing"}
+        aria-pressed={voiceActive}
+        disabled={!supported}
       >
         <MicIcon className="size-4" />
       </TooltipIconButton>
