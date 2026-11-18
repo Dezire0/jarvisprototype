@@ -64,6 +64,8 @@ Cloud sync starts off for new profiles. When enabled, cloud search can open a se
 
 The desktop Assistant stores conversation recall, project context, indexed documents and saved personal context in a separate on-device store for each workspace account. Relevant excerpts can be included in requests to the configured model. The chat transcript and Assistant recall are separate stores. Legacy unscoped memory stays with the legacy desktop entry point because its account owner is unknown.
 
+When Jarvis sends saved memory in a regular model request, **Saved memory sent** lists the categories under the corresponding reply. It reflects the prompt sent to the model. The line contains category labels and stays with the local transcript. Cloud transcript sync carries no memory-category field. Temporary chats, attachment reviews and managed fallback responses omit the line. Recent turns already in the open conversation are separate from saved memory added to the prompt.
+
 Choose **Temporary Chat** from the sidebar. The conversation keeps its own context while open and does not read saved Assistant recall. It does not appear in recent conversations, search or cloud sync. Choose **New Chat** or an existing conversation in the sidebar to return to regular chat. Temporary requests still use the configured model, and actions you explicitly run, including local tasks and notes, still apply.
 
 ### Running the desktop UI
@@ -94,7 +96,7 @@ Provider references include [Ollama vision](https://docs.ollama.com/capabilities
 
 For a standalone browser preview, run Next on loopback and open `/tools`. Timer, notes, tasks, and calculations remain available in that browser. Live model chat and native operations require the Electron app and configured providers.
 
-Run `npm run check` and `npm run test:node` for syntax and regression checks. For browser checks, install Playwright Chromium and start the bundled UI with `HOSTNAME=127.0.0.1 PORT=3310 node build/desktop-ui/templates/cloud/server.js`. Run `JARVIS_UI_TEST_URL=http://127.0.0.1:3310 node --test tests/ui/cloud-plan.test.cjs tests/ui/voice-draft.test.cjs tests/ui/timer-completion.test.cjs tests/ui/weather.test.cjs`. These checks use a local account fixture, intercepted weather requests, and synthetic recognition, location, and speech output.
+Run `npm run check` and `npm run test:node` for syntax and regression checks. For browser checks, install Playwright Chromium and start the bundled UI with `HOSTNAME=127.0.0.1 PORT=3310 node build/desktop-ui/templates/cloud/server.js`. Run `JARVIS_UI_TEST_URL=http://127.0.0.1:3310 node --test tests/ui/*.test.cjs`. These checks use local account and conversation fixtures, intercepted weather requests, and synthetic recognition, location, and speech output.
 
 ## Capability inventory
 

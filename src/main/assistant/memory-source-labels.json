@@ -1,0 +1,6 @@
+{
+  "personal": { "en": "Personal context", "ko": "개인 기억" },
+  "project": { "en": "Project", "ko": "프로젝트" },
+  "conversation": { "en": "Past conversations", "ko": "이전 대화" },
+  "document": { "en": "Indexed files", "ko": "저장된 문서" }
+}

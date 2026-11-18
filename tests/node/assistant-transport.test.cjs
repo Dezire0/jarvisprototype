@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { setImmediate: nextTurn } = require("node:timers/promises");
 const { createAssistantTransportServer } = require("../../src/main/assistant-transport-server.cjs");
+const { prefix: attachmentPrefix } = require("../../src/main/assistant/attachment-contract.json");
 const { SESSION_HEADER, attachDesktopChatHeader, createDesktopSessionToken } = require("../../src/main/desktop-session.cjs");
 
 const payload = {
@@ -20,6 +21,51 @@ test("assistant transport has no browser-to-desktop authentication callback", as
   const response = await fetch(new URL("/auth/callback", server.url));
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { ok: false, error: "Not found" });
+});
+
+test("the conversation stream emits only allowlisted memory categories for regular replies", async (t) => {
+  const token = createDesktopSessionToken();
+  const fixtureResult = {
+    reply: "Fixture answer",
+    memorySources: ["conversation", "personal", "personal", "/fixture/private.md", { category: "document" }],
+  };
+  const server = createAssistantTransportServer({
+    port: 0,
+    sessionToken: token,
+    createAssistantForThread: () => ({
+      async handleInput() { return fixtureResult; },
+      async handleAttachmentInput() { return fixtureResult; },
+    }),
+  });
+  await server.start();
+  t.after(() => server.stop());
+  const send = async (body) => {
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [SESSION_HEADER]: token },
+      body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 200);
+    return response.text();
+  };
+
+  const regular = await send(payload);
+  assert.match(regular, /"memorySources"\],"value":\["personal","conversation"\]/);
+  assert.doesNotMatch(regular, /private\.md/);
+  const temporary = await send({ ...payload, memoryContext: { memoryMode: "temporary" } });
+  assert.doesNotMatch(temporary, /memorySources/);
+  const attachment = await send({
+    ...payload,
+    commands: [{
+      type: "add-message",
+      message: {
+        role: "user",
+        parts: [{ type: "text", text: attachmentPrefix + JSON.stringify({ kind: "text", name: "test.txt", text: "Fixture file" }) }],
+      },
+    }],
+  });
+  assert.match(attachment, /"attachmentReview":true/);
+  assert.doesNotMatch(attachment, /memorySources/);
 });
 
 test("assistant validates session and JSON before resolving or invoking a thread", async (t) => {
