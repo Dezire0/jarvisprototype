@@ -35,7 +35,6 @@ const { runAssistantTurn } = require("./assistant/orchestrator.cjs");
 const { promoteFollowUpRoute } = require("./assistant/browser-context.cjs");
 
 const osAutomation = require("./os-automation.cjs");
-const piiManager = require("./pii-manager.cjs");
 const skillRegistry = require("./skills/skill-registry.cjs");
 const notificationMonitor = require("./notification-monitor.cjs");
 const JARVIS_CLOUD_API_BASE =
@@ -2852,7 +2851,7 @@ const OPENCLAW_JARVIS_DELEGATE_ROUTES = new Set([
 ]);
 
 class AssistantService {
-  constructor({ automation, browser, codeProjects, computerControl, credentials, extensions, files, games, memory, obs, openClaw, screen, tts, settings, threadId }) {
+  constructor({ automation, browser, codeProjects, computerControl, credentials, extensions, files, games, memory, obs, openClaw, readAccountSession, screen, tts, settings, threadId }) {
     this.automation = automation;
     this.browser = browser;
     this.codeProjects = codeProjects || null;
@@ -2867,6 +2866,7 @@ class AssistantService {
     this.screen = screen;
     this.tts = tts;
     this.settings = settings;
+    this.readAccountSession = readAccountSession;
     this.history = [];
     this.lastActiveApp = "";
     this.lastMemoryFingerprint = "";
@@ -5744,7 +5744,7 @@ class AssistantService {
       "1. 한 번에 딱 하나의 JSON 행동만 응답하세요.",
       "2. 항상 'reason' 필드를 포함하여 이유를 설명하세요.",
       "3. 가능하면 실제 화면 조작보다 백그라운드/Headless 동작을 우선시하세요.",
-      "4. 절대 비밀번호를 추측하지 마세요. ask_pii를 사용하여 보안 저장소에서 정보를 가져오도록 요청하세요.",
+      "4. 비밀번호를 추측하거나 채팅에서 요청하지 마세요. 로그인하려면 사용자에게 사이트의 로그인 폼을 안내하세요.",
       "5. 목표가 달성되면 'done'을 사용하세요."
     ].join("\n");
   }
@@ -6254,7 +6254,7 @@ class AssistantService {
       reply: await this.polishCommandReply(
         input,
         {
-          actions: [this.makeAction("browser_login", data.site, "executed", { tool: "pii.get" })],
+          actions: [this.makeAction("browser_login", data.site, "executed", { tool: "browser.login_with_saved_credential" })],
           details: this.buildOpenClawExecutorDetails(details, {
             planner: "openclaw-session",
             plannerReason: "browser-login"
@@ -6264,7 +6264,7 @@ class AssistantService {
         },
         fallback
       ),
-      actions: [this.makeAction("browser_login", data.site, "executed", { tool: "pii.get" })],
+      actions: [this.makeAction("browser_login", data.site, "executed", { tool: "browser.login_with_saved_credential" })],
       provider: "openclaw-computer-use",
       details: this.buildOpenClawExecutorDetails(details, {
         planner: "openclaw-session",
@@ -6679,13 +6679,7 @@ class AssistantService {
   }
 
   async handleGeneral(input) {
-    let user = null;
-    let token = null;
-    try {
-      const rawUser = piiManager.get("auth.user");
-      token = piiManager.get("auth.token");
-      if (rawUser) user = JSON.parse(rawUser);
-    } catch (e) {}
+    const { user, token } = this.readAccountSession?.() || {};
 
     const preferredLang = user?.settings?.language || "auto";
     const language = preferredLang === "auto" ? detectReplyLanguage(input) : preferredLang;

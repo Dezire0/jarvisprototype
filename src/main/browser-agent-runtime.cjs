@@ -1,6 +1,5 @@
 const { FAST_PLANNER_MODEL } = require("./ollama-service.cjs");
 const notificationMonitor = require("./notification-monitor.cjs");
-const piiManager = require("./pii-manager.cjs");
 const {
   MACOS_AUTOMATION_PERMISSION_MESSAGE,
   normalizeAutomationFailureMessage
@@ -738,9 +737,6 @@ class BrowserAgentRuntime {
     if (state?.cmd_output) {
       notes.push(`Recent shell output: ${limitStructuredText(state.cmd_output, 500)}`);
     }
-    if (state?.pii_retrieved) {
-      notes.push("A previously requested stored secret is attached on the observation as pii_retrieved.");
-    }
     const normalizedRuntimeHints = normalizeHintList(runtimeHints);
     if (normalizedRuntimeHints.length) {
       notes.push(`Relevant skill hints: ${normalizedRuntimeHints.join(" | ")}`);
@@ -1000,14 +996,9 @@ class BrowserAgentRuntime {
           result = { state: await this.browser.observe(), error: null };
           break;
         case "pii.get": {
-          const storedPii = piiManager.get(safeAction.input.field);
-          if (storedPii) {
-            result = { state: { ...await this.browser.observe(), pii_retrieved: storedPii }, error: null };
-            break;
-          }
           result = {
             state: await this.browser.observe(),
-            error: `Missing PII for ${safeAction.input.field}. Ask the user to provide or save it first.`
+            error: "Ask the user to enter credentials on the site or use Jarvis’s saved-login flow."
           };
           break;
         }

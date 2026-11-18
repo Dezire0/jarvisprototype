@@ -3,6 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const { hasSecureStorage } = require("./secure-storage.cjs");
 
 const execFileAsync = promisify(execFile);
 const KEYCHAIN_SERVICE = "friday-jarvis-prototype";
@@ -104,7 +105,7 @@ class CredentialStore {
   }
 
   ensureEncryption() {
-    if (!this.safeStorage?.isEncryptionAvailable?.()) {
+    if (!hasSecureStorage(this.safeStorage)) {
       throw new Error("OS encryption is not available right now, so secure credential storage cannot be enabled.");
     }
   }
@@ -295,7 +296,7 @@ class CredentialStore {
     try {
       await this.savePasswordToKeychain(this.keychainService, this.passwordAccount(key), password);
     } catch (error) {
-      if (!this.safeStorage?.isEncryptionAvailable?.()) {
+      if (!hasSecureStorage(this.safeStorage)) {
         throw new Error(`Secure credential storage is unavailable: ${error.message}`);
       }
 

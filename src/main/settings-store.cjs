@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { safeStorage } = require("electron");
+const { hasSecureStorage } = require("./secure-storage.cjs");
 const { getOpenAIEndpointOrigin } = require("./openai-endpoint.cjs");
 
 const DEFAULT_TTS_SETTINGS = {
@@ -168,7 +169,7 @@ class SettingsStore {
   }
 
   ensureEncryption() {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!hasSecureStorage(safeStorage)) {
       throw new Error("OS encryption is not available right now, so secure settings storage cannot be enabled.");
     }
   }

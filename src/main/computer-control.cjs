@@ -10,10 +10,7 @@ const AVAILABLE_WITHOUT_COMPUTER_CONTROL = new Set([
   "ai:web-login",
   "ai:web-logout",
   "ai:web-status",
-  "ai:ollama-models",
-  "auth:session-save",
-  "auth:session-restore",
-  "auth:session-clear"
+  "ai:ollama-models"
 ]);
 
 const COMPUTER_CONTROL_OFF = "Computer control is off. Open Computer control settings to allow this action.";

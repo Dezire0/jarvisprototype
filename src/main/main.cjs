@@ -21,6 +21,7 @@ const { BrowserService } = require("./browser-service.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
 const { ComputerControl, COMPUTER_CONTROL_OFF, isTrustedDesktopFrame, requiresComputerControl } = require("./computer-control.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
+const { DesktopAuthSession } = require("./desktop-auth-session.cjs");
 const { createDesktopSessionToken, attachDesktopChatHeader } = require("./desktop-session.cjs");
 const { DesktopUiServer } = require("./desktop-ui-server.cjs");
 const { ExtensionsService } = require("./extensions-service.cjs");
@@ -113,12 +114,16 @@ function toggleAssistantMuted(source = "system") {
   return setAssistantMuted(!assistantMuted, source);
 }
 
-function persistAuthSession(payload = {}) {
-  if (payload.token) {
-    piiManager.set("auth.token", String(payload.token));
-  }
-  if (payload.user) {
-    piiManager.set("auth.user", JSON.stringify(payload.user));
+const accountSession = new DesktopAuthSession({
+  filePath: path.join(app.getPath("userData"), "jarvis-account-session.json"),
+  secureStorage: safeStorage,
+  hasLegacy: piiManager.hasLegacySession,
+  readLegacy: piiManager.readLegacySession
+});
+
+function requireDesktopAccountFrame(event) {
+  if (!isDesktopWindow(event) || new URL(event.senderFrame.url).pathname !== "/") {
+    throw new Error("Open the Jarvis workspace to manage sign-in.");
   }
 }
 
@@ -268,6 +273,10 @@ async function createServices() {
         files,
         games,
         memory: accountMemory,
+        readAccountSession: () => {
+          const active = accountSession.active;
+          return context.accountId === active?.user.id ? active : null;
+        },
         obs,
         openClaw,
         screen: screenService,
@@ -987,35 +996,6 @@ async function dispatchTool(tool, payload = {}) {
         models
       };
     }
-    case "auth:session-save": {
-      persistAuthSession(payload);
-      return { ok: true, tool };
-    }
-    case "auth:session-restore": {
-      const token = piiManager.get("auth.token");
-      const rawUser = piiManager.get("auth.user");
-      let user = null;
-
-      if (rawUser) {
-        try {
-          user = JSON.parse(rawUser);
-        } catch (_error) {
-          user = null;
-        }
-      }
-
-      return {
-        ok: true,
-        tool,
-        token: token || null,
-        user
-      };
-    }
-    case "auth:session-clear": {
-      piiManager.delete("auth.token");
-      piiManager.delete("auth.user");
-      return { ok: true, tool };
-    }
     case "pii:set": {
       piiManager.set(payload.key, payload.value);
       return { ok: true, tool };
@@ -1213,6 +1193,21 @@ ipcMain.handle("assistant:test-conversation-model", (event) => {
     throw new Error("Open model settings in the Jarvis workspace.");
   }
   return modelConnectionTest ||= testSavedModelConnection().finally(() => { modelConnectionTest = null; });
+});
+
+ipcMain.handle("assistant:restore-account-session", (event, allowLegacy) => {
+  requireDesktopAccountFrame(event);
+  return accountSession.restore({ allowLegacy: allowLegacy === true });
+});
+
+ipcMain.handle("assistant:save-account-session", (event, payload) => {
+  requireDesktopAccountFrame(event);
+  return accountSession.save(payload);
+});
+
+ipcMain.handle("assistant:clear-account-session", (event) => {
+  requireDesktopAccountFrame(event);
+  accountSession.clear();
 });
 
 registerLocalWorkspaceHandlers({

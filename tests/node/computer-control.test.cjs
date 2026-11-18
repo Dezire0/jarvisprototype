@@ -59,10 +59,10 @@ test("only the owned desktop or exact legacy main frame can use the local permis
 });
 
 test("only the enumerated non-automation tools are available without consent", () => {
-  for (const tool of ["app:open", "browser:read", "screen:ocr", "file:read", "obs:start", "project:create", "new:tool"]) {
+  for (const tool of ["app:open", "browser:read", "screen:ocr", "file:read", "obs:start", "project:create", "auth:session-restore", "new:tool"]) {
     assert.equal(requiresComputerControl(tool), true, tool);
   }
-  for (const tool of ["auth:session-restore", "ai:ollama-models", "extensions:list", "system:open-external"]) {
+  for (const tool of ["ai:ollama-models", "extensions:list", "system:open-external"]) {
     assert.equal(requiresComputerControl(tool), false, tool);
   }
 });
