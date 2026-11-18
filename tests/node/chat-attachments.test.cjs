@@ -67,7 +67,11 @@ test("authenticated file-only turns bypass the automation path and stream labels
       async handleInput() { assert.fail("File reviews must not dispatch an action"); },
       async handleAttachmentInput(input, attachments, { signal }) {
         reviewed.push({ input, attachments, signal });
-        return { reply: "Review complete", actions: [{ target: "must-not-stream" }] };
+        return {
+          reply: "Review complete",
+          actions: [{ target: "must-not-stream" }],
+          responseSource: { provider: "ollama", model: "review-model:latest", url: "must-not-stream" }
+        };
       },
     }),
   });
@@ -90,6 +94,7 @@ test("authenticated file-only turns bypass the automation path and stream labels
   assert.match(wire, /pixel\.png/);
   assert.match(wire, /보고서\.PDF/);
   assert.match(wire, /Review complete/);
+  assert.match(wire, /"responseSource"\],"value":\{"provider":"ollama","model":"review-model:latest"\}/);
   assert.equal(wire.includes(png), false);
   assert.equal(wire.includes(document.text), false);
   assert.equal(wire.includes(pdf.pages[0].text), false);
@@ -166,6 +171,7 @@ test("attachment review sends each direct-model format and never executes reply 
     assert.equal(result.reply, replyText, provider);
     assert.deepEqual(result.actions, []);
     assert.match(result.provider, new RegExp("^" + provider + ":"));
+    assert.deepEqual(result.responseSource, { provider, model: "vision-fixture" });
     const prompt = provider === "gemini" ? request.body.contents.at(-1).parts[0].text
       : provider === "ollama" ? request.body.messages.at(-1).content
       : request.body.messages.at(-1).content[0].text;

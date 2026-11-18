@@ -87,6 +87,7 @@ test("the normal desktop turn uses the same managed request for both tiers after
     service.rememberTurn("assistant", "Previous reply");
     const result = await service.handleInput("Tell me something useful");
     assert.equal(result.provider, "jarvis-cloud-" + model);
+    assert.deepEqual(result.responseSource, { provider: "jarvis-cloud", model });
     assert.match(result.reply, /^Cloud reply/);
     assert.deepEqual(result.actions, []);
     assert.equal(result.memorySources, undefined);
@@ -108,6 +109,7 @@ test("the normal turn keeps direct success and avoids fallback while disabled, s
   test.setDirectStatus(200);
   const direct = await test.assistant({ tier: "free" }).handleInput("A question");
   assert.equal(direct.provider, "openai-compatible:fixture-direct");
+  assert.deepEqual(direct.responseSource, { provider: "openai-compatible", model: "fixture-direct" });
   assert.equal(direct.reply, "Direct response");
   assert.deepEqual(direct.memorySources, ["personal", "conversation"]);
   test.setDirectStatus(503);
@@ -115,7 +117,9 @@ test("the normal turn keeps direct success and avoids fallback while disabled, s
   const temporary = test.assistant({ tier: "free" });
   await temporary.setSessionContext({ memoryMode: "temporary" });
   for (const service of [test.assistant({ tier: "free", enabled: false }), test.assistant({}), temporary]) {
-    assert.equal((await service.handleInput("A question")).provider, "model-error");
+    const result = await service.handleInput("A question");
+    assert.equal(result.provider, "model-error");
+    assert.equal(result.responseSource, undefined);
   }
   assert.equal(test.cloudRequests.length, 0);
 });
@@ -161,6 +165,7 @@ test("managed failure messages distinguish common errors and ignore private deta
     test.setCloudStatus(status, code);
     const result = await service.handleInput("A question");
     assert.equal(result.provider, "jarvis-cloud-error");
+    assert.equal(result.responseSource, undefined);
     assert.match(result.reply, message);
     assert.doesNotMatch(result.reply, /fixture-private-provider-details/);
     assert.deepEqual(result.actions, []);

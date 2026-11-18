@@ -60,6 +60,8 @@ Open **Model settings** in the sidebar to choose the provider and model. Save be
 
 Ollama accepts a server address such as `http://127.0.0.1:11434` and lists installed models on request. OpenAI-compatible servers that accept unauthenticated requests can use a custom address without a key. Leave a password field blank to retain its key. When you change the OpenAI-compatible server origin, supply its own key or leave the field blank to clear the old key. **Groq voice input** is configured separately when another provider handles chat. CLI-backed models depend on the user's CLI login and computer-control setting.
 
+After a model replies, its connection and model identifier appear below the answer. The identifier comes from the successful request, including an alternate model selected by Ollama. Jarvis Cloud uses the model reported by its Worker. A connection label identifies the adapter used for the reply. It does not establish where a server ran the model. The label also appears after successful attachment review. It is saved in the device transcript and omitted from cloud conversation sync.
+
 ### Optional Jarvis Cloud fallback
 
 Desktop conversation uses the configured model first. Set `JARVIS_ENABLE_CLOUD_AI_FALLBACK=1` in the desktop environment to allow ordinary signed-in conversations to use the managed Worker when the configured model fails. If no model has been selected, open **Model settings** to connect one. Use `JARVIS_CLOUD_API_BASE` to point a test or private installation at its Worker base URL. Use HTTPS or an HTTP loopback address for local testing.

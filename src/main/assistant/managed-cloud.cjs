@@ -1,3 +1,4 @@
+const { normalizeReplySource } = require("./reply-source.cjs");
 const DEFAULT_CLOUD_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
 
 function cloudEndpoint(baseUrl) {
@@ -79,7 +80,10 @@ function createManagedCloudChat({
       const model = typeof data.model === "string" && /^gemini-[a-z0-9][a-z0-9.-]{0,99}$/.test(data.model)
         ? data.model
         : "";
-      return result(reply, model ? `jarvis-cloud-${model}` : "jarvis-cloud");
+      return {
+        ...result(reply, model ? `jarvis-cloud-${model}` : "jarvis-cloud"),
+        responseSource: normalizeReplySource({ provider: "jarvis-cloud", model })
+      };
     } catch {
       return unavailable();
     }
