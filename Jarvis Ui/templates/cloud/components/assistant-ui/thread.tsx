@@ -354,6 +354,7 @@ const Composer: FC<{
     error,
     reviewPending,
     continuous,
+    waitingForReplyAudio,
     startOnce,
     stop,
     toggleContinuous,
@@ -385,7 +386,9 @@ const Composer: FC<{
         ? (isKo ? "음성을 처리하는 중" : "Processing voice")
         : reviewPending && text
           ? (isKo ? "음성 입력을 초안에 추가했습니다." : "Voice input added to your draft.")
-          : continuous ? (isKo ? "연속 듣기" : "Continuous voice") : "");
+          : continuous ? (waitingForReplyAudio
+            ? (isKo ? "읽어준 뒤 다시 듣습니다." : "Listening resumes after playback.")
+            : (isKo ? "연속 듣기" : "Continuous voice")) : "");
 
   function routeSubmission(event: { preventDefault(): void }) {
     const composer = aui.composer();

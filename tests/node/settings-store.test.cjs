@@ -34,6 +34,25 @@ test("failed settings replacement preserves committed values and concurrent edit
   assert.deepEqual(afterVoiceSave.providers, { en: "off", ko: "system" });
 });
 
+test("automatic reading preferences stay separate by language and changing provider clears the saved consent", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-auto-voice-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const app = { getPath: () => directory };
+  const store = new SettingsStore({ app });
+  assert.deepEqual(store.getTtsSettingsView("account-a").autoRead, { en: "off", ko: "off" });
+  await store.updateTtsSettings({ providers: { en: "gemini", ko: "cartesia" }, autoRead: { en: "system", ko: "cartesia" } }, "account-a");
+  await store.updateTtsSettings({ autoRead: { en: "gemini" } }, "account-b");
+  const reopened = new SettingsStore({ app });
+  await reopened.load();
+  assert.deepEqual(reopened.getTtsSettingsView("account-a").autoRead, { en: "system", ko: "cartesia" });
+  assert.deepEqual(reopened.getTtsSettingsView("account-b").autoRead, { en: "gemini", ko: "off" });
+  assert.deepEqual(reopened.getTtsSettingsView().autoRead, { en: "off", ko: "off" });
+  const changed = await reopened.updateTtsSettings({ providers: { ko: "openai" } }, "account-a");
+  assert.deepEqual(changed.autoRead, { en: "system", ko: "off" });
+  const reverted = await reopened.updateTtsSettings({ providers: { ko: "cartesia" } }, "account-a");
+  assert.deepEqual(reverted.autoRead, { en: "system", ko: "off" });
+});
+
 test("changing a compatible API origin clears a saved key unless a replacement is supplied", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-model-origin-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));

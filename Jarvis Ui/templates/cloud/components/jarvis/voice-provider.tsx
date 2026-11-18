@@ -5,6 +5,7 @@ import { useWorkspaceLocale } from "@/lib/workspace-language";
 import {
   createContext,
   type PropsWithChildren,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -75,6 +76,9 @@ type VoiceContextValue = {
   error: string;
   reviewPending: boolean;
   continuous: boolean;
+  waitingForReplyAudio: boolean;
+  beginReplyAudio: () => (() => void) | null;
+  onMicrophoneStart: (listener: () => void) => (() => void);
   startOnce: () => void;
   toggleContinuous: () => void;
   stop: () => void;
@@ -141,6 +145,7 @@ export function JarvisVoiceProvider({
   const [error, setError] = useState("");
   const [reviewPending, setReviewPending] = useState(false);
   const [continuous, setContinuous] = useState(false);
+  const [waitingForReplyAudio, setWaitingForReplyAudio] = useState(false);
   const [sttProviderLabel, setSttProviderLabel] = useState("web-speech-only");
   const recognitionRef = useRef<BrowserRecognition | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -156,6 +161,13 @@ export function JarvisVoiceProvider({
   const recorderSilenceStartedAtRef = useRef(0);
   const shouldResumeRef = useRef(false);
   const sessionRef = useRef<VoiceSession | null>(null);
+  const replyAudio = useRef<object | null>(null);
+  const microphoneStartListeners = useRef(new Set<() => void>());
+  const onMicrophoneStart = useCallback((listener: () => void) => {
+    const listeners = microphoneStartListeners.current;
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+  }, []);
   const currentThreadId = () => aui.threads().getState().mainThreadId;
   const isCurrent = (session: VoiceSession) => sessionRef.current === session &&
     session.threadId === currentThreadId() && !document.hidden;
@@ -209,12 +221,12 @@ export function JarvisVoiceProvider({
 
   useEffect(() => {
     const session = sessionRef.current;
-    if (!continuous || isThreadRunning || status !== "idle" || !session || !shouldResumeRef.current) {
+    if (!continuous || isThreadRunning || status !== "idle" || waitingForReplyAudio || !session || !shouldResumeRef.current) {
       return;
     }
 
     const restartTimer = window.setTimeout(() => {
-      if (isCurrent(session) && shouldResumeRef.current && !aui.thread().getState().isRunning) {
+      if (isCurrent(session) && shouldResumeRef.current && !replyAudio.current && !aui.thread().getState().isRunning) {
         startRecognition(true);
       }
     }, 420);
@@ -222,7 +234,23 @@ export function JarvisVoiceProvider({
     return () => {
       window.clearTimeout(restartTimer);
     };
-  }, [aui, continuous, isThreadRunning, status]);
+  }, [aui, continuous, isThreadRunning, status, waitingForReplyAudio]);
+
+  function beginReplyAudio() {
+    if (document.hidden || status === "starting" || status === "listening" || status === "processing" ||
+        recorderStreamRef.current || replyAudio.current) return null;
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    try { recognition?.abort(); } catch { /* Recognition may already have ended. */ }
+    const ticket = {};
+    replyAudio.current = ticket;
+    setWaitingForReplyAudio(true);
+    return () => {
+      if (replyAudio.current !== ticket) return;
+      replyAudio.current = null;
+      setWaitingForReplyAudio(false);
+    };
+  }
 
   function hasConfiguredAssistantStt() {
     return canUseAssistantSttBridge() && sttProviderLabel.startsWith("cloud-stt:");
@@ -624,6 +652,7 @@ export function JarvisVoiceProvider({
       stopRecognition();
       return;
     }
+    microphoneStartListeners.current.forEach((listener) => listener());
     releaseVoiceSession();
     const session = { threadId: currentThreadId(), keepContinuous };
     sessionRef.current = session;
@@ -669,6 +698,9 @@ export function JarvisVoiceProvider({
         error,
         reviewPending,
         continuous,
+        waitingForReplyAudio,
+        beginReplyAudio,
+        onMicrophoneStart,
         startOnce,
         toggleContinuous,
         stop: stopRecognition,

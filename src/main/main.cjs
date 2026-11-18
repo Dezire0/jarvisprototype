@@ -1316,7 +1316,9 @@ ipcMain.handle("assistant:speak-workspace", async (event, payload) => {
   const account = accountSession.active;
   if (!account) return { status: "failed" };
   if (assistantMuted) return { status: "muted" };
-  const result = await synthesizeWorkspaceVoice(ensureReadyServices().services.tts, payload);
+  const { settings, tts } = ensureReadyServices().services;
+  const autoRead = payload?.automatic === true ? settings.getAutoReadSettings(account.user.id) : undefined;
+  const result = await synthesizeWorkspaceVoice(tts, payload, autoRead);
   if (accountSession.active !== account || assistantMuted || !isDesktopWindow(event)) return { status: "muted" };
   return result;
 });
@@ -1338,19 +1340,21 @@ ipcMain.handle("assistant:toggle-mute", async (event) => {
 
 ipcMain.handle("assistant:get-tts-settings", async (event) => {
   if (!isDesktopWindow(event)) throw new Error("Open Voice output in the Jarvis desktop window.");
+  const accountId = event.senderFrame.url === legacySettingsUrl ? undefined : accountSession.active?.user.id;
   const { services: liveServices } = ensureReadyServices();
   const status = await liveServices.tts.status();
 
   return {
-    settings: liveServices.settings.getTtsSettingsView(),
+    settings: liveServices.settings.getTtsSettingsView(accountId),
     status
   };
 });
 
 ipcMain.handle("assistant:save-tts-settings", async (event, payload) => {
   if (!isDesktopWindow(event)) throw new Error("Open Voice output in the Jarvis desktop window.");
+  const accountId = event.senderFrame.url === legacySettingsUrl ? undefined : accountSession.active?.user.id;
   const { services: liveServices } = ensureReadyServices();
-  const settings = await liveServices.settings.updateTtsSettings(payload);
+  const settings = await liveServices.settings.updateTtsSettings(payload, accountId);
   const status = await liveServices.tts.status();
 
   return {

@@ -6,9 +6,9 @@ const { installSpeechFixture } = require("./fixtures/speech-recognition.cjs");
 const testUrl = process.env.JARVIS_UI_TEST_URL;
 const answer = "한국어로 읽을 테스트 답변입니다. " + "한글".repeat(260);
 
-test("voice output previews saved voices and names the selected service before reading a reply", {
+test("voice output handles explicit choices and automatic replies without talking over the microphone", {
   skip: !testUrl && "Set JARVIS_UI_TEST_URL to a running local Jarvis UI.",
-  timeout: 30000,
+  timeout: 40000,
 }, async () => {
   const url = new URL(testUrl);
   assert.equal(url.origin, "http://127.0.0.1:" + url.port);
@@ -16,6 +16,7 @@ test("voice output previews saved voices and names the selected service before r
   try {
     const page = await browser.newPage({ locale: "en-US", viewport: { width: 420, height: 560 }, reducedMotion: "reduce" });
     page.setDefaultTimeout(5000);
+    let replyNumber = 0;
     await page.route("**/*", (route) => {
       const target = new URL(route.request().url());
       if (target.origin !== url.origin) return route.abort();
@@ -24,14 +25,21 @@ test("voice output previews saved voices and names the selected service before r
       } });
       if (target.pathname === "/fixture-account/plan") return route.fulfill({ json: { success: true, plan: "free" } });
       if (target.pathname === "/api/chat") {
+        const request = route.request().postDataJSON();
+        const input = request.commands[0].message.parts[0].text;
+        const id = ++replyNumber;
         const messages = [
-          { id: "voice-user-message", role: "user", text: "Test speech", status: "complete" },
-          { id: "voice-answer", role: "assistant", text: answer, status: "complete" },
+          ...(request.state?.messages ?? []),
+          { id: "voice-user-" + id, role: "user", text: input, status: "complete" },
+          {
+            id: "voice-answer-" + id, role: "assistant", text: answer, status: "complete", provider: "fixture",
+            attachmentReview: input === "Private file fixture",
+          },
         ];
         return route.fulfill({
           contentType: "text/plain",
           body: "aui-state:" + JSON.stringify([{ type: "set", path: [], value: { messages } }]) +
-            '\nd:{"finishReason":"stop","usage":{"inputTokens":0,"outputTokens":0}}\n',
+            (input === "Interrupted fixture" ? "\n" : '\nd:{"finishReason":"stop","usage":{"inputTokens":0,"outputTokens":0}}\n'),
         });
       }
       return route.continue();
@@ -51,9 +59,13 @@ test("voice output previews saved voices and names the selected service before r
       const speech = new EventTarget();
       speech.getVoices = () => [
         { name: "Installed English", voiceURI: "fixture-device-en", lang: "en-US", localService: true },
+        { name: "Installed Korean", voiceURI: "fixture-device-ko", lang: "ko-KR", localService: true },
         { name: "Remote English", voiceURI: "fixture-remote-en", lang: "en-US", localService: false },
       ];
-      speech.speak = (utterance) => events.device.push({ text: utterance.text, voice: utterance.voice.voiceURI });
+      speech.speak = (utterance) => {
+        events.device.push({ text: utterance.text, voice: utterance.voice.voiceURI });
+        window.finishDeviceSpeech = () => utterance.onend?.();
+      };
       speech.cancel = () => { events.deviceStops++; };
       Object.defineProperty(window, "speechSynthesis", { value: speech });
       window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
@@ -64,6 +76,7 @@ test("voice output previews saved voices and names the selected service before r
       };
       let settings = {
         providers: { en: "auto", ko: "auto" },
+        autoRead: { en: "off", ko: "off" },
         systemVoices: { en: "", ko: "" },
         elevenlabs: {}, naverClova: {}, gemini: {}, openai: {}, cartesia: { modelId: "sonic-3" }, google: {},
       };
@@ -187,6 +200,76 @@ test("voice output previews saved voices and names the selected service before r
     await page.getByText(answer, { exact: true }).waitFor({ state: "hidden" });
     await respond({ status: "audio", mimeType: "audio/wav", audioBase64: "QUJD" });
     assert.equal((await events()).play, 1);
+
+    async function openVoiceSettings() {
+      await sidebar.click();
+      await page.getByRole("button", { name: "Voice output", exact: true }).click();
+      await dialog.waitFor();
+    }
+    async function closeVoiceSettings() {
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Close sidebar", exact: true }).click();
+    }
+    const automatic = dialog.getByLabel("Read new replies automatically");
+    await openVoiceSettings();
+    assert.equal(await automatic.inputValue(), "off");
+    await language.selectOption("ko");
+    assert.equal(await engine.inputValue(), "cartesia");
+    await automatic.selectOption("system");
+    await save.click();
+    await dialog.getByText("Voice settings saved.").waitFor();
+    await closeVoiceSettings();
+
+    const recognitionCount = () => page.evaluate(() => window.jarvisVoiceFixture.started);
+    const firstRecognition = await recognitionCount();
+    await page.getByRole("button", { name: "Start continuous voice", exact: true }).click();
+    await page.waitForFunction((count) => window.jarvisVoiceFixture.started === count + 1, firstRecognition);
+    await page.evaluate((index) => window.jarvisVoiceFixture.deliver(index, "Automatic voice turn"), firstRecognition);
+    await page.getByText("Reading aloud", { exact: true }).waitFor();
+    await page.getByText("Listening resumes after playback.").waitFor();
+    assert.deepEqual((await events()).device.at(-1), { text: answer.slice(0, 500), voice: "fixture-device-ko" });
+    assert.equal((await events()).provider.length, 4);
+    await page.waitForTimeout(550);
+    assert.equal(await recognitionCount(), firstRecognition + 1);
+    await page.evaluate(() => window.finishDeviceSpeech());
+    await page.waitForFunction((count) => window.jarvisVoiceFixture.started === count + 2, firstRecognition);
+    await page.getByRole("button", { name: "Stop continuous voice", exact: true }).click();
+
+    await openVoiceSettings();
+    assert.equal(await automatic.inputValue(), "off");
+    await language.selectOption("ko");
+    assert.equal(await automatic.inputValue(), "system");
+    await automatic.selectOption("cartesia");
+    await dialog.getByText("Sends new text replies in regular chats to Cartesia.").waitFor();
+    await save.click();
+    await dialog.getByText("Voice settings saved.").waitFor();
+    await closeVoiceSettings();
+    await composer.fill("Named automatic turn");
+    await composer.press("Enter");
+    await page.waitForFunction(() => window.voiceOutputFixture.provider.length === 5);
+    assert.deepEqual((await events()).provider[4], { text: answer.slice(0, 500), language: "ko", provider: "cartesia", automatic: true });
+    await respond({ status: "failed" });
+    await page.getByText("Couldn’t play audio. Check Voice output and try again.").waitFor();
+    assert.equal(await recognitionCount(), firstRecognition + 2);
+
+    await composer.fill("Interrupted fixture");
+    await composer.press("Enter");
+    await page.getByRole("button", { name: "Restore draft", exact: true }).waitFor();
+    assert.equal((await events()).provider.length, 5);
+    await composer.fill("Private file fixture");
+    await composer.press("Enter");
+    await page.getByText(answer, { exact: true }).nth(2).waitFor();
+    assert.equal((await events()).provider.length, 5);
+    await sidebar.click();
+    await page.getByRole("button", { name: "Temporary Chat", exact: true }).click();
+    await composer.fill("Temporary fixture");
+    await composer.press("Enter");
+    await page.getByText(answer, { exact: true }).waitFor();
+    assert.equal((await events()).provider.length, 5);
+    await sidebar.click();
+    await page.getByRole("button", { name: "Automatic voice turn", exact: true }).click();
+    await page.getByText(answer, { exact: true }).first().waitFor();
+    assert.equal((await events()).provider.length, 5);
   } finally {
     await browser.close();
   }
