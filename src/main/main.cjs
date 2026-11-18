@@ -823,14 +823,6 @@ async function dispatchTool(tool, payload = {}) {
         data
       };
     }
-    case "browser:read": {
-      const data = await liveServices.browser.readPage();
-      return {
-        ok: true,
-        tool,
-        data
-      };
-    }
     case "browser:login": {
       const data = await liveServices.browser.loginWithStoredCredential(payload.siteOrUrl);
       return {
@@ -1257,6 +1249,17 @@ ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   if (requiresComputerControl(request.tool)) requireComputerControl();
   if (request.tool === "file:write") {
     return saveLocalFile(ensureReadyServices().services.files, request.payload, bindDesktopApproval(event, "FILE_PERMISSION_CHANGED"));
+  }
+  if (request.tool === "browser:read") {
+    const assertAllowed = bindDesktopApproval(event, "BROWSER_PERMISSION");
+    try {
+      assertAllowed();
+      const result = await ensureReadyServices().services.browser.readPageForReview();
+      assertAllowed();
+      return result;
+    } catch (error) {
+      return { ok: false, reason: error.code === "BROWSER_PERMISSION" ? error.code : "BROWSER_READ_FAILED" };
+    }
   }
   if (OBS_TOOL_NAMES.has(request.tool)) {
     try {

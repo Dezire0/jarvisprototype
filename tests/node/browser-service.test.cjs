@@ -266,3 +266,87 @@ test("BrowserService search helpers route through navigate", async () => {
     "https://www.youtube.com/results?search_query=music%20mix"
   ]);
 });
+
+test("page review reads only the tracked, already-open web page and does not launch a browser", async () => {
+  const service = new BrowserService({ userDataDir: "/tmp/jarvis-browser-review", credentialStore: {} });
+  service.getPage = () => assert.fail("Page review must never create a tab");
+  service.ensureContext = () => assert.fail("Page review must never launch a browser");
+  assert.deepEqual(await service.readPageForReview(), { ok: false, reason: "BROWSER_NO_PAGE" });
+  service.page = { url: () => "about:blank", isClosed: () => false };
+  assert.deepEqual(await service.readPageForReview(), { ok: false, reason: "BROWSER_NO_PAGE" });
+  service.page = { url: () => "https://example.invalid", isClosed: () => true };
+  assert.deepEqual(await service.readPageForReview(), { ok: false, reason: "BROWSER_NO_PAGE" });
+  service.page = { url: () => "file:///test.html", isClosed: () => false };
+  assert.deepEqual(await service.readPageForReview(), { ok: false, reason: "BROWSER_UNSUPPORTED_PAGE" });
+});
+
+test("page review limits visible text and returns title and origin without the full URL", async () => {
+  const { EventEmitter } = require("node:events");
+  const { runInNewContext } = require("node:vm");
+  const service = new BrowserService({ userDataDir: "/tmp/jarvis-browser-review", credentialStore: {} });
+  const original = "a".repeat(11999) + "😀" + "Tail";
+  const location = new URL("https://example.invalid/path?fixture=private#private");
+  const body = { innerText: original, textContent: "Hidden sample text" };
+  service.page = Object.assign(new EventEmitter(), {
+    url: () => location.href,
+    isClosed: () => false,
+    mainFrame: () => null,
+    locator(selector) {
+      assert.equal(selector, "body");
+      return {
+        evaluate: async (read, limit) => JSON.parse(JSON.stringify(runInNewContext(
+          "(" + read.toString() + ")(body, limit)", { location, document: { title: "Synthetic page" }, body, limit },
+        )))
+      };
+    }
+  });
+  const result = await service.readPageForReview();
+  assert.deepEqual(result, { ok: true, data: {
+    title: "Synthetic page", origin: "https://example.invalid", text: "a".repeat(11999), truncated: true
+  } });
+  assert.equal(service.page.listenerCount("framenavigated"), 0);
+  body.innerText = "  ";
+  assert.deepEqual((await service.readPageForReview()).data, {
+    title: "Synthetic page", origin: "https://example.invalid", text: "", truncated: false
+  });
+});
+
+test("page review rejects navigation, closed or replaced pages, and handles read failure", async () => {
+  const { EventEmitter } = require("node:events");
+  const service = new BrowserService({ userDataDir: "/tmp/jarvis-browser-review", credentialStore: {} });
+  const frame = {};
+  let read;
+  const page = Object.assign(new EventEmitter(), {
+    url: () => "https://example.invalid",
+    isClosed: () => false,
+    mainFrame: () => frame,
+    locator: () => ({ evaluate: () => new Promise((resolve, reject) => { read = { resolve, reject }; }) })
+  });
+  service.page = page;
+  const navigated = service.readPageForReview();
+  page.emit("framenavigated", frame);
+  read.resolve({ text: "stale data" });
+  assert.deepEqual(await navigated, { ok: false, reason: "BROWSER_PAGE_CHANGED" });
+  const replaced = service.readPageForReview();
+  service.page = null;
+  read.resolve({ text: "stale data" });
+  assert.deepEqual(await replaced, { ok: false, reason: "BROWSER_PAGE_CHANGED" });
+  service.page = page;
+  const failure = service.readPageForReview();
+  read.reject(new Error("synthetic browser error"));
+  assert.deepEqual(await failure, { ok: false, reason: "BROWSER_READ_FAILED" });
+  assert.equal(page.listenerCount("framenavigated"), 0);
+});
+
+test("exact browser review commands in the assistant use local guidance", async () => {
+  const { AssistantService } = require("../../src/main/assistant-service.cjs");
+  const assistant = new AssistantService({ computerControl: { enabled: false } });
+  assistant.handleModelConversation = () => assert.fail("Exact web page review commands stay local");
+  const english = await assistant.handleInput("summarize the current page");
+  assert.equal(english.provider, "local");
+  assert.match(english.reply, /Read web page/);
+  assert.deepEqual(english.actions, []);
+  const korean = await assistant.handleInput("현재 페이지 읽어줘");
+  assert.equal(korean.provider, "local");
+  assert.match(korean.reply, /웹 페이지 읽기/);
+});

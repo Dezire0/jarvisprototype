@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatMemorySources } from "@/lib/chat-memory";
 import { resolveScreenReviewCommand } from "@/lib/screen-review";
+import { resolveBrowserReviewCommand } from "@/lib/browser-review";
 import { resolveFileSaveCommand } from "@/lib/file-save";
 import { isObsCommand } from "@/lib/obs-commands";
 import { LOCAL_COMMAND_EXAMPLE, resolveComposerCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
@@ -331,6 +332,7 @@ const Composer: FC<{
   ));
   const localCommand = resolveComposerCommand(text, hasAttachmentsOrQuote) ||
     resolveScreenReviewCommand(text, hasAttachmentsOrQuote) ||
+    resolveBrowserReviewCommand(text, hasAttachmentsOrQuote) ||
     resolveFileSaveCommand(text, hasAttachmentsOrQuote) ||
     isObsCommand(text, hasAttachmentsOrQuote);
   const {
