@@ -332,6 +332,25 @@
   text-underline-offset: .2em;
 }
 .jarvis-composer-alternate:disabled { opacity: .45; }
+
+.jarvis-voice-controls {
+  display: inline-flex;
+  align-items: center;
+}
+
+.jarvis-voice-controls .jarvis-voice-options { inline-size: 2rem; }
+
+.jarvis-voice-mode {
+  display: grid;
+  gap: .5rem;
+  border-top: 1px solid var(--border);
+  padding-top: .875rem;
+  font-size: .875rem;
+}
+
+.jarvis-voice-mode h3 { font-weight: 600; }
+.jarvis-voice-mode p { color: var(--muted-foreground); }
+.jarvis-voice-mode > button { justify-self: start; }
 .jarvis-file-chip {
   display: inline-flex;
   align-items: center;

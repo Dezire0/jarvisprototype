@@ -223,18 +223,22 @@ test("voice output handles explicit choices and automatic replies without talkin
 
     const recognitionCount = () => page.evaluate(() => window.jarvisVoiceFixture.started);
     const firstRecognition = await recognitionCount();
-    await page.getByRole("button", { name: "Start continuous voice", exact: true }).click();
+    await page.getByRole("button", { name: "Voice options", exact: true }).click();
+    await page.getByRole("dialog", { name: "Voice options", exact: true })
+      .getByRole("button", { name: "Start continuous voice", exact: true }).click();
     await page.waitForFunction((count) => window.jarvisVoiceFixture.started === count + 1, firstRecognition);
     await page.evaluate((index) => window.jarvisVoiceFixture.deliver(index, "Automatic voice turn"), firstRecognition);
     await page.getByText("Reading aloud", { exact: true }).waitFor();
     await page.getByText("Listening resumes after playback.").waitFor();
+    const stopContinuous = page.getByRole("button", { name: "Stop continuous voice", exact: true });
+    assert.equal(await stopContinuous.isEnabled(), true);
     assert.deepEqual((await events()).device.at(-1), { text: answer.slice(0, 500), voice: "fixture-device-ko" });
     assert.equal((await events()).provider.length, 4);
     await page.waitForTimeout(550);
     assert.equal(await recognitionCount(), firstRecognition + 1);
     await page.evaluate(() => window.finishDeviceSpeech());
     await page.waitForFunction((count) => window.jarvisVoiceFixture.started === count + 2, firstRecognition);
-    await page.getByRole("button", { name: "Stop continuous voice", exact: true }).click();
+    await stopContinuous.click();
 
     await openVoiceSettings();
     assert.equal(await automatic.inputValue(), "off");
