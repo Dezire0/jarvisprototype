@@ -12,6 +12,12 @@ The conversation composer also recognizes structured timer, task, note and calcu
 
 When the conversation already has text, attachments or a quote, the final voice transcript joins the draft for review. The microphone control stops recording or discards a pending transcript. Changing conversations or leaving the workspace ends that listening session, including continuous listening. A result already handed to a transcription provider can finish there. Jarvis discards it if the session has ended. In the legacy renderer, Call Mode starts when you choose it in the current conversation.
 
+Choose **Wake word** next to the microphone to start a session for the current conversation. **Start on-device listening** requires a browser with local speech recognition and an available language pack for the workspace language. Downloading a pack leaves the microphone off. **Start with browser recognition** may send microphone audio to the browser's speech service while listening. Jarvis keeps the selected recognition path for that session. [Web Speech API recognition options](https://w3c.github.io/speech-api/)
+
+The tested macOS arm64 bundle exposes the browser recognition interface without its on-device recognition API. The panel reports that availability before you start. Physical microphone and browser speech service operation still need runtime verification.
+
+Say `Jarvis, set a 10-minute timer` or `자비스, 10분 타이머 맞춰줘`. Saying the phrase alone opens an eight-second window for a follow-up. Jarvis ignores other speech outside that window. A command uses the same local command and chat routing as voice input. With a draft present, the command joins it for review and listening stops. Otherwise wake listening can resume after the command and any reply audio finish. Use **Stop wake word**, start another voice mode, or leave the conversation to stop. The setting is off each time the workspace loads.
+
 | Task | Examples |
 | --- | --- |
 | Start a timer or focus session | `10분 타이머 맞춰줘`, `timer 10 minutes`, `focus 25` |
@@ -197,7 +203,7 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | File attachments | Composer, local transport, direct model APIs | Selectable PDF text, other text documents and raster images use a bounded model-only review turn |
 | App discovery and explicit bundle launch | macOS app catalog, desktop picker and Electron IPC | Local catalog and selected bundle validation on macOS |
 | macOS/Windows/Linux app operations and browser actions | Electron services and browser runtime | Existing routes retained. Native permissions and real apps/sites require manual verification |
-| Voice recognition, continuous mode and TTS | Voice provider, Electron STT/TTS, Friday | Manual and opt-in automatic workspace playback coordinate with continuous listening. Wake word is available through the legacy controls. Live microphone and provider verification remains open |
+| Voice recognition, wake phrase, continuous mode and TTS | Browser speech, Voice provider, Electron STT/TTS, Friday | Wake phrase has explicit current-conversation activation. Automatic workspace playback coordinates with continuous and wake listening. Speech engine and microphone availability depend on the runtime |
 | OBS connection, status, scenes and broadcast transitions | Desktop OBS panel and Electron OBS WebSocket service | Verified against a loopback protocol fixture. Live OBS and physical confirmation remain to be verified |
 | Coding project templates, model drafts and save review | Desktop project creation and Electron project service | Uses built-in templates or a configured direct model and a native destination picker |
 | Steam and Epic installed games and store handoffs | Desktop Games panel and Electron game service | Local manifest scan and explicit store or launcher handoff |
