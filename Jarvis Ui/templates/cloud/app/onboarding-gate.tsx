@@ -340,9 +340,9 @@ export function OnboardingGate() {
           <h1 tabIndex={-1} ref={planHeading} className="outline-none">
             {t("클라우드 플랜 선택", "Choose a cloud plan")}
           </h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          <p className="mt-2 break-keep text-sm leading-6 text-muted-foreground">
             {t(
-              "플랜은 Jarvis Cloud 사용량에 적용됩니다. 타이머, 할 일, 메모는 플랜 없이 이 기기에서 쓸 수 있습니다.",
+              "플랜은 클라우드 사용량에만 적용됩니다. 타이머, 할 일, 메모는 이 기기에서 바로 쓸 수 있습니다.",
               "This sets your cloud usage limit. Timer, tasks and notes work on this device without a plan."
             )}
           </p>
@@ -382,7 +382,7 @@ export function OnboardingGate() {
               type="submit"
               aria-disabled={setupLoading}
               aria-describedby={setupError ? "plan-error" : undefined}
-              className="jarvis-send h-11 w-full aria-disabled:opacity-70"
+              className="jarvis-send h-11 w-full aria-disabled:opacity-70 motion-reduce:transition-none"
             >
               {setupLoading && <LoaderCircleIcon aria-hidden="true" className="motion-safe:animate-spin" />}
               {setupLoading ? t("저장 중…", "Saving…") : planOptions[selectedPlan].submit}

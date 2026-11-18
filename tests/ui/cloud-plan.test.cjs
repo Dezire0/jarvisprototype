@@ -87,6 +87,7 @@ test("cloud plan supports keyboard selection, retry, and local tools while signe
     assert.equal(await pro.isChecked(), true);
     await page.keyboard.press("Tab");
     assert.equal(await continuePro.evaluate((button) => button === document.activeElement), true);
+    assert.equal(await continuePro.evaluate((button) => getComputedStyle(button).outlineWidth), "2px");
     await page.keyboard.press("Enter");
     await page.getByRole("alert").filter({ hasText: "Couldn’t save your plan" }).waitFor();
     assert.equal(await pro.isChecked(), true);
