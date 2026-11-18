@@ -1,0 +1,10 @@
+{
+  "open": {
+    "en": ["spotify", "spotify controls", "open spotify", "pause spotify", "resume spotify", "spotify next track", "spotify previous track"],
+    "ko": ["스포티파이", "스포티파이 열어줘", "스포티파이 재생 제어", "스포티파이 일시정지", "스포티파이 재생", "스포티파이 다음 곡", "스포티파이 이전 곡"]
+  },
+  "search": {
+    "en": ["search spotify", "spotify search", "find on spotify"],
+    "ko": ["스포티파이 검색", "스포티파이에서 검색"]
+  }
+}

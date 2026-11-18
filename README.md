@@ -400,7 +400,7 @@
 | LLM 라우터 / 플래너 | Electron | 요청을 채팅/브라우저/앱/파일/OBS/화면 분석 등으로 분기 |
 | 데스크톱 앱 런처 | Electron | 설치된 앱 목록 조회, 앱 열기, 최근 앱 컨텍스트 기억 |
 | 범용 앱 조작자 | Electron, macOS 중심 | 앱 포커스, 텍스트 입력, 키 입력, 단축키 실행, 메뉴 클릭 |
-| Spotify 보조자 | Electron, macOS | Spotify 열기, 검색, 다음 곡, 이전 곡, 일시정지, 재생 재개 |
+| Spotify | Electron, macOS | 로컬 도구의 Spotify에서 웹 검색, 공유 링크 열기, macOS 재생 상태 확인 및 제어 |
 | Finder 보조자 | Electron, macOS | 경로 열기, 새 창 열기, Finder 검색 |
 | Notes 보조자 | Electron, macOS | 새 노트 생성, 노트 검색 |
 | Chrome 보조자 | Electron, macOS | 지정 대상 열기, 새 탭, 뒤로/앞으로, 새로고침 |

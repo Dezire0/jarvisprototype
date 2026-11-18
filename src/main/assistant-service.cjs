@@ -1,5 +1,7 @@
+const { spotifyGuidance } = require("./spotify-service.cjs");
 const { gameLibraryGuidance } = require("./game-service.cjs");
 const { projectGuidance } = require("./code-project-service.cjs");
+const spotifyCommands = require("./assistant/spotify-commands.json");
 const gameCommands = require("./assistant/game-commands.json");
 const projectCommands = require("./assistant/project-commands.json");
 const {
@@ -1789,20 +1791,6 @@ function buildFallbackAppPlan(input, appName) {
   if (searchQuery || (mentionsSearchField(input) && typingText)) {
     const query = searchQuery || typingText;
 
-    if (/spotify/i.test(appName)) {
-      const spotifyTargets = buildSpotifyTargets(query);
-      steps.push({
-        action: "open_url",
-        target: spotifyTargets.uri,
-        fallbackTarget: spotifyTargets.webUrl
-      });
-
-      return {
-        reply: "",
-        steps
-      };
-    }
-
     steps.push({
       action: "app_shortcut",
       target: appName,
@@ -2113,23 +2101,6 @@ function looksLikeFreshWorkspaceCommand(text = "") {
     );
 }
 
-function buildSpotifyTargets(query = "") {
-  const normalizedQuery = normalizeWhitespace(query);
-
-  if (!normalizedQuery) {
-    return {
-      uri: "spotify:",
-      webUrl: "https://open.spotify.com/"
-    };
-  }
-
-  const encodedQuery = encodeURIComponent(normalizedQuery);
-  return {
-    uri: `spotify:search:${encodedQuery}`,
-    webUrl: `https://open.spotify.com/search/${encodedQuery}`
-  };
-}
-
 function cleanupParsedText(value = "") {
   return String(value)
     .trim()
@@ -2175,52 +2146,6 @@ function getSpecializedAppSkill(appName = "") {
   }
 
   return "";
-}
-
-function parseSpotifySkill(input = "", route = {}) {
-  const normalized = normalizePlanText(input);
-  const query = normalizeWhitespace(route.query || extractSpotifyQuery(input));
-
-  if (/(다음\s*곡|skip|next(?: track)?)/i.test(normalized)) {
-    return {
-      intent: "next"
-    };
-  }
-
-  if (/(이전\s*곡|previous(?: track)?|prev(?: track)?)/i.test(normalized)) {
-    return {
-      intent: "previous"
-    };
-  }
-
-  if (/(일시정지|pause|멈춰|정지해)/i.test(normalized)) {
-    return {
-      intent: "pause"
-    };
-  }
-
-  if (/(다시\s*재생|재생\s*다시|resume|continue|keep playing)/i.test(normalized)) {
-    return {
-      intent: "resume"
-    };
-  }
-
-  if (query) {
-    return {
-      intent: "search",
-      query
-    };
-  }
-
-  if (/(play|재생|틀어|들려|음악|노래|playlist|song|track)/i.test(normalized)) {
-    return {
-      intent: "resume"
-    };
-  }
-
-  return {
-    intent: "open"
-  };
 }
 
 function extractFinderLocation(text = "") {
@@ -5026,11 +4951,11 @@ class AssistantService {
     return null;
   }
 
-  async tryHandleSpecializedAppAction(input, route, appName) {
+  async tryHandleSpecializedAppAction(input, appName) {
     const skill = getSpecializedAppSkill(appName);
 
     if (skill === "spotify") {
-      return this.handleSpotifySkill(input, route, appName);
+      return spotifyGuidance(detectReplyLanguage(input));
     }
 
     if (skill === "finder") {
@@ -5050,111 +4975,6 @@ class AssistantService {
     }
 
     return null;
-  }
-
-  async handleSpotifySkill(input, route = {}, appName = "Spotify") {
-    const parsed = parseSpotifySkill(input, route);
-    const actions = [];
-    const opened = await this.automation.execute({
-      type: "open_app",
-      target: appName
-    });
-    const resolvedName = opened.resolvedTarget || opened.appName || appName;
-
-    actions.push(this.makeAction("open_app", resolvedName));
-    this.rememberAppContext(resolvedName);
-
-    if (parsed.intent === "search" && parsed.query) {
-      const spotifyTargets = buildSpotifyTargets(parsed.query);
-      let mode = "search";
-
-      try {
-        await this.automation.execute({
-          type: "open_url",
-          target: spotifyTargets.uri
-        });
-        actions.push(this.makeAction("open_url", spotifyTargets.uri));
-      } catch (_error) {
-        await this.automation.execute({
-          type: "open_url",
-          target: spotifyTargets.webUrl
-        });
-        actions.push(this.makeAction("open_url", spotifyTargets.webUrl));
-        mode = "web-search";
-      }
-
-      const fallback =
-        detectReplyLanguage(input) === "ko"
-          ? `${resolvedName}에서 ${parsed.query} 검색 결과를 열어뒀어요. 바로 재생할 대상을 고를 수 있어요.`
-          : `I opened ${resolvedName} results for ${parsed.query}.`;
-
-      return this.completeLocalCommand(
-        input,
-        actions,
-        {
-          appName: resolvedName,
-          mode,
-          query: parsed.query,
-          spotifyTargets
-        },
-        fallback
-      );
-    }
-
-    if (parsed.intent === "next" || parsed.intent === "previous" || parsed.intent === "pause" || parsed.intent === "resume") {
-      const commandMap = {
-        next: "next",
-        previous: "previous",
-        pause: "pause",
-        resume: "resume"
-      };
-
-      const data = await this.automation.execute({
-        type: "spotify_control",
-        command: commandMap[parsed.intent]
-      });
-      actions.push(this.makeAction("spotify_control", `${resolvedName}:${commandMap[parsed.intent]}`));
-
-      const fallback =
-        detectReplyLanguage(input) === "ko"
-          ? parsed.intent === "next"
-            ? `${resolvedName}에서 다음 곡으로 넘겼어요.`
-            : parsed.intent === "previous"
-              ? `${resolvedName}에서 이전 곡으로 이동했어요.`
-              : parsed.intent === "pause"
-                ? `${resolvedName} 재생을 멈췄어요.`
-                : `${resolvedName} 재생을 이어봤어요.`
-          : parsed.intent === "next"
-            ? `I skipped to the next track in ${resolvedName}.`
-            : parsed.intent === "previous"
-              ? `I moved to the previous track in ${resolvedName}.`
-              : parsed.intent === "pause"
-                ? `I paused ${resolvedName}.`
-                : `I resumed playback in ${resolvedName}.`;
-
-      return this.completeLocalCommand(
-        input,
-        actions,
-        {
-          appName: resolvedName,
-          mode: parsed.intent,
-          lastResult: data
-        },
-        fallback
-      );
-    }
-
-    return this.completeLocalCommand(
-      input,
-      actions,
-      {
-        appName: resolvedName,
-        mode: "opened"
-      },
-      detectReplyLanguage(input) === "ko"
-        ? `${resolvedName}를 앞으로 가져왔어요. 곡 검색이나 재생 제어를 바로 이어서 할 수 있어요.`
-        : `I brought ${resolvedName} to the front. I can search or control playback there next.`
-    );
   }
 
   async handleFinderSkill(input, appName = "Finder") {
@@ -5603,7 +5423,7 @@ class AssistantService {
     }
 
     const appName = resolved.resolvedTarget;
-    const specialized = await this.tryHandleSpecializedAppAction(input, route, appName);
+    const specialized = await this.tryHandleSpecializedAppAction(input, appName);
 
     if (specialized) {
       return specialized;
@@ -6473,8 +6293,8 @@ class AssistantService {
     };
   }
 
-  async handleSpotifyRoute(input, route) {
-    return this.handleSpotifySkill(input, route, "Spotify");
+  async handleSpotifyRoute(input) {
+    return spotifyGuidance(detectReplyLanguage(input));
   }
 
   async handleAppOpen(input, route) {
@@ -6641,6 +6461,10 @@ class AssistantService {
 
     const cleanInput = normalizeWhitespace(input);
     const command = cleanInput.toLowerCase();
+    if (spotifyCommands.open.ko.includes(command) || spotifyCommands.search.ko.some((phrase) =>
+      phrase === command || command.startsWith(phrase + " "))) return spotifyGuidance("ko");
+    if (spotifyCommands.open.en.includes(command) || spotifyCommands.search.en.some((phrase) =>
+      phrase === command || command.startsWith(phrase + " "))) return spotifyGuidance("en");
     for (const { ko, en, withTitle } of Object.values(gameCommands)) {
       if (ko.includes(command) || withTitle?.ko.some((phrase) => command.startsWith(phrase + " "))) return gameLibraryGuidance("ko");
       if (en.includes(command) || withTitle?.en.some((phrase) => command.startsWith(phrase + " "))) return gameLibraryGuidance("en");
