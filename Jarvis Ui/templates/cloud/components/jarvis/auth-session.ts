@@ -9,7 +9,6 @@ export type AuthSettings = {
   autoSync?: boolean;
   preferWebAi?: boolean;
   language?: "auto" | "ko" | "en";
-  geminiKey?: string;
   planConfirmed?: boolean;
 };
 
