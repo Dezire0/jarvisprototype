@@ -19,6 +19,24 @@ export const activityLabels = {
 export type ActivityKind = keyof typeof activityLabels;
 type Activity = { id: string; at: number; kind: ActivityKind };
 export type Workspace = { timer: Timer; tasks: Task[]; notes: Entry[]; speakResults: boolean; activity: Activity[] };
+export const localDataCategories = ["tasks", "notes", "activity"] as const;
+export type LocalDataCategory = typeof localDataCategories[number];
+export type LocalDataReview = { category: LocalDataCategory; entries: Workspace[LocalDataCategory] }[];
+
+export function reviewLocalData(workspace: Workspace, categories: LocalDataCategory[]): LocalDataReview {
+  return localDataCategories
+    .filter((category) => categories.includes(category) && workspace[category].length)
+    .map((category) => ({ category, entries: workspace[category] }));
+}
+
+export function clearReviewedLocalData(workspace: Workspace, review: LocalDataReview): Workspace | null {
+  if (!review.length || review.some(({ category, entries }) =>
+    JSON.stringify(workspace[category]) !== JSON.stringify(entries))) return null;
+  const next = { ...workspace };
+  for (const { category } of review) next[category] = [];
+  return next;
+}
+
 export type Result = { title: string; detail?: string; href?: string; failed?: boolean };
 export type ComposerCommandHandler = (text: string, options: {
   hasAttachmentsOrQuote: boolean;

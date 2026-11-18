@@ -12,6 +12,7 @@ import { ComputerControlSettings } from "@/components/jarvis/computer-control-se
 import { ModelSettings, MODEL_SETTINGS_SAVED, type ModelAvailability } from "@/components/jarvis/model-settings";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { ToolDirectory, toolName, type ToolId } from "@/components/jarvis/tool-directory";
+import { LocalDataPanel } from "@/components/jarvis/local-data-panel";
 import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
@@ -53,7 +54,7 @@ function AssistantWorkspace() {
     { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string; address?: string } |
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
     { section: "folder"; threadId: string } |
-    { section: "obs" | "project-create" | "browser-handoff" } |
+    { section: "obs" | "project-create" | "browser-handoff" | "local-data" } |
     { section: "games"; initial: GameView; query?: string } |
     { section: "spotify" | "apps"; query?: string }
   )) | null>(null);
@@ -232,6 +233,10 @@ function AssistantWorkspace() {
       });
       return "retry";
     }
+    if (local.clearingData) {
+      setLocalResult({ title: isKo ? "로컬 데이터를 삭제하는 중입니다." : "Deleting local data.", failed: true });
+      return "retry";
+    }
 
     const current = local.latestWorkspace();
     const { workspace, result } = runLocalCommand(command, current, Date.now(), crypto.randomUUID(), locale);
@@ -335,6 +340,10 @@ function AssistantWorkspace() {
               </div>
               {tools?.section === "index" && <ToolDirectory query={directoryQuery} onQueryChange={setDirectoryQuery}
                 lastTool={lastTool.current} computerControl={computerControl} onSelect={selectTool} />}
+              {tools?.section === "local-data" && <LocalDataPanel local={local} onCleared={() => {
+                localRun.current++;
+                setLocalResult(null);
+              }} />}
               {tools?.section === "weather" && <WeatherPanel inDialog canUseBrowserLocation={!local.nativeStorage} />}
               {(tools?.section === "screen" || tools?.section === "browser") && tools.threadId === threadId && (
                 <TextReview key={tools.section} source={tools.section} initialAddress={tools.address} mode={tools.mode}

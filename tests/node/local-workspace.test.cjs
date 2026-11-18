@@ -1,11 +1,27 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
-  calculate, completeExpiredTimer, emptyWorkspace, formatTimer, LOCAL_COMMAND_EXAMPLE, parseLocalCommand, readWorkspace,
-  recordActivity, remainingSeconds, resolveComposerCommand, runLocalCommand,
+  calculate, clearReviewedLocalData, completeExpiredTimer, emptyWorkspace, formatTimer, LOCAL_COMMAND_EXAMPLE, parseLocalCommand,
+  readWorkspace, recordActivity, remainingSeconds, resolveComposerCommand, reviewLocalData, runLocalCommand,
 } = require("../../Jarvis Ui/templates/cloud/lib/local-workspace.ts");
 
 const NOW = Date.UTC(2026, 10, 17, 20);
+
+test("local deletion removes only the reviewed lists and rejects later edits", () => {
+  const task = { id: "task", text: "Review a draft", done: false };
+  const workspace = recordActivity({
+    ...emptyWorkspace, tasks: [task], notes: [{ id: "note", text: "Keep this note" }], speakResults: true,
+  }, "task", NOW, "activity");
+  const review = reviewLocalData(workspace, ["activity", "tasks"]);
+  assert.deepEqual(clearReviewedLocalData(workspace, review), { ...workspace, tasks: [], activity: [] });
+  assert.equal(workspace.tasks.length, 1);
+  assert.equal(clearReviewedLocalData({ ...workspace, tasks: [{ ...task, done: true }] }, review), null);
+  assert.equal(clearReviewedLocalData(workspace, reviewLocalData(workspace, [])), null);
+  const timer = { seconds: 240, remaining: 80, endsAt: null };
+  assert.deepEqual(clearReviewedLocalData({ ...workspace, timer }, review), {
+    ...workspace, timer, tasks: [], activity: [],
+  });
+});
 
 function execute(input, workspace = emptyWorkspace, now = NOW) {
   const command = parseLocalCommand(input);

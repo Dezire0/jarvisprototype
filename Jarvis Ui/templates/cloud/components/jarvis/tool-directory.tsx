@@ -12,6 +12,7 @@ const names = {
   activity: ["최근 활동", "Recent activity", "history 기록 이력"],
   command: ["로컬 명령", "Local command", "calculator calculate time date 계산 오늘 시간 도움말"],
   diagnostics: ["시스템 진단", "Diagnostics", "cpu memory 메모리 시스템"],
+  "local-data": ["로컬 데이터", "Local data", "storage erase delete privacy 저장 관리 삭제 정리 개인정보"],
   folder: ["폴더 찾아보기", "Browse files", "directories directory folder 파일 목록 탐색"],
   "file-save": ["파일 저장", "Save file", "write edit text 문서 쓰기"],
   screen: ["화면 읽기", "Read screen", "ocr capture desktop 화면 텍스트"],
@@ -34,7 +35,7 @@ const groups = [
   { title: ["시간과 기록", "Time and notes"], items: ["timer", "tasks", "notes", "weather", "activity"] },
   { title: ["파일과 화면", "Files and screens"], native: true, items: ["folder", "file-save", "screen", "browser", "project-create"] },
   { title: ["앱과 서비스", "Apps and services"], native: true, items: ["apps", "browser-handoff", "spotify", "games", "obs"] },
-  { title: ["명령과 진단", "Commands and diagnostics"], items: ["command", "diagnostics"] },
+  { title: ["명령과 진단", "Commands and diagnostics"], items: ["command", "diagnostics", "local-data"] },
 ] as const;
 
 export function ToolDirectory({ query, onQueryChange, lastTool, computerControl, onSelect }: {

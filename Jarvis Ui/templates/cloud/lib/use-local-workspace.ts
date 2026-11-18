@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { activityLabels, completeExpiredTimer, emptyWorkspace, readWorkspace, workspaceKey, type Workspace } from "./local-workspace";
+import {
+  activityLabels, clearReviewedLocalData, completeExpiredTimer, emptyWorkspace, readWorkspace, workspaceKey,
+  type LocalDataReview, type Workspace,
+} from "./local-workspace";
 import { speakLocalResult } from "./local-speech";
 import { useWorkspaceLocale } from "./workspace-language";
 
@@ -17,6 +20,8 @@ export function useLocalWorkspace() {
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [storageAvailable, setStorageAvailable] = useState(true);
   const [nativeStorage, setNativeStorage] = useState(false);
+  const [clearingData, setClearingData] = useState(false);
+  const clearInProgress = useRef(false);
   const latest = useRef(emptyWorkspace);
   const nativeReadSucceeded = useRef(false);
   const latestSave = useRef(0);
@@ -33,7 +38,7 @@ export function useLocalWorkspace() {
     async function syncWorkspace() {
       try {
         const persisted = useNative && loadNative ? await loadNative() : null;
-        if (!currentView) return;
+        if (!currentView || clearInProgress.current) return;
         nativeReadSucceeded.current = useNative;
         const next = persisted === null ? loadBrowserWorkspace() : readWorkspace(persisted);
         latest.current = next;
@@ -68,7 +73,7 @@ export function useLocalWorkspace() {
     }
   }, [nativeStorage, storageAvailable]);
 
-  const saveWorkspace = useCallback(async (next: Workspace, restoreOnFailure?: Workspace): Promise<boolean> => {
+  const writeWorkspace = useCallback(async (next: Workspace, restoreOnFailure?: Workspace): Promise<boolean> => {
     setWorkspace(next);
     latest.current = next;
     const serialized = JSON.stringify(next);
@@ -94,14 +99,41 @@ export function useLocalWorkspace() {
     }
   }, [nativeStorage]);
 
+  const saveWorkspace = useCallback(async (next: Workspace, restoreOnFailure?: Workspace) => {
+    if (clearInProgress.current) return false;
+    return writeWorkspace(next, restoreOnFailure);
+  }, [writeWorkspace]);
+
+  async function clearLocalData(review: LocalDataReview): Promise<"saved" | "changed" | "failed"> {
+    if (!workspaceReady || clearInProgress.current) return "failed";
+    try {
+      const current = nativeStorage ? latest.current : loadBrowserWorkspace();
+      const next = clearReviewedLocalData(current, review);
+      if (!next) {
+        latest.current = current;
+        setWorkspace(current);
+        return "changed";
+      }
+      clearInProgress.current = true;
+      setClearingData(true);
+      return await writeWorkspace(next, current) ? "saved" : "failed";
+    } catch {
+      setStorageAvailable(false);
+      return "failed";
+    } finally {
+      clearInProgress.current = false;
+      setClearingData(false);
+    }
+  }
+
   const deadline = workspace.timer.endsAt;
   useEffect(() => {
-    if (!workspaceReady || deadline === null) return;
+    if (!workspaceReady || clearingData || deadline === null) return;
 
     let active = true;
     let timer: number | undefined;
     const complete = () => {
-      if (!active) return;
+      if (!active || clearInProgress.current) return;
       const now = Date.now();
       if (now < deadline) {
         check();
@@ -145,7 +177,7 @@ export function useLocalWorkspace() {
       window.removeEventListener("pageshow", check);
       document.removeEventListener("visibilitychange", check);
     };
-  }, [deadline, workspaceReady, nativeStorage, latestWorkspace, saveWorkspace, locale]);
+  }, [deadline, workspaceReady, nativeStorage, clearingData, latestWorkspace, saveWorkspace, locale]);
 
-  return { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace };
+  return { workspace, workspaceReady, storageAvailable, nativeStorage, latestWorkspace, saveWorkspace, clearLocalData, clearingData };
 }

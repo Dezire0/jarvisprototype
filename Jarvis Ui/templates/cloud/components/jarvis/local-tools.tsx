@@ -8,6 +8,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
+import { LocalDataPanel } from "@/components/jarvis/local-data-panel";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { speakLocalResult } from "@/lib/local-speech";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { useLocalWorkspace, type LocalWorkspace } from "@/lib/use-local-workspace";
@@ -258,7 +260,7 @@ export function LocalTools({ local, embedded = false, initialSection }: {
       <div className="jarvis-local-content" role={embedded ? undefined : "main"}>
         {!embedded && <h1>{t("로컬 도구", "Local tools")}</h1>}
         {timerFinished && show("timer") && <TimerCompletionNotice />}
-        <fieldset ref={toolsRef} className="min-w-0" disabled={!workspaceReady}>
+        <fieldset ref={toolsRef} className="min-w-0" disabled={!workspaceReady || local.clearingData}>
         {show("command") && <form className="jarvis-local-command" onSubmit={submit}>
           <input ref={inputRef} value={command} onChange={(event) => setCommand(event.target.value)}
             maxLength={600} aria-label={t("로컬 명령 입력", "Local command")}
@@ -278,6 +280,18 @@ export function LocalTools({ local, embedded = false, initialSection }: {
             onClick={() => setWeatherOpen(!weatherOpen)}>
             {t("날씨", "Weather")}
           </button>
+          <Dialog>
+            <DialogTrigger asChild>
+              <button type="button" className="jarvis-toolbar-link">{t("로컬 데이터", "Local data")}</button>
+            </DialogTrigger>
+            <DialogContent aria-describedby={undefined}
+              className="jarvis-tools-dialog block w-full gap-0 overflow-y-auto p-0 motion-reduce:animate-none sm:max-w-xl">
+              <div className="jarvis-tools-titlebar">
+                <DialogTitle className="jarvis-tools-dialog-title">{t("로컬 데이터", "Local data")}</DialogTitle>
+              </div>
+              <LocalDataPanel local={local} onCleared={() => { requestCounter.current++; setReceipt(null); setUndo(null); }} />
+            </DialogContent>
+          </Dialog>
         </div>}
         {embedded && show("diagnostics") && (
           <section data-tool-section="diagnostics">
