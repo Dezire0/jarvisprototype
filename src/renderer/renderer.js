@@ -2844,17 +2844,34 @@ browserReadButton.addEventListener("click", async () => {
   await invokeTool("browser:read", {}, "현재 브라우저 페이지를 읽어왔어요.");
 });
 
-obsStatusButton.addEventListener("click", async () => {
-  await invokeTool("obs:status", {}, "OBS 상태를 확인했어요.");
-});
+async function runObsAction(tool, payload = {}) {
+  try {
+    const result = await window.assistantAPI.invokeTool(tool, { ...payload, language: "ko" });
+    if (!result.ok) {
+      const errors = {
+        OBS_ADDRESS: "OBS WebSocket 주소를 확인하세요.",
+        OBS_AUTH: "OBS가 비밀번호를 거부했습니다.",
+        OBS_DISCONNECTED: "OBS에 먼저 연결하세요.",
+        OBS_CHANGED: "OBS 상태가 바뀌었습니다. 다시 확인하세요.",
+        OBS_BUSY: "진행 중인 OBS 작업을 먼저 완료하세요.",
+      };
+      addMessage("assistant", errors[result.reason] || "OBS 상태를 확인하지 못했습니다.");
+      return;
+    }
+    if (tool === "obs:connect") obsPassword.value = "";
+    const summary = result.outcome === "cancelled" ? "방송 변경을 취소했습니다."
+      : result.outcome === "requested" ? "OBS로 요청을 보냈습니다." : "OBS 상태를 확인했습니다.";
+    const { outputActive, outputReconnecting, currentScene } = result.data;
+    const state = outputReconnecting ? "재연결 중" : outputActive ? "방송 중" : "방송 대기";
+    addMessage("assistant", summary, "", { localPreviewText: `${state} · ${currentScene}` });
+  } catch {
+    addMessage("assistant", "OBS를 확인하지 못했습니다. 컴퓨터 제어와 WebSocket 설정을 확인하세요.");
+  }
+}
 
-startStreamButton.addEventListener("click", async () => {
-  await invokeTool("obs:start", {}, "OBS 방송 시작을 요청했어요.");
-});
-
-stopStreamButton.addEventListener("click", async () => {
-  await invokeTool("obs:stop", {}, "OBS 방송 종료를 요청했어요.");
-});
+obsStatusButton.addEventListener("click", () => void runObsAction("obs:status"));
+startStreamButton.addEventListener("click", () => void runObsAction("obs:start"));
+stopStreamButton.addEventListener("click", () => void runObsAction("obs:stop"));
 
 browserOpenButton.addEventListener("click", async () => {
   await invokeTool("browser:open", { target: browserTarget.value.trim() }, "브라우저에서 해당 대상을 열었어요.");
@@ -2890,26 +2907,14 @@ saveCredentialButton.addEventListener("click", async () => {
 
 listCredentialsButton.addEventListener("click", refreshCredentialList);
 
-obsConnectButton.addEventListener("click", async () => {
-  await invokeTool(
-    "obs:connect",
-    {
-      address: obsAddress.value.trim(),
-      password: obsPassword.value
-    },
-    "OBS에 연결했어요."
-  );
-});
+obsConnectButton.addEventListener("click", () => void runObsAction("obs:connect", {
+  address: obsAddress.value.trim(),
+  password: obsPassword.value,
+}));
 
-obsSceneButton.addEventListener("click", async () => {
-  await invokeTool(
-    "obs:scene",
-    {
-      sceneName: obsSceneName.value.trim()
-    },
-    "OBS 씬을 전환했어요."
-  );
-});
+obsSceneButton.addEventListener("click", () => void runObsAction("obs:scene", {
+  sceneName: obsSceneName.value.trim(),
+}));
 
 fileReadButton.addEventListener("click", async () => {
   const result = await invokeTool("file:read", { path: filePath.value.trim() }, "파일을 읽어왔어요.");

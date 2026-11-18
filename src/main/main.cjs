@@ -37,7 +37,7 @@ const { registerLocalWorkspaceHandlers } = require("./local-workspace-store.cjs"
 const { registerChatHistoryHandlers } = require("./chat-history-store.cjs");
 const { MemoryStore, createAccountMemoryResolver } = require("./memory-store.cjs");
 const { getSavedModelAvailability, testSavedModelConnection } = require("./model-connection.cjs");
-const { ObsService } = require("./obs-service.cjs");
+const { ObsService, OBS_TOOL_NAMES, OBS_ERRORS } = require("./obs-service.cjs");
 const { OpenClawService } = require("./openclaw-service.cjs");
 const { ScreenService } = require("./screen-service.cjs");
 const { createLocalFileSaver } = require("./assistant/local-file-save.cjs");
@@ -96,6 +96,40 @@ function requireAssistantWindow(event) {
 
 function requireComputerControl() {
   if (!computerControl.enabled) throw new Error(COMPUTER_CONTROL_OFF);
+}
+
+function bindDesktopApproval(event, code) {
+  const revision = computerControl.revision;
+  const accountId = accountSession.active?.user.id;
+  return () => {
+    if (!isDesktopWindow(event) || !computerControl.enabled || computerControl.revision !== revision ||
+        accountSession.active?.user.id !== accountId) {
+      throw Object.assign(new Error("Desktop approval is no longer active."), { code });
+    }
+  };
+}
+
+async function requestObsTransition(event, active, { language } = {}) {
+  const assertAllowed = bindDesktopApproval(event, "OBS_PERMISSION");
+  const { obs } = ensureReadyServices().services;
+  const ko = language === "ko";
+  const result = await obs.setStreaming(active, {
+    assertAllowed,
+    async confirm({ address, currentScene }) {
+      const scene = currentScene.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, " ").slice(0, 160);
+      const { response } = await dialog.showMessageBox(settingsWindow, {
+        type: "warning",
+        message: ko ? (active ? "OBS 방송을 시작할까요?" : "OBS 방송을 종료할까요?")
+          : (active ? "Start the OBS broadcast?" : "Stop the OBS broadcast?"),
+        detail: [address, (ko ? "현재 장면 " : "Current scene ") + scene].join("\n"),
+        buttons: ko ? ["취소", active ? "시작" : "종료"] : ["Cancel", active ? "Start" : "Stop"],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      return response === 1;
+    },
+  });
+  return { ok: true, ...result };
 }
 
 function broadcastToWindows(channel, payload) {
@@ -894,7 +928,8 @@ async function dispatchTool(tool, payload = {}) {
       };
     }
     case "obs:connect": {
-      const data = await liveServices.obs.connect(payload);
+      await liveServices.obs.connect(payload);
+      const data = await liveServices.obs.status();
       return {
         ok: true,
         tool,
@@ -903,22 +938,6 @@ async function dispatchTool(tool, payload = {}) {
     }
     case "obs:status": {
       const data = await liveServices.obs.status();
-      return {
-        ok: true,
-        tool,
-        data
-      };
-    }
-    case "obs:start": {
-      const data = await liveServices.obs.startStream();
-      return {
-        ok: true,
-        tool,
-        data
-      };
-    }
-    case "obs:stop": {
-      const data = await liveServices.obs.stopStream();
       return {
         ok: true,
         tool,
@@ -1237,14 +1256,17 @@ ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   requireAssistantWindow(event);
   if (requiresComputerControl(request.tool)) requireComputerControl();
   if (request.tool === "file:write") {
-    const revision = computerControl.revision;
-    const accountId = accountSession.active?.user.id;
-    return saveLocalFile(ensureReadyServices().services.files, request.payload, () => {
-      if (!isDesktopWindow(event) || !computerControl.enabled || computerControl.revision !== revision ||
-          accountSession.active?.user.id !== accountId) {
-        throw Object.assign(new Error("File write approval is no longer active."), { code: "FILE_PERMISSION_CHANGED" });
+    return saveLocalFile(ensureReadyServices().services.files, request.payload, bindDesktopApproval(event, "FILE_PERMISSION_CHANGED"));
+  }
+  if (OBS_TOOL_NAMES.has(request.tool)) {
+    try {
+      if (request.tool === "obs:start" || request.tool === "obs:stop") {
+        return await requestObsTransition(event, request.tool === "obs:start", request.payload);
       }
-    });
+      return await dispatchTool(request.tool, request.payload);
+    } catch (error) {
+      return { ok: false, reason: OBS_ERRORS.has(error.code) ? error.code : "OBS_REQUEST" };
+    }
   }
   return dispatchTool(request.tool, request.payload);
 });
