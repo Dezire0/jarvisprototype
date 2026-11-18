@@ -16,6 +16,7 @@ const names = {
   "file-save": ["파일 저장", "Save file", "write edit text 문서 쓰기"],
   screen: ["화면 읽기", "Read screen", "ocr capture desktop 화면 텍스트"],
   browser: ["웹 페이지 읽기", "Read web page", "browser summarize page address url 브라우저 요약 웹 주소"],
+  "browser-handoff": ["브라우저 열기", "Open browser", "web website google search link url 주소 웹 검색 구글 링크"],
   "project-create": ["코딩 프로젝트 만들기", "Create coding project", "scaffold template 개발 템플릿"],
   apps: ["앱", "Apps", "applications installed launch 프로그램 실행 설치"],
   spotify: ["Spotify", "Spotify", "music player audio 스포티파이 재생 음악"],
@@ -32,7 +33,7 @@ export function toolName(id: ToolId, ko: boolean) {
 const groups = [
   { title: ["시간과 기록", "Time and notes"], items: ["timer", "tasks", "notes", "weather", "activity"] },
   { title: ["파일과 화면", "Files and screens"], native: true, items: ["folder", "file-save", "screen", "browser", "project-create"] },
-  { title: ["앱과 서비스", "Apps and services"], native: true, items: ["apps", "spotify", "games", "obs"] },
+  { title: ["앱과 서비스", "Apps and services"], native: true, items: ["apps", "browser-handoff", "spotify", "games", "obs"] },
   { title: ["명령과 진단", "Commands and diagnostics"], items: ["command", "diagnostics"] },
 ] as const;
 

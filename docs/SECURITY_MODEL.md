@@ -36,6 +36,8 @@ The workspace’s screen review opens without capturing. **Read text** starts th
 
 The desktop web page review reads an already-open HTTP(S) document in the Jarvis browser. The desktop checks the active window, account and computer control across the read. The renderer receives bounded plain text, a title and an origin. The panel keeps this content in memory. Attaching and sending the reviewed text use the existing attachment flow.
 
+The Open browser form requires a signed-in desktop workspace and Computer control. The desktop validates a credential-free HTTP(S) address or encodes a bounded query for Google, then hands the resulting URL to the default browser on submission. The tool keeps input outside conversation and model requests. The browser handles navigation and its own session.
+
 The folder browser operates on the directory chosen in the system picker and keeps a local navigation scope. The desktop checks authorization, the current listing revision and directory or file identity. The renderer sends entry IDs. The browser skips symbolic links and returns bounded local listings and UTF-8 previews. Legacy file-pane previews stay out of the saved transcript.
 
 The macOS app picker keeps a local catalog snapshot. Opening a result requires its current revision, ID and desktop authorization. The desktop checks the path and bundle metadata again before handing that exact path to macOS. The renderer provides a result ID.

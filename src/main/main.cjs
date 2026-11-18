@@ -19,6 +19,7 @@ const { AssistantService } = require("./assistant-service.cjs");
 const { createAssistantTransportServer } = require("./assistant-transport-server.cjs");
 const { AppPicker } = require("./app-picker.cjs");
 const { BrowserService } = require("./browser-service.cjs");
+const { browserHandoffTarget } = require("./assistant/browser-handoff.cjs");
 const { CodeProjectService } = require("./code-project-service.cjs");
 const { ComputerControl, COMPUTER_CONTROL_OFF, isTrustedDesktopFrame, requiresComputerControl } = require("./computer-control.cjs");
 const { CredentialStore } = require("./credential-store.cjs");
@@ -1483,6 +1484,18 @@ ipcMain.handle("assistant:invoke-tool", async (event, request) => {
   if (PROJECT_TOOL_NAMES.has(request.tool)) return dispatchProjectTool(event, request);
   if (request.tool === "file:write") {
     return saveLocalFile(ensureReadyServices().services.files, request.payload, bindDesktopApproval(event, "FILE_PERMISSION_CHANGED"));
+  }
+  if (request.tool === "browser:handoff") {
+    requireDesktopAccountFrame(event);
+    if (!accountSession.active) return { ok: false, reason: "BROWSER_PERMISSION" };
+    const target = browserHandoffTarget(request.payload);
+    if (!target) return { ok: false, reason: "BROWSER_INPUT" };
+    try {
+      await shell.openExternal(target);
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: "BROWSER_HANDOFF_FAILED" };
+    }
   }
   if (request.tool === "browser:read-address") {
     requireDesktopAccountFrame(event);

@@ -128,6 +128,12 @@ In the desktop workspace, open **Local tools → Read screen** or enter `read sc
 
 Review and edit the recognized text, then use **Attach to draft**. Summary or study commands fill an empty message draft with the corresponding request. An existing draft stays intact. Send explicitly to let your configured model review the attached text. The attachment path handles history and cloud sync as it does for other file reviews. The legacy screen OCR control shows text for the current session, and its study control directs users to the workspace review flow.
 
+### Opening and searching the web
+
+With Computer control enabled, open **Local tools → Open browser** while signed in. Choose **Web address** to open an HTTP or HTTPS address without credentials in your default browser. Choose **Google search** to send a one-line query of up to 200 characters to Google. The request starts when you submit. Keep working in the browser while the conversation draft stays in Jarvis.
+
+The desktop `browser:handoff` tool accepts an `address` or `search` mode and an `input` string. It validates the request and reports whether the OS accepted the handoff. It does not navigate the managed Jarvis browser or read the result. Use **Read web page** for a reviewable text preview.
+
 ### Reviewing the current web page
 
 With Computer control enabled, open **Local tools → Read web page**. **Current page** reads a page already open in the Jarvis browser. Enter `read the current page`, `summarize the current page`, or the corresponding Korean command to open that view.
@@ -202,7 +208,8 @@ Run `npm run check` and `npm run test:node` for syntax and regression checks. Fo
 | Chat, projects, local/cloud history and model settings | Next workspace and Assistant transport | Existing entry points retained. Chat stream, receipt and unavailable-transport flows checked against a local test assistant |
 | File attachments | Composer, local transport, direct model APIs | Selectable PDF text, other text documents and raster images use a bounded model-only review turn |
 | App discovery and explicit bundle launch | macOS app catalog, desktop picker and Electron IPC | Local catalog and selected bundle validation on macOS |
-| macOS/Windows/Linux app operations and browser actions | Electron services and browser runtime | Existing routes retained. Native permissions and real apps/sites require manual verification |
+| Direct browser opening and search | Open browser panel and Electron handoff | Opens HTTP(S) addresses and Google queries in the default browser with Computer control enabled |
+| macOS/Windows/Linux app operations and managed browser actions | Electron services and browser runtime | Existing routes retained. Native permissions and real apps/sites require manual verification |
 | Voice recognition, wake phrase, continuous mode and TTS | Apple Speech helper, browser speech, Voice provider, Electron STT/TTS, Friday | Wake phrase has explicit current-conversation activation. Automatic workspace playback coordinates with continuous and wake listening. Speech engine and microphone availability depend on the runtime |
 | OBS connection, status, scenes and broadcast transitions | Desktop OBS panel and Electron OBS WebSocket service | Verified against a loopback protocol fixture. Live OBS and physical confirmation remain to be verified |
 | Coding project templates, model drafts and save review | Desktop project creation and Electron project service | Uses built-in templates or a configured direct model and a native destination picker |
