@@ -382,7 +382,7 @@ export function OnboardingGate() {
               type="submit"
               aria-disabled={setupLoading}
               aria-describedby={setupError ? "plan-error" : undefined}
-              className="jarvis-send h-11 w-full aria-disabled:opacity-70 motion-reduce:transition-none"
+              className="jarvis-send h-11 w-full transition-colors aria-disabled:opacity-70 motion-reduce:transition-none"
             >
               {setupLoading && <LoaderCircleIcon aria-hidden="true" className="motion-safe:animate-spin" />}
               {setupLoading ? t("저장 중…", "Saving…") : planOptions[selectedPlan].submit}

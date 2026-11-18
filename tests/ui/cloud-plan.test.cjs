@@ -19,8 +19,7 @@ test("cloud plan supports keyboard selection, retry, and local tools while signe
     const page = await browser.newPage({
       viewport: { width: 420, height: 560 },
       colorScheme: "light",
-      locale: "en-US",
-      reducedMotion: "reduce"
+      locale: "en-US"
     });
     page.setDefaultTimeout(4000);
 
