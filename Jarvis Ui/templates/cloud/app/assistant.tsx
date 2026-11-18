@@ -11,6 +11,7 @@ import { JarvisVoiceProvider } from "@/components/jarvis/voice-provider";
 import { ComputerControlSettings } from "@/components/jarvis/computer-control-settings";
 import { ModelSettings, MODEL_SETTINGS_SAVED, type ModelAvailability } from "@/components/jarvis/model-settings";
 import { ThemeToggle } from "@/components/jarvis/theme-toggle";
+import { ToolDirectory, toolName, type ToolId } from "@/components/jarvis/tool-directory";
 import { LocalTools, TimerCompletionNotice, type ToolSection } from "@/components/jarvis/local-tools";
 import { WeatherPanel } from "@/components/jarvis/weather-panel";
 import { TextReview } from "@/components/jarvis/text-review";
@@ -35,25 +36,29 @@ import { resolveBrowserReviewCommand } from "@/lib/browser-review";
 import { resolveFileSaveCommand, type FileSaveDraft } from "@/lib/file-save";
 import { isObsCommand } from "@/lib/obs-commands";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
-import { WrenchIcon } from "lucide-react";
+import { ChevronLeftIcon, WrenchIcon } from "lucide-react";
 import { useAuiState } from "@assistant-ui/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { JarvisRuntimeProvider } from "./jarvis-runtime-provider";
 
 export const Assistant = () => <JarvisRuntimeProvider><AssistantWorkspace /></JarvisRuntimeProvider>;
 
 function AssistantWorkspace() {
   const threadId = useAuiState((state) => state.threadListItem.id);
-  const [tools, setTools] = useState<
-    { section?: ToolSection } |
+  const [tools, setTools] = useState<({ fromDirectory?: true } & (
+    { section: "index" } |
+    { section: ToolSection } |
     { section: "screen" | "browser"; mode: ScreenReviewMode; threadId: string } |
     { section: "file-save"; draft: FileSaveDraft; threadId: string } |
     { section: "folder"; threadId: string } |
     { section: "obs" | "project-create" } |
     { section: "games"; initial: GameView; query?: string } |
-    { section: "spotify" | "apps"; query?: string } |
-    null
-  >(null);
+    { section: "spotify" | "apps"; query?: string }
+  )) | null>(null);
+  const [directoryQuery, setDirectoryQuery] = useState("");
+  const lastTool = useRef<ToolId | null>(null);
+  const toolContent = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const [computerControl, setComputerControl] = useState<boolean | null>(null);
   const [modelSettingsAvailable, setModelSettingsAvailable] = useState(false);
   const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
@@ -67,9 +72,13 @@ function AssistantWorkspace() {
   const locale = useWorkspaceLocale();
   const isKo = locale.startsWith("ko");
   const toolsLabel = isKo ? "로컬 도구" : "Local tools";
-  const weatherOpen = tools?.section === "weather";
-  const screenOpen = tools?.section === "screen";
-  const fileSaveOpen = tools?.section === "file-save";
+  const currentTool = tools?.section;
+  const toolTitle = currentTool && currentTool !== "index" ? toolName(currentTool, isKo) : toolsLabel;
+
+  useLayoutEffect(() => {
+    if (toolContent.current) toolContent.current.scrollTop = 0;
+    if (currentTool && currentTool !== "index") heading.current?.focus();
+  }, [currentTool]);
 
   useEffect(() => {
     if ((tools?.section === "screen" || tools?.section === "browser" || tools?.section === "file-save" || tools?.section === "folder") && tools.threadId !== threadId) setTools(null);
@@ -107,7 +116,31 @@ function AssistantWorkspace() {
 
   function openTools(section: ToolSection | undefined, trigger: HTMLElement | null) {
     toolsTrigger.current = trigger;
-    setTools({ section });
+    lastTool.current = null;
+    setDirectoryQuery("");
+    setTools({ section: section ?? "index" });
+  }
+
+  function selectTool(section: ToolId) {
+    lastTool.current = section;
+    const fromDirectory = true as const;
+    switch (section) {
+      case "screen":
+      case "browser":
+        setTools({ section, mode: "read", threadId, fromDirectory });
+        break;
+      case "file-save":
+        setTools({ section, draft: { path: "", content: "" }, threadId, fromDirectory });
+        break;
+      case "folder":
+        setTools({ section, threadId, fromDirectory });
+        break;
+      case "games":
+        setTools({ section, initial: "library", fromDirectory });
+        break;
+      default:
+        setTools({ section, fromDirectory });
+    }
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
@@ -221,16 +254,6 @@ function AssistantWorkspace() {
     setLocalResult(null);
   }
 
-  const toolTitle = tools?.section === "folder" ? (isKo ? "폴더 찾아보기" : "Browse files")
-    : tools?.section === "apps" ? (isKo ? "앱" : "Apps")
-    : tools?.section === "spotify" ? "Spotify"
-    : tools?.section === "games" ? (isKo ? "게임" : "Games")
-    : tools?.section === "project-create" ? (isKo ? "코딩 프로젝트 만들기" : "Create coding project")
-    : tools?.section === "obs" ? "OBS" : fileSaveOpen ? (isKo ? "파일 저장" : "Save file")
-    : tools?.section === "browser" ? (isKo ? "웹 페이지 읽기" : "Read web page")
-    : screenOpen ? (isKo ? "화면 읽기" : "Read screen")
-      : weatherOpen ? (isKo ? "날씨" : "Weather") : toolsLabel;
-
   return (
     <JarvisExtensionsProvider>
       <SidebarProvider defaultOpen={false}>
@@ -279,6 +302,7 @@ function AssistantWorkspace() {
             }} />
           <Dialog open={tools !== null} onOpenChange={(open) => { if (!open) setTools(null); }}>
             <DialogContent
+              ref={toolContent}
               aria-describedby={undefined}
               className="jarvis-tools-dialog block w-full gap-0 overflow-y-auto p-0 motion-reduce:animate-none sm:max-w-xl"
               onCloseAutoFocus={(event) => {
@@ -288,9 +312,18 @@ function AssistantWorkspace() {
                 else inputRef.current?.focus();
               }}
             >
-              <DialogTitle className="jarvis-tools-dialog-title">
-                {toolTitle}
-              </DialogTitle>
+              <div className="jarvis-tools-titlebar">
+                {tools?.fromDirectory && (
+                  <button type="button" className="jarvis-icon-button"
+                    aria-label={isKo ? "로컬 도구로 돌아가기" : "Back to local tools"}
+                    onClick={() => setTools({ section: "index" })}>
+                    <ChevronLeftIcon size={18} aria-hidden="true" />
+                  </button>
+                )}
+                <DialogTitle ref={heading} tabIndex={-1} className="jarvis-tools-dialog-title">{toolTitle}</DialogTitle>
+              </div>
+              {tools?.section === "index" && <ToolDirectory query={directoryQuery} onQueryChange={setDirectoryQuery}
+                lastTool={lastTool.current} computerControl={computerControl} onSelect={selectTool} />}
               {tools?.section === "weather" && <WeatherPanel inDialog canUseBrowserLocation={!local.nativeStorage} />}
               {(tools?.section === "screen" || tools?.section === "browser") && tools.threadId === threadId && (
                 <TextReview key={tools.section} source={tools.section} mode={tools.mode} computerControl={computerControl} onAttached={() => {
@@ -312,19 +345,9 @@ function AssistantWorkspace() {
               {tools?.section === "games" && <GamesLibrary initial={tools.initial} initialQuery={tools.query} computerControl={computerControl} />}
               {tools?.section === "project-create" && <ProjectCreation computerControl={computerControl} />}
               {tools?.section === "obs" && <ObsControls computerControl={computerControl} />}
-              {tools && tools.section !== "weather" && tools.section !== "screen" && tools.section !== "browser" && tools.section !== "file-save" && tools.section !== "obs" && tools.section !== "project-create" && tools.section !== "games" && tools.section !== "spotify" && tools.section !== "apps" && tools.section !== "folder" && (
-                <LocalTools local={local} embedded initialSection={tools.section}
-                  onReadPage={computerControl === null ? undefined : () => setTools({ section: "browser", mode: "read", threadId })}
-                  onReadScreen={computerControl === null ? undefined : () => setTools({ section: "screen", mode: "read", threadId })}
-                  onSaveFile={computerControl === null ? undefined : () => setTools({
-                    section: "file-save", draft: { path: "", content: "" }, threadId,
-                  })}
-                  onBrowseFiles={computerControl === null ? undefined : () => setTools({ section: "folder", threadId })}
-                  onOpenApps={computerControl === null ? undefined : () => setTools({ section: "apps" })}
-                  onOpenSpotify={computerControl === null ? undefined : () => setTools({ section: "spotify" })}
-                  onOpenGames={computerControl === null ? undefined : () => setTools({ section: "games", initial: "library" })}
-                  onCreateProject={computerControl === null ? undefined : () => setTools({ section: "project-create" })}
-                  onOpenObs={computerControl === null ? undefined : () => setTools({ section: "obs" })} />
+              {tools && (tools.section === "timer" || tools.section === "tasks" || tools.section === "notes" ||
+                tools.section === "command" || tools.section === "diagnostics" || tools.section === "activity") && (
+                <LocalTools key={tools.section} local={local} embedded initialSection={tools.section} />
               )}
             </DialogContent>
           </Dialog>
