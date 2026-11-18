@@ -13,6 +13,7 @@ function validateSnapshot(serialized) {
   if (data?.version !== 1 || !Array.isArray(data.threads) || !Array.isArray(data.sidebar?.projects) ||
       !data.sidebar.threadMetaById || typeof data.sidebar.threadMetaById !== "object" ||
       (data.savedMemory !== undefined && typeof data.savedMemory !== "boolean") ||
+      (data.allowCloudFallback !== undefined && typeof data.allowCloudFallback !== "boolean") ||
       (data.profile !== undefined &&
         (typeof data.profile?.name !== "string" || data.profile.name.length > 80 ||
           !["auto", "ko", "en"].includes(data.profile.language)))) {
