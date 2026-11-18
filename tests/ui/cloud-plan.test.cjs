@@ -24,11 +24,13 @@ test("cloud plan supports keyboard selection, retry, and local tools while signe
     page.setDefaultTimeout(4000);
 
     const savedPlans = [];
+    let chatRequests = 0;
     const planResponses = [503, 401, 200];
     await page.route("**/*", async (route) => {
       const request = route.request();
       const target = new URL(request.url());
       if (target.origin !== url.origin) return route.abort();
+      if (target.pathname === "/api/chat") chatRequests++;
       if (target.pathname === "/fixture-account/login") {
         return route.fulfill({
           json: {
@@ -97,6 +99,18 @@ test("cloud plan supports keyboard selection, retry, and local tools while signe
     await continueFree.click();
     await page.getByRole("button", { name: "Toggle sidebar" }).waitFor();
     assert.deepEqual(savedPlans, ["pro", "pro", "free"]);
+    assert.equal(await page.getByRole("button", { name: "Model settings", exact: true }).count(), 0);
+
+    const composer = page.getByRole("textbox", { name: "Message input" });
+    await page.getByRole("button", { name: /Example local command.*Set a timer/ }).click();
+    await page.waitForFunction(() =>
+      document.querySelector('textarea[aria-label="Message input"]')?.value === "Set a timer for 3 minutes",
+    );
+    assert.equal(chatRequests, 0);
+    await composer.press("Enter");
+    await page.getByText("Timer started", { exact: true }).waitFor();
+    assert.equal(chatRequests, 0);
+
   } finally {
     await browser.close();
   }

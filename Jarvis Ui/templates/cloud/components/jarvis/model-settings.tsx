@@ -1,11 +1,10 @@
 "use client";
 
 import { cloneElement, useEffect, useId, useState, type FormEvent, type ReactElement } from "react";
-import { Settings2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { useWorkspaceLocale } from "@/lib/workspace-language";
 
@@ -16,6 +15,9 @@ export type ConversationModelSettings = {
   gemini: { configured: boolean; model: string };
   ollama: { model: string; url: string };
 };
+
+export const MODEL_SETTINGS_SAVED = "jarvis:conversation-model-settings-saved";
+export type ModelAvailability = "configured" | "missing" | "partial" | "computer-control";
 
 export type ModelConnectionResult = {
   status: "responded" | "missing" | "failed" | "timeout" | "cli";
@@ -35,19 +37,21 @@ function toDraft(settings: ConversationModelSettings) {
 
 export type ConversationModelDraft = ReturnType<typeof toDraft>;
 
-export function ModelSettings() {
+export function ModelSettings({ open, onOpenChange, restoreFocus }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  restoreFocus: () => void;
+}) {
   const ko = useWorkspaceLocale().startsWith("ko");
   const title = ko ? "모델 설정" : "Model settings";
 
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <button type="button" className="jarvis-sidebar-control">
-          <Settings2Icon className="size-4 shrink-0" aria-hidden="true" />
-          <span>{title}</span>
-        </button>
-      </DialogTrigger>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg" showCloseButton={false}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg" showCloseButton={false}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          restoreFocus();
+        }}>
         <DialogHeader className="text-left">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
@@ -134,7 +138,7 @@ function ModelSettingsForm() {
       setDraft(current);
       setSaved(current);
       setNotice({ type: "save" });
-      window.dispatchEvent(new Event("jarvis:conversation-model-settings-saved"));
+      window.dispatchEvent(new Event(MODEL_SETTINGS_SAVED));
     } catch {
       setNotice({ type: "save-error" });
     } finally {

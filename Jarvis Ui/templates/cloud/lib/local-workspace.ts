@@ -126,6 +126,11 @@ function localCommandText(input: string) {
   return input.trim().replace(/^(?:(?:hey\s+)?jarvis|자비스)(?:[,:\s]+|$)/i, "");
 }
 
+export const LOCAL_COMMAND_EXAMPLE = {
+  ko: "3분 타이머 맞춰줘",
+  en: "Set a timer for 3 minutes",
+};
+
 export function parseLocalCommand(input: string): LocalCommand | null {
   const raw = localCommandText(input);
   if (/^(help|commands|capabilities|what can you do\??|도움말|명령어|명령)$/i.test(raw)) return { kind: "help" };
