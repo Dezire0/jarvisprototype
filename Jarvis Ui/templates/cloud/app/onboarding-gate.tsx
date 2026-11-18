@@ -88,6 +88,7 @@ export function OnboardingGate() {
   // Setup state
   const [selectedPlan, setSelectedPlan] = useState<"free" | "pro">("free");
   const [setupLoading, setSetupLoading] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   const isKo =
     typeof navigator !== "undefined" && navigator.language.startsWith("ko");
@@ -202,15 +203,14 @@ export function OnboardingGate() {
 
             setStep(resolveFreshAuthStep(nextUser));
             return;
-          } catch (e) {
-            console.error("Failed to parse user from URL", e);
+          } catch {
+            console.warn("Could not read the sign-in response.");
           }
         }
 
         // Listen for deep link callbacks from Electron main process
         if (typeof window !== "undefined" && (window as any).assistantAPI) {
           (window as any).assistantAPI.onEvent("auth:callback", async (data: any) => {
-            console.log("Received auth callback from deep link:", data);
             if (data.token && data.user) {
               const nextUser: AuthUser = {
                 ...data.user,
@@ -236,8 +236,8 @@ export function OnboardingGate() {
         } else {
           setStep("auth");
         }
-      } catch (err) {
-        console.error("Critical onboarding initialization error:", err);
+      } catch {
+        console.error("Could not restore the sign-in session.");
         // 어떤 에러가 나도 로딩에 멈추지 않고 로그인 화면으로 보냄
         setStep("auth");
       }
@@ -303,45 +303,32 @@ export function OnboardingGate() {
 
   async function handleSetup() {
     setSetupLoading(true);
+    setSetupError(null);
     try {
       const session = await restoreAuthSession();
-      if (!session.token || !session.user) return;
+      if (!session.token || !session.user) {
+        await clearAuthSession();
+        setAuthError(t("다시 로그인해 주세요.", "Please sign in again."));
+        setStep("auth");
+        return;
+      }
 
-      // 서버 DB에 플랜 업데이트 요청 (강력한 동기화)
-      try {
-        const planRes = await fetch(`${API_BASE}/api/auth/plan`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.token}`
-          },
-          body: JSON.stringify({ plan: selectedPlan })
-        });
-        
-        if (!planRes.ok) {
-          const errData = await planRes.json().catch(() => ({}));
-          console.error("Plan update failed. Server response:", errData);
-          
-          const mainError = errData.error || "Failed to update plan on server";
-          const detailedInfo = errData.details ? ` (${errData.details})` : "";
-          const fullErrorMsg = `${mainError}${detailedInfo}`;
-          
-          if (planRes.status === 401 || fullErrorMsg.includes("Unauthorized")) {
-            setSetupLoading(false);
-            alert(t("세션이 만료되었습니다. 보안을 위해 다시 로그인해 주세요.", "Session expired. Please login again for security."));
-            await clearAuthSession();
-            setStep("auth");
-            return;
-          }
-          
-          throw new Error(fullErrorMsg);
-        }
-        console.log("Plan updated on server successfully:", selectedPlan);
-      } catch (err: any) {
-        setSetupLoading(false);
-        const detailedMsg = err.message || "Unknown error";
-        console.error("Critical Plan Update Error:", err);
-        alert(`[CRITICAL] ${t("서버 플랜 업데이트 실패", "Server Plan Sync Failed")}: ${detailedMsg}`);
+      const response = await fetch(`${API_BASE}/api/auth/plan`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.token}`,
+        },
+        body: JSON.stringify({ plan: selectedPlan }),
+      });
+      if (response.status === 401) {
+        await clearAuthSession();
+        setAuthError(t("세션이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again."));
+        setStep("auth");
+        return;
+      }
+      if (!response.ok) {
+        setSetupError(t("플랜을 저장하지 못했습니다. 잠시 후 다시 시도하세요.", "Couldn’t save your plan. Try again in a moment."));
         return;
       }
 
@@ -351,6 +338,8 @@ export function OnboardingGate() {
         remember: isAuthRemembered(),
       });
       setStep("ready");
+    } catch {
+      setSetupError(t("계정 서비스에 연결하지 못했습니다. 다시 시도하세요.", "Couldn’t reach the account service. Try again."));
     } finally {
       setSetupLoading(false);
     }
@@ -519,6 +508,7 @@ export function OnboardingGate() {
         </div>
 
         <div className="mt-12 flex flex-col items-center gap-4">
+          {setupError && <p role="alert" className="jarvis-auth-error">{setupError}</p>}
           <Button
             disabled={setupLoading}
             onClick={handleSetup}

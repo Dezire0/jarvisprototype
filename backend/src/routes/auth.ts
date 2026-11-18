@@ -1,19 +1,22 @@
 import { Hono } from "hono";
-import { sign, verify } from "hono/jwt";
+import { issueSession, requireSession, sessionSigningKey, type SessionBindings, type SessionVariables } from "../session";
 import { drizzle } from "drizzle-orm/d1";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
 
-const INTERNAL_JWT_SECRET = "jarvis-permanent-secret-key-2024-v1";
-
-type Bindings = {
+type Bindings = SessionBindings & {
   DB: D1Database;
-  JWT_SECRET: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
 };
 
-const auth = new Hono<{ Bindings: Bindings }>();
+const auth = new Hono<{ Bindings: Bindings; Variables: SessionVariables }>();
+auth.use("/*", async (c, next) => {
+  c.header("Cache-Control", "no-store");
+  c.header("Referrer-Policy", "no-referrer");
+  if (!sessionSigningKey(c.env)) return c.json({ error: "Account service is unavailable" }, 503);
+  await next();
+});
 const ALLOWED_WEB_RETURN_ORIGINS = new Set([
   "https://dexproject.pages.dev",
 ]);
@@ -127,93 +130,58 @@ auth.post("/register", async (c) => {
 });
 
 auth.post("/login", async (c) => {
-  const { email, password } = await c.req.json();
-  const db = drizzle(c.env.DB);
-  
-  const userList = await db.select().from(users).where(eq(users.email, email));
-  const user = userList[0];
-
-  if (!user) {
-    return c.json({ error: "Invalid credentials" }, 401);
+  const body = await c.req.json<unknown>().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return c.json({ error: "Invalid sign-in details" }, 400);
   }
 
-  const hashedPassword = await hashPassword(password);
-  if (user.passwordHash !== hashedPassword) {
-    return c.json({ error: "Invalid credentials" }, 401);
+  const { email, password } = body as Record<string, unknown>;
+  const address = typeof email === "string" ? email.trim() : "";
+  if (address.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) ||
+      typeof password !== "string" || !password || password.length > 1024) {
+    return c.json({ error: "Invalid sign-in details" }, 400);
   }
 
-  const token = await sign(
-    { id: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, // 30 days
-    INTERNAL_JWT_SECRET,
-    "HS256"
-  );
+  const key = sessionSigningKey(c.env);
+  if (!key) return c.json({ error: "Account service is unavailable" }, 503);
+  try {
+    const db = drizzle(c.env.DB);
+    const [user] = await db.select().from(users).where(eq(users.email, address));
+    if (!user || user.passwordHash !== await hashPassword(password)) {
+      return c.json({ error: "Invalid credentials" }, 401);
+    }
 
-  return c.json({
-    success: true,
-    token,
-    user: { 
-      id: user.id, 
-      email: user.email,
-      name: user.name,
-      plan: user.plan 
-    },
-    hasGeminiKey: Boolean(user.geminiApiKeyEncrypted),
-  });
+    const token = await issueSession(user, key);
+    return c.json({
+      success: true,
+      token,
+      user: { id: user.id, email: user.email, name: user.name, plan: user.plan },
+      hasGeminiKey: Boolean(user.geminiApiKeyEncrypted),
+    });
+  } catch {
+    console.error("Sign-in failed");
+    return c.json({ error: "Sign-in failed" }, 500);
+  }
 });
 
-auth.put("/plan", async (c) => {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader) return c.json({ error: "Unauthorized: Missing header" }, 401);
-  
-  const token = authHeader.replace("Bearer ", "");
-  
-  let payload;
-  try {
-    payload = await verify(token, INTERNAL_JWT_SECRET, "HS256");
-    if (!payload || !payload.id) {
-      throw new Error("Invalid token payload: missing ID");
-    }
-  } catch (e: any) {
-    console.error("Token verification failed:", e.message);
-    return c.json({ 
-      error: "Unauthorized: Invalid session", 
-      debug: e.message,
-      token_preview: token.substring(0, 10) + "..." 
-    }, 401);
-  }
-
-  const { plan } = await c.req.json();
+auth.put("/plan", requireSession, async (c) => {
+  const { id } = c.get("jwtPayload");
+  const body = await c.req.json<{ plan?: unknown }>().catch(() => null);
+  const plan = body?.plan;
   if (plan !== "free" && plan !== "pro") {
     return c.json({ error: "Invalid plan" }, 400);
   }
 
   try {
-    // Check if user exists first
-    const userResult = await c.env.DB.prepare("SELECT id FROM users WHERE id = ?")
-      .bind(payload.id)
-      .first();
-    
-    if (!userResult) {
-      return c.json({ error: "User not found in database", id: payload.id }, 404);
-    }
+    const user = await c.env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(id).first();
+    if (!user) return c.json({ error: "User not found" }, 404);
 
-    // Use raw SQL for maximum reliability
-    const result = await c.env.DB.prepare("UPDATE users SET plan = ? WHERE id = ?")
-      .bind(plan, payload.id)
-      .run();
-    
-    if (!result.success) {
-      throw new Error("D1 Update execution failed");
-    }
-
+    const result = await c.env.DB.prepare("UPDATE users SET plan = ? WHERE id = ?").bind(plan, id).run();
+    if (!result.success) throw new Error("Plan update failed");
     return c.json({ success: true, plan });
-  } catch (error: any) {
-    console.error("Plan update CRITICAL error:", error.message);
-    return c.json({ 
-      error: "Critical server error during plan update", 
-      details: error.message,
-      stack: error.stack
-    }, 500);
+  } catch {
+    console.error("Plan update failed");
+    return c.json({ error: "Could not update plan" }, 500);
   }
 });
 
@@ -222,8 +190,8 @@ auth.get("/google", async (c) => {
   const redirectUri = `${new URL(c.req.url).origin}/api/auth/google-callback`;
   const returnTo = normalizeReturnTarget(c.req.query("return_to") || "");
   
-  if (!clientId) {
-    return c.json({ error: "Google Client ID not configured in backend" }, 500);
+  if (!clientId || !c.env.GOOGLE_CLIENT_SECRET) {
+    return c.json({ error: "Google sign-in is unavailable" }, 503);
   }
 
   const scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
@@ -241,7 +209,8 @@ auth.get("/google-callback", async (c) => {
   const redirectUri = `${new URL(c.req.url).origin}/api/auth/google-callback`;
 
   if (!code) return c.json({ error: "No code provided" }, 400);
-  if (!clientId || !clientSecret) {
+  const key = sessionSigningKey(c.env);
+  if (!clientId || !clientSecret || !key) {
     return c.json({ error: "Google sign-in is unavailable" }, 503);
   }
 
@@ -286,11 +255,7 @@ auth.get("/google-callback", async (c) => {
     }
 
     // 4. Generate JWT
-    const token = await sign(
-      { id: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, // 30 days
-      INTERNAL_JWT_SECRET,
-      "HS256"
-    );
+    const token = await issueSession(user, key);
 
     const userJson = JSON.stringify({ id: user.id, email: user.email, plan: user.plan });
     const returnTarget = normalizeReturnTarget(state?.returnTo || "");
@@ -453,9 +418,9 @@ auth.get("/google-callback", async (c) => {
     </script>
   </body>
 </html>`);
-  } catch (error: any) {
-    console.error("Google Auth Error:", error);
-    return c.json({ error: error.message || "Authentication failed" }, 500);
+  } catch {
+    console.error("Google sign-in failed");
+    return c.json({ error: "Google sign-in failed" }, 500);
   }
 });
 

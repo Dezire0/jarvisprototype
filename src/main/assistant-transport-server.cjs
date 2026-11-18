@@ -240,6 +240,8 @@ function writeFinish(res) {
 function writeAuthCallbackPage(res) {
   res.writeHead(200, {
     "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
     "Content-Type": "text/html; charset=utf-8"
   });
   res.end(`<!doctype html>
@@ -460,9 +462,9 @@ function createAssistantTransportServer({
         }
 
         writeAuthCallbackPage(res);
-      } catch (error) {
+      } catch {
         res.writeHead(400, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+        res.end(JSON.stringify({ ok: false, error: "Invalid auth callback payload" }));
       }
 
       return;

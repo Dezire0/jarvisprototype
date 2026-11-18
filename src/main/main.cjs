@@ -497,8 +497,8 @@ function handleDeepLink(url) {
         deliverAuthCallback({ token, user: JSON.parse(userRaw) });
       }
     }
-  } catch (e) {
-    console.error("Failed to handle deep link:", e);
+  } catch {
+    console.error("Failed to read the desktop sign-in callback.");
   }
 }
 
@@ -656,11 +656,10 @@ function createSettingsWindow() {
     }
   });
 
-  settingsWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl) => {
+  settingsWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
     console.error("Jarvis Desktop failed to load UI:", {
       errorCode,
-      errorDescription,
-      validatedUrl
+      errorDescription
     });
   });
 

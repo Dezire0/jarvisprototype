@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { jwt } from "hono/jwt";
+import { requireSession, type SessionBindings, type SessionVariables } from "../session";
 import { drizzle } from "drizzle-orm/d1";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
@@ -14,25 +14,14 @@ const PRO_MODEL = "gemini-2.0-flash";       // 유료: Gemini 2.0 Flash
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-type Bindings = {
+type Bindings = SessionBindings & {
   DB: D1Database;
-  JWT_SECRET: string;
   GEMINI_API_KEY: string;
 };
 
-type Variables = {
-  jwtPayload: { id: string };
-};
+const ai = new Hono<{ Bindings: Bindings; Variables: SessionVariables }>();
 
-const ai = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-
-ai.use("/*", (c, next) => {
-  const jwtMiddleware = jwt({
-    secret: "jarvis-permanent-secret-key-2024-v1",
-    alg: "HS256",
-  });
-  return jwtMiddleware(c, next);
-});
+ai.use("/*", requireSession);
 
 // GET /api/ai/usage — 오늘 사용량 조회
 ai.get("/usage", async (c) => {

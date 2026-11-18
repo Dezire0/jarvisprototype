@@ -1,17 +1,22 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import type { SessionBindings } from "./session";
 
-type Bindings = {
+type Bindings = SessionBindings & {
   DB: D1Database;
-  JWT_SECRET: string;
   GEMINI_API_KEY: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+app.onError((_error, c) => {
+  console.error("Worker request failed");
+  return c.json({ error: "Request failed" }, 500);
+});
+
 app.use("*", async (c, next) => {
-  console.log(`[REQUEST] ${c.req.method} ${c.req.url}`);
   await next();
+  console.log(`[REQUEST] ${c.req.method} ${c.res.status}`);
 });
 
 app.use(
