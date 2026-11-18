@@ -35,10 +35,12 @@ class DesktopAuthSession {
     this.active = null;
     this.remembered = false;
     this.initialized = false;
+    this.secureStorageAvailable = undefined;
   }
 
   canRemember() {
-    return hasSecureStorage(this.storage, this.platform);
+    this.secureStorageAvailable = hasSecureStorage(this.storage, this.platform);
+    return this.secureStorageAvailable;
   }
 
   write(encrypted) {
@@ -50,13 +52,13 @@ class DesktopAuthSession {
       token: this.active?.token ?? null,
       user: this.active?.user ?? null,
       remembered: this.remembered,
-      canRemember: this.canRemember(),
+      canRemember: this.secureStorageAvailable,
       status
     };
   }
 
   restore({ allowLegacy = true } = {}) {
-    if (this.initialized || !this.canRemember()) return this.view();
+    if (this.initialized) return this.view();
     this.initialized = true;
 
     let record;
@@ -64,7 +66,12 @@ class DesktopAuthSession {
       record = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
     } catch (error) {
       if (error.code === "ENOENT" && allowLegacy) {
-        const legacy = accountFrom(this.readLegacy?.());
+        let legacy = null;
+        try {
+          if (this.hasLegacy?.() && this.canRemember()) legacy = accountFrom(this.readLegacy?.());
+        } catch {
+          return this.view("read-failed");
+        }
         if (legacy) {
           try {
             return this.save({ ...legacy, remember: true });
@@ -79,6 +86,7 @@ class DesktopAuthSession {
     }
 
     if (record?.version === 1 && typeof record.encrypted === "string") {
+      if (!this.canRemember()) return this.view("unavailable");
       try {
         const plaintext = this.storage.decryptString(Buffer.from(record.encrypted, "base64"));
         this.active = accountFrom(JSON.parse(plaintext));

@@ -130,7 +130,7 @@ export function OnboardingGate() {
       remember: canRemember && rememberLogin,
     });
     setStorageWarning(session.status === "save-failed");
-    setSessionOnly(session.canRemember !== undefined && !session.remembered);
+    setSessionOnly(session.remembered === false);
     syncSelectedPlan(user);
     setStep(resolveFreshAuthStep(user));
   }
@@ -176,7 +176,7 @@ export function OnboardingGate() {
         const session = await restoreAuthSession();
         setCanRemember(session.canRemember !== false);
         setStorageWarning(session.status === "save-failed");
-        setSessionOnly(Boolean(session.token) && session.canRemember !== undefined && !session.remembered);
+        setSessionOnly(Boolean(session.token) && session.remembered === false);
         if (session.status === "read-failed") {
           setAuthError(t("저장된 로그인 정보를 열 수 없습니다. 다시 로그인해 주세요.", "Couldn’t open your saved session. Sign in again."));
         }

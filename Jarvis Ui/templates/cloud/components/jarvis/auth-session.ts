@@ -156,7 +156,7 @@ export async function persistAuthSession(
   storage.setItem(AUTH_USER_KEY, JSON.stringify(user));
   setAuthRemembered(remember);
   notifySessionChanged();
-  return { token, user, remembered: remember };
+  return { token, user };
 }
 
 export async function clearAuthSession() {

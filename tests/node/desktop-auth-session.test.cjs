@@ -70,7 +70,7 @@ test("a remembered account is encrypted together and survives restart and sign-o
   const restarted = open();
   assert.equal(restarted.restore().token, account.token);
   restarted.clear();
-  const migrated = open({ readLegacy: () => account });
+  const migrated = open({ hasLegacy: () => true, readLegacy: () => account });
   assert.equal(migrated.restore().token, null);
   assert.deepEqual(JSON.parse(fs.readFileSync(filePath, "utf8")), { version: 1, encrypted: null });
 });
@@ -103,6 +103,23 @@ test("legacy import respects the local preference and a clear blocks it even wit
 
   open({ ...legacy, secureStorage: { isEncryptionAvailable: () => false } }).clear();
   assert.equal(open(legacy).restore().token, null);
+});
+
+test("a fresh or explicitly temporary session does not probe the OS key store", (t) => {
+  const { open } = fixture(t);
+  let availabilityChecks = 0;
+  const secureStorage = {
+    isEncryptionAvailable() {
+      availabilityChecks += 1;
+      throw new Error("Opening the fixture key store requires user interaction");
+    }
+  };
+  const store = open({ secureStorage });
+  assert.equal(store.restore().canRemember, undefined);
+  store.save({ ...account, remember: false });
+  assert.equal(store.restore().token, account.token);
+  store.clear();
+  assert.equal(availabilityChecks, 0);
 });
 
 test("write failures keep a fresh session temporarily or report a failed clear", (t) => {
