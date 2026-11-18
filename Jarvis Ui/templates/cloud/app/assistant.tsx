@@ -31,7 +31,8 @@ import { ProjectCreation } from "@/components/jarvis/project-creation";
 import { isProjectCommand } from "@/lib/project-command";
 import { ObsControls } from "@/components/jarvis/obs-controls";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
+import { isClearConversationCommand, resolveComposerCommand, runLocalCommand, type ComposerCommandHandler, type Result } from "@/lib/local-workspace";
+import type { ThreadHistory } from "@/lib/chat-history";
 import { speakLocalResult } from "@/lib/local-speech";
 import { useLocalWorkspace } from "@/lib/use-local-workspace";
 import { resolveScreenReviewCommand, type ScreenReviewMode } from "@/lib/screen-review";
@@ -42,12 +43,14 @@ import { useWorkspaceLocale } from "@/lib/workspace-language";
 import { ChevronLeftIcon, WrenchIcon } from "lucide-react";
 import { useAuiState } from "@assistant-ui/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { JarvisRuntimeProvider } from "./jarvis-runtime-provider";
+import { JarvisRuntimeProvider, useChatHistory } from "./jarvis-runtime-provider";
 
 export const Assistant = () => <JarvisRuntimeProvider><AssistantWorkspace /></JarvisRuntimeProvider>;
 
 function AssistantWorkspace() {
   const threadId = useAuiState((state) => state.threadListItem.id);
+  const storedThreadId = useAuiState((state) => state.threadListItem.remoteId ?? state.threadListItem.id);
+  const history = useChatHistory();
   const [tools, setTools] = useState<({ fromDirectory?: true } & (
     { section: "index" } |
     { section: ToolSection } |
@@ -68,6 +71,8 @@ function AssistantWorkspace() {
   const [modelAvailability, setModelAvailability] = useState<ModelAvailability | null>(null);
   const modelSettingsTrigger = useRef<HTMLButtonElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [clearConversationRequest, setClearConversationRequest] =
+    useState<{ thread: ThreadHistory; trigger: HTMLElement | null } | null>(null);
   const [localResult, setLocalResult] = useState<(Result & { timerDeadline?: number }) | null>(null);
   const toolsTrigger = useRef<HTMLElement | null>(null);
   const localRun = useRef(0);
@@ -155,6 +160,15 @@ function AssistantWorkspace() {
   }
 
   const runComposerCommand: ComposerCommandHandler = (text, { hasAttachmentsOrQuote, allowSpeech }) => {
+    if (!hasAttachmentsOrQuote && isClearConversationCommand(text)) {
+      localRun.current++;
+      const thread = history.get(storedThreadId);
+      if (thread && (thread.title || thread.messages.length)) {
+        setLocalResult(null);
+        setClearConversationRequest({ thread, trigger: inputRef.current });
+      } else setLocalResult({ title: isKo ? "이 대화에는 저장된 기록이 없습니다." : "This conversation has no saved history." });
+      return "local";
+    }
     if (isFolderCommand(text, hasAttachmentsOrQuote)) {
       localRun.current++;
       setLocalResult(null);
@@ -275,7 +289,8 @@ function AssistantWorkspace() {
         <JarvisVoiceProvider runLocalCommand={runComposerCommand}>
           <VoiceOutputProvider>
           <div className="aui-app-shell flex h-dvh w-full bg-background text-foreground">
-            <ThreadListSidebar computerControlEnabled={computerControl === true} onOpenModelSettings={modelSettingsAction} />
+            <ThreadListSidebar computerControlEnabled={computerControl === true} onOpenModelSettings={modelSettingsAction}
+              clearConversationRequest={clearConversationRequest} />
             <main className="aui-app-main relative flex min-w-0 flex-1 flex-col">
               <header className="jarvis-toolbar">
                 <div className="flex min-w-0 items-center gap-2">

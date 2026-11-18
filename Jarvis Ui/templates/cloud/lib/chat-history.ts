@@ -39,6 +39,12 @@ type Snapshot = {
   profile?: { name: string; language: WorkspaceLanguage };
 };
 type Profile = NonNullable<Snapshot["profile"]> & { cloudSync: boolean; savedMemory: boolean };
+type SaveOutcome = "saved" | "changed" | "storage-changed";
+type HistoryStorage = {
+  read: () => Promise<string | null>;
+  write: (value: string) => Promise<void>;
+  lastSaved: string | null;
+};
 
 const EMPTY_SIDEBAR: SidebarHistory = { projects: [], threadMetaById: {}, selectedProjectId: null };
 const API_BASE = "https://jarvis-auth-service.dexproject.workers.dev";
@@ -87,7 +93,7 @@ export class ChatHistory {
   private temporaryDraft = false;
   private listeners = new Set<() => void>();
   private revision = 0;
-  private pendingWrite = Promise.resolve();
+  private pendingWrite: Promise<unknown> = Promise.resolve();
   private pendingCloud = Promise.resolve();
   private pendingSyncChanges = 0;
   private syncWriteFailed = false;
@@ -101,11 +107,14 @@ export class ChatHistory {
     const browserKey = STORAGE_KEY + encodeURIComponent(accountId);
     try {
       const native = bridge?.loadChatHistory && bridge?.saveChatHistory;
-      const raw = native ? await bridge.loadChatHistory!(accountId) : window.localStorage.getItem(browserKey);
+      const read = native
+        ? () => bridge.loadChatHistory!(accountId)
+        : async () => window.localStorage.getItem(browserKey);
+      const raw = await read();
       const write = native
         ? (value: string) => bridge.saveChatHistory!(accountId, value)
         : async (value: string) => { window.localStorage.setItem(browserKey, value); };
-      const history = new ChatHistory(accountId, readSnapshot(raw), write, onError);
+      const history = new ChatHistory(accountId, readSnapshot(raw), { read, write, lastSaved: raw }, onError);
       onError(false);
       return history;
     } catch {
@@ -117,7 +126,7 @@ export class ChatHistory {
   private constructor(
     readonly accountId: string,
     snapshot: Snapshot,
-    private write: ((value: string) => Promise<void>) | null,
+    private storage: HistoryStorage | null,
     private onError: (failed: boolean) => void,
   ) {
     this.sidebar = snapshot.sidebar;
@@ -162,7 +171,7 @@ export class ChatHistory {
   }
 
   async saveProfile(patch: Partial<Profile>) {
-    if (!this.write) return false;
+    if (!this.storage) return false;
     const changesSync = patch.cloudSync !== undefined;
     if (changesSync) this.pendingSyncChanges++;
     try {
@@ -180,14 +189,18 @@ export class ChatHistory {
   private update(save: boolean) {
     this.revision++;
     this.listeners.forEach((listener) => listener());
-    if (save && this.write) void this.persist();
+    if (save && this.storage) void this.persist();
   }
 
-  private persist(patch?: Partial<Profile>) {
-    const write = this.write;
-    if (!write) throw new Error("Conversation storage is unavailable.");
-    const pending = this.pendingWrite.catch(() => {}).then(async () => {
-      const threads = this.localThreads();
+  private persist(patch?: Partial<Profile>, deletion?: ReadonlyMap<string, ThreadHistory>) {
+    const storage = this.storage;
+    if (!storage) throw new Error("Conversation storage is unavailable.");
+    const pending = this.pendingWrite.catch(() => {}).then(async (): Promise<SaveOutcome> => {
+      if (deletion) {
+        if (await storage.read() !== storage.lastSaved) return "storage-changed";
+        if ([...deletion].some(([id, reviewed]) => this.saved.get(id) !== reviewed)) return "changed";
+      }
+      const threads = this.localThreads().filter((thread) => !deletion?.has(thread.remoteId));
       const ids = new Set(threads.map((thread) => thread.remoteId));
       const sidebar = {
         ...this.sidebar,
@@ -198,14 +211,24 @@ export class ChatHistory {
         version: 1, threads, sidebar, cloudSync: next.cloudSync, savedMemory: next.savedMemory,
         profile: { name: next.name, language: next.language },
       } satisfies Snapshot;
-      await write(JSON.stringify(snapshot));
+      const serialized = JSON.stringify(snapshot);
+      await storage.write(serialized);
+      storage.lastSaved = serialized;
+      if (deletion) {
+        for (const id of deletion.keys()) this.saved.delete(id);
+        this.sidebar = {
+          ...this.sidebar,
+          threadMetaById: Object.fromEntries(Object.entries(this.sidebar.threadMetaById).filter(([id]) => !deletion.has(id))),
+        };
+      }
       if (patch) {
         this.preferences = next;
-        this.update(false);
       }
+      if (patch || deletion) this.update(false);
+      return "saved";
     });
     this.pendingWrite = pending;
-    void pending.then(() => this.onError(false), () => this.onError(true));
+    void pending.then((outcome) => { if (outcome === "saved") this.onError(false); }, () => this.onError(true));
     return pending;
   }
 
@@ -235,10 +258,15 @@ export class ChatHistory {
     this.update(true);
   }
 
-  remove(id: string) {
-    const saved = this.saved.delete(id);
-    this.temporary.delete(id);
-    this.update(saved);
+  async remove(id: string) {
+    if (this.temporary.delete(id)) this.update(false);
+    const thread = this.saved.get(id);
+    if (thread && await this.removeReviewed([thread]) !== "saved") throw new Error("The conversation changed.");
+  }
+
+  removeReviewed(threads: readonly ThreadHistory[]): Promise<SaveOutcome> {
+    if (!threads.length) return Promise.resolve("changed");
+    return this.persist(undefined, new Map(threads.map((thread) => [thread.remoteId, thread])));
   }
 
   checkpoint(id: string, messages: TransportMessage[]) {

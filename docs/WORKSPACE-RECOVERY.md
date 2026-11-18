@@ -78,6 +78,10 @@ Sign in to the same account after reopening Jarvis to see saved conversations in
 
 The saved transcript includes file names and replies. File contents, open prompts, live previews and raw action payloads are excluded from the history file.
 
+Use **Manage conversations** beside **Recent** in the sidebar to remove one or more saved conversations from this device. The picker includes archived conversations. Review the selected titles and choose **Delete on this device** to commit the change. A selected conversation that is still replying must finish before deletion. A failed save keeps the conversation available for retry. Enter `clear chat`, `clear conversation` or `대화 삭제` to open confirmation for the current saved conversation. Deleting the current conversation also discards its draft and opens a new chat.
+
+This cleanup acts on the signed-in account's local transcript. If another window changed the saved history, reopen the workspace to review the current records. Cloud copies can be reopened through synced search. Saved Assistant memory has separate profile controls.
+
 Open your profile in the sidebar to edit your display name, choose the workspace language, and manage cloud conversation sync. Save applies all three choices to the current account on this device, and they survive signing in again. The sidebar language buttons also save immediately. **System** follows the system language. The setting applies to workspace controls and new voice recognition sessions. The account entry screen and standalone Local tools follow the system language.
 
 Cloud sync starts off for new profiles. When enabled, cloud search can open a selected conversation and save a local copy. Background sync excludes file review conversations and temporary turns. If saving fails, the dialog retains your draft for retry and the workspace keeps the last saved profile.
